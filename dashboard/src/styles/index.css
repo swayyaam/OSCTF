@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Dark mode driven by a .dark class on <html> (manual toggle + prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens as CSS variables so both themes share one component layer
+   (docs/v0.1/09-frontend.md). Dark is the default. */
+:root {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --primary: #6366f1;
+  --primary-fg: #ffffff;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+
+  --cat-web: #0ea5e9;
+  --cat-pwn: #ef4444;
+  --cat-crypto: #8b5cf6;
+  --cat-rev: #f59e0b;
+  --cat-forensics: #10b981;
+  --cat-misc: #64748b;
+}
+
+.dark {
+  --background: #0b0e14;
+  --surface: #12161f;
+  --surface-2: #1a1f2b;
+  --border: #2a3140;
+  --text: #e6e9ef;
+  --text-muted: #9aa4b2;
+  --primary: #818cf8;
+  --primary-fg: #0b0e14;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+}
+
+/* Expose the tokens as Tailwind color utilities (bg-background, text-text, ...). */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+
+  --color-cat-web: var(--cat-web);
+  --color-cat-pwn: var(--cat-pwn);
+  --color-cat-crypto: var(--cat-crypto);
+  --color-cat-rev: var(--cat-rev);
+  --color-cat-forensics: var(--cat-forensics);
+  --color-cat-misc: var(--cat-misc);
+
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,0 +1,13 @@
+# Optional TLS reverse proxy for OSCTF. Enable with:
+#   OSCTF_DOMAIN=ctf.example.com docker compose --profile proxy up -d
+# Set OSCTF_TRUST_PROXY=true in .env when running behind this proxy.
+#
+# /metrics is NOT proxied — it must never be exposed publicly (docs/v0.1/10-deployment.md).
+
+{$OSCTF_DOMAIN} {
+	# Block the metrics endpoint at the edge.
+	@metrics path /metrics
+	respond @metrics 404
+
+	reverse_proxy platform:8080
+}

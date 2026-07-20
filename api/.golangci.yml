@@ -1,0 +1,58 @@
+# golangci-lint v2 config. Linter set per docs/v0.1/03-tech-stack.md.
+# forbidigo bans fmt.Print* outside cmd/; godox enforces "no FIXME/TODO" (FIXME fails lint).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - misspell
+    - gocritic
+    - revive
+    - sqlclosecheck
+    - bodyclose
+    - noctx
+    - rowserrcheck
+    - gosec
+    - forbidigo
+    - godox
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print.*$'
+          msg: "use log/slog for output; fmt.Print* is only allowed under cmd/"
+    godox:
+      keywords:
+        - FIXME
+        - TODO
+        - XXX
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+  exclusions:
+    generated: lax
+    rules:
+      # The CLI entrypoint is allowed to print to stdout/stderr.
+      - path: cmd/
+        linters:
+          - forbidigo
+      # Tests may ignore some errors and use background contexts freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - noctx
+          - gosec
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

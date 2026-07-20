@@ -1,0 +1,28 @@
+# Go
+/api/platform
+/api/bin/
+*.test
+*.out
+coverage.txt
+
+# Node / dashboard
+node_modules/
+dashboard/dist/
+dashboard/.vite/
+
+# Embedded SPA (built into the binary at image-build time)
+api/internal/webdist/static/
+
+# Env & secrets
+.env
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+tmp/

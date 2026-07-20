@@ -1,0 +1,6 @@
+TBD
+
+The license for OSCTF has not been decided yet (see the "License" open question
+in docs/project-desc.md). This placeholder file exists so tooling that expects a
+LICENSE file works. Do not publish this repository publicly until the license is
+resolved.

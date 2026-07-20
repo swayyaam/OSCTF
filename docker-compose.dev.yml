@@ -1,0 +1,26 @@
+# Dev overrides: expose datastore ports on localhost and DON'T run the platform
+# container (you run the API via `make dev-api`). Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis minio
+# Spec: docs/v0.1/10-deployment.md
+
+services:
+  # Remove the platform service from the dev stack — run it locally instead.
+  platform:
+    profiles: ["never"]
+
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: osctf
+      POSTGRES_PASSWORD: osctf
+      POSTGRES_DB: osctf
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"

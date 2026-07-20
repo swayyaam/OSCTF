@@ -33,10 +33,9 @@ func (v *Validation) Error() string { return "validation failed" }
 // NewValidation builds an empty Validation error.
 func NewValidation() *Validation { return &Validation{Fields: map[string][]string{}} }
 
-// Add appends a message for a field and returns the receiver for chaining.
-func (v *Validation) Add(field, msg string) *Validation {
+// Add appends a message for a field.
+func (v *Validation) Add(field, msg string) {
 	v.Fields[field] = append(v.Fields[field], msg)
-	return v
 }
 
 // HasErrors reports whether any field failed.

@@ -7,20 +7,42 @@ package handlers
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/osctf/platform/internal/apigen"
+	"github.com/osctf/platform/internal/audit"
+	"github.com/osctf/platform/internal/auth"
+	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/users"
 )
 
 // ErrNotImplemented marks an endpoint whose milestone has not landed yet.
 // The HTTP error handler renders it as a 501 problem.
 var ErrNotImplemented = errors.New("not implemented")
 
-// Server implements apigen.StrictServerInterface. Dependencies are added as
-// milestones land (services are injected here by the composition root).
-type Server struct{}
+// Deps are the services and helpers the handlers dispatch to. Fields are added
+// as milestones land; nil fields leave their endpoints on the 501 stub.
+type Deps struct {
+	Users    *users.Service
+	Auth     auth.AuthProvider
+	Sessions *auth.SessionStore
+	Limiter  *redisx.Limiter
+	Audit    *audit.Logger
+
+	// SecureCookies mirrors OSCTF_BASE_URL's scheme; TrustProxy gates
+	// X-Forwarded-For handling; SessionTTL sizes the cookie Max-Age.
+	SecureCookies bool
+	TrustProxy    bool
+	SessionTTL    time.Duration
+}
+
+// Server implements apigen.StrictServerInterface.
+type Server struct {
+	d Deps
+}
 
 // New builds the handler set.
-func New() *Server { return &Server{} }
+func New(d Deps) *Server { return &Server{d: d} }
 
 var _ apigen.StrictServerInterface = (*Server)(nil)
 
@@ -105,26 +127,6 @@ func (s *Server) AdminUpdateUser(ctx context.Context, request apigen.AdminUpdate
 }
 
 func (s *Server) AdminResetPassword(ctx context.Context, request apigen.AdminResetPasswordRequestObject) (apigen.AdminResetPasswordResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) Login(ctx context.Context, request apigen.LoginRequestObject) (apigen.LoginResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) Logout(ctx context.Context, request apigen.LogoutRequestObject) (apigen.LogoutResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetMe(ctx context.Context, request apigen.GetMeRequestObject) (apigen.GetMeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) ChangePassword(ctx context.Context, request apigen.ChangePasswordRequestObject) (apigen.ChangePasswordResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) Register(ctx context.Context, request apigen.RegisterRequestObject) (apigen.RegisterResponseObject, error) {
 	return nil, ErrNotImplemented
 }
 

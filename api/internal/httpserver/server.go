@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpx"
 	"github.com/osctf/platform/internal/metrics"
@@ -26,6 +27,12 @@ type Deps struct {
 	// Handlers implements the generated API surface. Nil mounts a 501 catch-all.
 	Handlers *handlers.Server
 	Ready    ReadyFunc
+	// Sessions resolves cookies to identities; nil skips session handling.
+	Sessions *auth.SessionStore
+	// BaseOrigin is the deployment origin for the CSRF check (required when
+	// Sessions is set). CORSDevOrigin optionally allows the Vite dev server.
+	BaseOrigin    string
+	CORSDevOrigin string
 }
 
 // New builds the top-level HTTP handler.
@@ -63,6 +70,15 @@ func New(d Deps) http.Handler {
 		api = newAPIHandler(d.Handlers, d.Log)
 	} else {
 		api = http.HandlerFunc(notImplemented)
+	}
+	if d.CORSDevOrigin != "" {
+		api = corsDevMiddleware(d.CORSDevOrigin)(api)
+	}
+	if d.BaseOrigin != "" {
+		api = originCheckMiddleware(d.BaseOrigin, d.CORSDevOrigin)(api)
+	}
+	if d.Sessions != nil {
+		api = sessionMiddleware(d.Sessions)(api)
 	}
 	r.Mount("/api/v0", http.StripPrefix("/api/v0", api))
 

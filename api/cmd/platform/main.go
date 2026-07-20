@@ -14,11 +14,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/osctf/platform/internal/audit"
+	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/config"
 	"github.com/osctf/platform/internal/db"
+	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/seed"
+	"github.com/osctf/platform/internal/users"
 	appversion "github.com/osctf/platform/internal/version"
 )
 
@@ -137,6 +144,12 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	defer func() { _ = rdb.Close() }()
 	log.Info("redis ready")
 
+	q := gen.New(pool)
+
+	if err := seed.EnsureAdmin(ctx, q, cfg, log); err != nil {
+		return err
+	}
+
 	ready := func(ctx context.Context) map[string]string {
 		failing := map[string]string{}
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -150,10 +163,35 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return failing
 	}
 
+	// Composition root: concrete implementations wired to interfaces here only.
+	sessions := auth.NewSessionStore(rdb, cfg.SessionTTL)
+	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
+	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
+		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
+			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
+		}
+	})
+	auditLog := audit.New(q, log)
+	limiter := redisx.NewLimiter(rdb)
+
+	h := handlers.New(handlers.Deps{
+		Users:         usersSvc,
+		Auth:          provider,
+		Sessions:      sessions,
+		Limiter:       limiter,
+		Audit:         auditLog,
+		SecureCookies: cfg.IsHTTPS(),
+		TrustProxy:    cfg.TrustProxy,
+		SessionTTL:    cfg.SessionTTL,
+	})
+
 	handler := httpserver.New(httpserver.Deps{
-		Log:      log,
-		Handlers: handlers.New(),
-		Ready:    ready,
+		Log:           log,
+		Handlers:      h,
+		Ready:         ready,
+		Sessions:      sessions,
+		BaseOrigin:    cfg.BaseOrigin(),
+		CORSDevOrigin: cfg.CORSDevOrigin,
 	})
 
 	srv := &http.Server{

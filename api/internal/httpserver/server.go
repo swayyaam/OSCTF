@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpx"
 	"github.com/osctf/platform/internal/metrics"
 	"github.com/osctf/platform/internal/webdist"
@@ -22,9 +23,9 @@ type ReadyFunc func(ctx context.Context) map[string]string
 // Deps are the inputs to New.
 type Deps struct {
 	Log *slog.Logger
-	// APIHandler serves everything under /api/v0. Nil mounts a 501 stub.
-	APIHandler http.Handler
-	Ready      ReadyFunc
+	// Handlers implements the generated API surface. Nil mounts a 501 catch-all.
+	Handlers *handlers.Server
+	Ready    ReadyFunc
 }
 
 // New builds the top-level HTTP handler.
@@ -57,8 +58,10 @@ func New(d Deps) http.Handler {
 
 	r.Handle("/metrics", metrics.Handler())
 
-	api := d.APIHandler
-	if api == nil {
+	var api http.Handler
+	if d.Handlers != nil {
+		api = newAPIHandler(d.Handlers, d.Log)
+	} else {
 		api = http.HandlerFunc(notImplemented)
 	}
 	r.Mount("/api/v0", http.StripPrefix("/api/v0", api))

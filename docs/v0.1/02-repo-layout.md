@@ -99,3 +99,11 @@ The Makefile is the automation entrypoint for humans, CI, and agents. Every targ
 - **PRs**: must pass CI; PR description states which milestone/feature (e.g. `M4/F5`) it advances.
 - **File naming**: Go: package-per-directory, `snake_case.go` files, `_test.go` beside code. TS: `kebab-case.ts(x)` files, `PascalCase` component names.
 - **No TODO comments** — file an issue or fix it. `FIXME` fails lint.
+
+## Decision log
+
+- **Dev Postgres publishes host port 55432, not 5432** (2026-07-20): developer
+  machines commonly run a native Postgres on 5432; publishing the compose dev
+  Postgres on 55432 avoids silently connecting to the wrong server. `make dev-api`
+  overrides the datastore endpoints (localhost:55432/6379/9000) over `.env`, which
+  stays compose-shaped for the golden path.

@@ -139,3 +139,17 @@ All `admin` auth. Every mutation writes an `audit_log` row.
 - Schemas under `components/schemas` named `PascalCase` (`Challenge`, `ChallengeAdmin`, `ScoreboardEntry`, `Problem`). Participant and admin representations are **separate schemas** — never one schema with "sometimes present" sensitive fields (`flag` must be structurally absent from participant types).
 - Every endpoint documents its error statuses with the `Problem` schema.
 - Lint with `vacuum` in CI; zero warnings policy.
+
+## Decision log
+
+- **OpenAPI 3.0.3, not 3.1** (2026-07-20): oapi-codegen v2 (locked in 03-tech-stack)
+  parses specs with kin-openapi, which does not support OpenAPI 3.1 documents. The
+  contract is authored as 3.0.3 (`nullable: true` instead of `type: [T, "null"]`).
+  Revisit when oapi-codegen gains 3.1 support.
+- **WebSocket endpoint not modelled in the OpenAPI document** (2026-07-20): OpenAPI
+  3.0 cannot describe WS message protocols. `GET /api/v0/ws` is mounted manually by
+  the router; its protocol stays specified in this document's WebSocket section.
+- **vacuum ruleset** (2026-07-20): the zero-warnings gate runs against
+  `api/openapi/vacuum-ruleset.yaml` (recommended set minus `description-duplication`
+  and `oas3-missing-example` — short field docs legitimately repeat, and per-schema
+  examples are not maintained in v0.1).

@@ -1,0 +1,8 @@
+# vacuum ruleset for the zero-warnings CI gate.
+# Extends the recommended set; disables two noise rules:
+# - description-duplication: short field docs ("Team ID.") legitimately repeat.
+# - oas3-missing-example: we do not maintain examples for every schema in v0.1.
+extends: [[spectral:oas, recommended]]
+rules:
+  description-duplication: false
+  oas3-missing-example: false

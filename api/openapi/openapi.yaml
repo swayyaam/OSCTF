@@ -1,0 +1,1844 @@
+openapi: 3.0.3
+info:
+  title: OSCTF Platform API
+  version: 0.1.0
+  description: |
+    The OSCTF platform API (v0 — unstable until Phase 3 declares v1).
+
+    Conventions (docs/v0.1/05-api.md):
+    - Session cookie `osctf_session` authenticates requests; no tokens in v0.1.
+    - Mutating requests must send an `Origin` (or `Referer`) header matching the
+      deployment's base URL (CSRF check). CLI users: `-H "Origin: <base-url>"`.
+    - Errors are RFC 9457 problem+json (`application/problem+json`).
+    - Timestamps are RFC 3339 UTC. IDs are UUID strings.
+    - The live scoreboard WebSocket at `GET /api/v0/ws` is documented in
+      docs/v0.1/05-api.md (WebSocket section); it is intentionally not modelled here.
+  contact:
+    name: OSCTF maintainers
+    url: https://github.com/osctf/platform
+  license:
+    name: TBD (see LICENSE)
+    url: https://github.com/osctf/platform/blob/main/LICENSE
+
+servers:
+  - url: /api/v0
+    description: Same-origin deployment (the SPA and API share one origin).
+
+tags:
+  - name: auth
+    description: Registration, login, sessions, and the current account.
+  - name: users
+    description: Public user profiles.
+  - name: teams
+    description: Team creation, membership, and public team pages.
+  - name: event
+    description: The event window and phase.
+  - name: challenges
+    description: Participant-facing challenge board, downloads, and flag submission.
+  - name: scoreboard
+    description: Standings.
+  - name: admin
+    description: Organizer operations. All require the admin role.
+
+security:
+  - cookieAuth: []
+
+paths:
+  # ---------------------------------------------------------------- auth
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Register a new account
+      description: >
+        Creates a user and starts a session (auto-login). Returns 409 on duplicate
+        username/email. Returns 403 when registration is closed. Rate limited per IP.
+      security: []
+      requestBody:
+        description: The new account's details.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created; session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Log in
+      description: >
+        Verifies credentials and starts a session. Failures are a generic 401 with no
+        detail about which part was wrong. Rate limited per IP and per account.
+      security: []
+      requestBody:
+        description: The credentials to verify.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Logged in; session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Log out
+      description: Destroys the current session.
+      responses:
+        "204": { description: Session destroyed. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current account
+      description: Returns the authenticated user with their team membership.
+      responses:
+        "200":
+          description: The current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /auth/me/password:
+    patch:
+      tags: [auth]
+      operationId: changePassword
+      summary: Change password
+      description: >
+        Requires the current password. On success all other sessions of the user are
+        revoked; the current session stays alive.
+      requestBody:
+        description: Current and new password.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "204": { description: Password changed; other sessions revoked. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  # ---------------------------------------------------------------- users
+  /users/{id}:
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: Public user profile
+      description: >
+        Public profile with the user's solves. Hidden users return 404 to non-admins.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicUser" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------- teams
+  /teams:
+    post:
+      tags: [teams]
+      operationId: createTeam
+      summary: Create a team
+      description: >
+        Creates a team; the caller becomes captain and first member. 409 if the caller
+        is already on a team or the name is taken.
+      requestBody:
+        description: The team to create.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamCreateRequest" }
+      responses:
+        "201":
+          description: Team created (includes the invite code).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMine" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+    get:
+      tags: [teams]
+      operationId: listTeams
+      summary: List teams
+      description: All non-hidden teams with rank and points.
+      security: []
+      responses:
+        "200":
+          description: Teams ordered by rank.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TeamSummary" }
+
+  /teams/join:
+    post:
+      tags: [teams]
+      operationId: joinTeam
+      summary: Join a team by invite code
+      description: 409 if already on a team, the team is full, or the team is banned.
+      requestBody:
+        description: The invite code to redeem.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamJoinRequest" }
+      responses:
+        "200":
+          description: Joined.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMine" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /teams/leave:
+    post:
+      tags: [teams]
+      operationId: leaveTeam
+      summary: Leave my team
+      description: >
+        Leaves the caller's team. If the captain leaves and members remain, captaincy
+        transfers to the earliest joiner.
+      responses:
+        "204": { description: Left the team. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /teams/{id}:
+    get:
+      tags: [teams]
+      operationId: getTeam
+      summary: Public team page
+      description: >
+        Team detail with members and solves. `invite_code` is present only when the
+        caller is a member of this team.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The team.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [teams]
+      operationId: renameTeam
+      summary: Rename my team (captain)
+      description: Captain-only. 409 on duplicate name.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The new team name.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamRenameRequest" }
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMine" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /teams/{id}/invite-code:
+    post:
+      tags: [teams]
+      operationId: regenerateInviteCode
+      summary: Regenerate the invite code (captain)
+      description: Captain-only. Invalidates the previous code.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The new invite code.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InviteCode" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------- event
+  /event:
+    get:
+      tags: [event]
+      operationId: getEvent
+      summary: Event info
+      description: >
+        Public event window and phase. The freeze timestamp itself is admin-only;
+        `frozen` reports whether the public scoreboard is currently frozen.
+      security: []
+      responses:
+        "200":
+          description: The event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+
+  # ---------------------------------------------------------------- challenges
+  /challenges:
+    get:
+      tags: [challenges]
+      operationId: listChallenges
+      summary: Challenge board
+      description: >
+        Visible challenges with current point values and solve counts. 403 until the
+        event starts (admins see it pre-start).
+      responses:
+        "200":
+          description: The board.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Challenge" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /challenges/{slug}:
+    get:
+      tags: [challenges]
+      operationId: getChallenge
+      summary: Challenge detail
+      description: >
+        Full participant-facing detail: description, attachments, attempts, and
+        connection info when an instance is running.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+      responses:
+        "200":
+          description: The challenge.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChallengeDetail" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /challenges/{slug}/attachments/{id}:
+    get:
+      tags: [challenges]
+      operationId: downloadAttachment
+      summary: Download an attachment
+      description: Streams the file with a `Content-Disposition attachment` header.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The file bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /challenges/{slug}/submit:
+    post:
+      tags: [challenges]
+      operationId: submitFlag
+      summary: Submit a flag
+      description: >
+        Submits a flag attempt for the caller's team. Requires a running event and team
+        membership. Every attempt is logged. 409 when already solved, 403 when attempts
+        are exhausted or the team is banned, 429 when rate limited.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+      requestBody:
+        description: The flag attempt.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubmitFlagRequest" }
+      responses:
+        "200":
+          description: The verdict.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubmitResult" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  # ---------------------------------------------------------------- scoreboard
+  /scoreboard:
+    get:
+      tags: [scoreboard]
+      operationId: getScoreboard
+      summary: Standings
+      description: >
+        Full standings snapshot. After the freeze point non-admin callers receive the
+        frozen snapshot; admins always receive live data.
+      security: []
+      responses:
+        "200":
+          description: The scoreboard.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Scoreboard" }
+
+  # ---------------------------------------------------------------- admin: event
+  /admin/event:
+    get:
+      tags: [admin]
+      operationId: adminGetEvent
+      summary: Event settings
+      description: Full event configuration including the freeze timestamp.
+      responses:
+        "200":
+          description: The event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [admin]
+      operationId: adminUpdateEvent
+      summary: Update event settings
+      description: Partial update; the window constraints are validated server-side.
+      requestBody:
+        description: The event fields to change.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventUpdateRequest" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  # ---------------------------------------------------------------- admin: challenges
+  /admin/challenges:
+    get:
+      tags: [admin]
+      operationId: adminListChallenges
+      summary: List all challenges
+      description: Includes invisible challenges and flags. Paginated with filters.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: category
+          in: query
+          description: Filter by category.
+          schema: { $ref: "#/components/schemas/Category" }
+        - name: visible
+          in: query
+          description: Filter by visibility.
+          schema: { type: boolean }
+        - name: kind
+          in: query
+          description: Filter by challenge kind.
+          schema: { $ref: "#/components/schemas/ChallengeKind" }
+      responses:
+        "200":
+          description: A page of challenges.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChallengeAdminPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      operationId: adminCreateChallenge
+      summary: Create a challenge
+      description: Slug is derived from the title when omitted.
+      requestBody:
+        description: The challenge to create.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChallengeAdminCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChallengeAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /admin/challenges/{id}:
+    get:
+      tags: [admin]
+      operationId: adminGetChallenge
+      summary: Challenge detail (admin)
+      description: Full detail including flag, container config, and instance summary.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The challenge.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChallengeAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [admin]
+      operationId: adminUpdateChallenge
+      summary: Update a challenge
+      description: >
+        Partial update. Changing the flag or scoring fields triggers a scoreboard
+        recompute.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The challenge fields to change.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChallengeAdminUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChallengeAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+    delete:
+      tags: [admin]
+      operationId: adminDeleteChallenge
+      summary: Delete a challenge
+      description: >
+        Destroys the instance first, then deletes. Refuses (409) when the challenge is
+        visible during a running event unless `confirm=true`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: confirm
+          in: query
+          description: Required to delete a visible challenge during a running event.
+          schema: { type: boolean }
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/challenges/{id}/attachments:
+    post:
+      tags: [admin]
+      operationId: adminUploadAttachment
+      summary: Upload an attachment
+      description: >
+        Multipart upload (field `file`). Size capped by OSCTF_MAX_ATTACHMENT_MB.
+        409 on duplicate filename for the same challenge.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The file to attach (multipart field `file`).
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to attach.
+      responses:
+        "201":
+          description: Uploaded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttachmentAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /admin/challenges/{id}/attachments/{aid}:
+    delete:
+      tags: [admin]
+      operationId: adminDeleteAttachment
+      summary: Delete an attachment
+      description: Removes the attachment from object storage and the database.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: aid
+          in: path
+          required: true
+          description: Attachment ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------- admin: instances
+  /admin/challenges/{id}/instance:
+    post:
+      tags: [admin]
+      operationId: adminDeployInstance
+      summary: Deploy the challenge instance
+      description: >
+        Synchronous deploy (up to 120 s; image pulls are slow). Idempotent when the
+        instance is already running. 503-mapped error when the container runtime is
+        unavailable.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The instance.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instance" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+    get:
+      tags: [admin]
+      operationId: adminGetInstance
+      summary: Instance status
+      description: Current instance state, port, health, and connection info.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The instance.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instance" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [admin]
+      operationId: adminDestroyInstance
+      summary: Destroy the instance
+      description: Stops and removes the container and frees its host port.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204": { description: Destroyed. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
+  /admin/challenges/{id}/instance/restart:
+    post:
+      tags: [admin]
+      operationId: adminRestartInstance
+      summary: Restart the instance
+      description: Stops and starts the same container, keeping its port.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The instance after restart.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instance" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
+  /admin/challenges/{id}/instance/logs:
+    get:
+      tags: [admin]
+      operationId: adminGetInstanceLogs
+      summary: Instance logs
+      description: Recent container output (max tail 1000 lines, 256 KB cap).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: tail
+          in: query
+          description: Number of log lines from the end.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        "200":
+          description: The logs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstanceLogs" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
+  # ---------------------------------------------------------------- admin: users/teams
+  /admin/users:
+    get:
+      tags: [admin]
+      operationId: adminListUsers
+      summary: List users
+      description: Paginated; searchable on username/email.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Query"
+        - name: banned
+          in: query
+          description: Filter by banned state.
+          schema: { type: boolean }
+        - name: hidden
+          in: query
+          description: Filter by hidden state.
+          schema: { type: boolean }
+        - name: role
+          in: query
+          description: Filter by role.
+          schema: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200":
+          description: A page of users.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserAdminPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}:
+    patch:
+      tags: [admin]
+      operationId: adminUpdateUser
+      summary: Update a user
+      description: >
+        Toggle banned/hidden or change role. Banning revokes the user's sessions.
+        You cannot ban or demote yourself (409).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The user fields to change.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserAdminUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /admin/users/{id}/password:
+    post:
+      tags: [admin]
+      operationId: adminResetPassword
+      summary: Reset a user's password
+      description: The v0.1 password reset path. Revokes the user's sessions.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The replacement password.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminPasswordResetRequest" }
+      responses:
+        "204": { description: Password reset; sessions revoked. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  /admin/teams:
+    get:
+      tags: [admin]
+      operationId: adminListTeams
+      summary: List teams (admin)
+      description: Paginated; searchable on name.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Query"
+      responses:
+        "200":
+          description: A page of teams.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamAdminPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/teams/{id}:
+    patch:
+      tags: [admin]
+      operationId: adminUpdateTeam
+      summary: Update a team
+      description: Toggle banned/hidden. Both affect scoring per the scoring rules.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        description: The team fields to change.
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamAdminUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamAdmin" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Validation" }
+
+  # ---------------------------------------------------------------- admin: submissions/stats
+  /admin/submissions:
+    get:
+      tags: [admin]
+      operationId: adminListSubmissions
+      summary: Submission log
+      description: Every flag attempt with the provided text and source IP. Paginated.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: challenge_id
+          in: query
+          description: Filter by challenge.
+          schema: { type: string, format: uuid }
+        - name: team_id
+          in: query
+          description: Filter by team.
+          schema: { type: string, format: uuid }
+        - name: user_id
+          in: query
+          description: Filter by user.
+          schema: { type: string, format: uuid }
+        - name: correct
+          in: query
+          description: Filter by correctness.
+          schema: { type: boolean }
+        - name: since
+          in: query
+          description: Only submissions at or after this time.
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          description: Only submissions before this time.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A page of submissions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubmissionAdminPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/stats:
+    get:
+      tags: [admin]
+      operationId: adminGetStats
+      summary: Dashboard stats
+      description: The admin dashboard tiles.
+      responses:
+        "200":
+          description: Counters.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStats" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: osctf_session
+      description: Server-side session; obtained via register or login.
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      description: Resource ID.
+      schema:
+        type: string
+        format: uuid
+    SlugPath:
+      name: slug
+      in: path
+      required: true
+      description: Challenge slug.
+      schema:
+        type: string
+        pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+    Page:
+      name: page
+      in: query
+      description: 1-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PerPage:
+      name: per_page
+      in: query
+      description: Items per page (max 200).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Query:
+      name: q
+      in: query
+      description: Search string.
+      schema:
+        type: string
+        maxLength: 100
+
+  responses:
+    Unauthenticated:
+      description: No or invalid session.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: Authenticated but not allowed.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: Missing or invisible resource.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: State conflict (duplicate, already solved, team full, ...).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Validation:
+      description: Field-level validation failures (see the errors map).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RateLimited:
+      description: Over a rate limit. The Retry-After header holds seconds to wait.
+      headers:
+        Retry-After:
+          description: Seconds until the limit window allows another attempt.
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RuntimeUnavailable:
+      description: The container runtime is unreachable.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          description: Error type URI (https://osctf.dev/errors/...).
+        title:
+          type: string
+          description: Short human-readable summary.
+        status:
+          type: integer
+          description: HTTP status code.
+        detail:
+          type: string
+          description: Human-readable explanation for this occurrence.
+        errors:
+          type: object
+          description: Field name to messages map (validation errors only).
+          additionalProperties:
+            type: array
+            items: { type: string }
+        request_id:
+          type: string
+          description: Correlates with server logs; include when reporting issues.
+
+    Role:
+      type: string
+      description: Platform role.
+      enum: [user, admin]
+
+    Category:
+      type: string
+      description: Challenge category.
+      enum: [web, pwn, crypto, rev, forensics, misc]
+
+    Difficulty:
+      type: string
+      description: Challenge difficulty label.
+      enum: [intro, easy, medium, hard, insane]
+
+    ChallengeKind:
+      type: string
+      description: standard = description/attachments only; container = also runs a Docker image.
+      enum: [standard, container]
+
+    ScoringMode:
+      type: string
+      description: static = fixed value; dynamic = decays with solve count.
+      enum: [static, dynamic]
+
+    EventPhase:
+      type: string
+      description: Where now falls relative to the event window.
+      enum: [pre, running, ended]
+
+    InstanceState:
+      type: string
+      description: Challenge instance lifecycle state.
+      enum: [pending, starting, running, unhealthy, stopped, error, lost]
+
+    # ------------------------------------------------------------- auth
+    RegisterRequest:
+      type: object
+      description: Account registration payload.
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: "^[a-zA-Z0-9_.-]+$"
+          description: Unique handle (case-insensitive).
+        email:
+          type: string
+          format: email
+          description: Login identifier (case-insensitive unique). Never verified in v0.1.
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 8-128 characters; no composition rules.
+
+    LoginRequest:
+      type: object
+      description: Login credentials.
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Account email.
+        password:
+          type: string
+          description: Account password.
+
+    ChangePasswordRequest:
+      type: object
+      description: Self-service password change payload.
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          description: The current password (re-authentication).
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: The new password.
+
+    Me:
+      type: object
+      description: The authenticated account.
+      required: [id, username, email, role]
+      properties:
+        id: { type: string, format: uuid, description: User ID. }
+        username: { type: string, description: Handle. }
+        email: { type: string, description: Login email. }
+        role: { $ref: "#/components/schemas/Role" }
+        team:
+          allOf:
+            - $ref: "#/components/schemas/MyTeamRef"
+          nullable: true
+          description: The caller's team, or null when teamless.
+
+    MyTeamRef:
+      type: object
+      description: Compact team reference with the caller's role in it.
+      required: [id, name, role]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        role:
+          type: string
+          enum: [captain, member]
+          description: The caller's role in the team.
+
+    # ------------------------------------------------------------- users
+    PublicUser:
+      type: object
+      description: Public profile.
+      required: [id, username, solves]
+      properties:
+        id: { type: string, format: uuid, description: User ID. }
+        username: { type: string, description: Handle. }
+        team:
+          allOf:
+            - $ref: "#/components/schemas/TeamRef"
+          nullable: true
+          description: The user's team, or null.
+        solves:
+          type: array
+          description: Challenges this user personally submitted the solve for.
+          items: { $ref: "#/components/schemas/Solve" }
+
+    TeamRef:
+      type: object
+      description: Compact team reference.
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+
+    Solve:
+      type: object
+      description: A scoring solve.
+      required: [challenge_id, slug, title, category, points, solved_at]
+      properties:
+        challenge_id: { type: string, format: uuid, description: Challenge ID. }
+        slug: { type: string, description: Challenge slug. }
+        title: { type: string, description: Challenge title. }
+        category: { $ref: "#/components/schemas/Category" }
+        points: { type: integer, description: Current value of the challenge. }
+        solved_at: { type: string, format: date-time, description: When the solve landed. }
+        username:
+          type: string
+          description: Solver's username (present in team solve lists).
+
+    # ------------------------------------------------------------- teams
+    TeamCreateRequest:
+      type: object
+      description: Team creation payload.
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 48
+          description: Team name (case-insensitive unique).
+
+    TeamJoinRequest:
+      type: object
+      description: Invite-code join payload.
+      required: [invite_code]
+      properties:
+        invite_code:
+          type: string
+          description: The 12-character invite code.
+
+    TeamRenameRequest:
+      type: object
+      description: Team rename payload.
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 48
+          description: New team name.
+
+    InviteCode:
+      type: object
+      description: A team invite code.
+      required: [invite_code]
+      properties:
+        invite_code:
+          type: string
+          description: The team invite code.
+
+    TeamMine:
+      type: object
+      description: A team as seen by its own members (includes the invite code).
+      required: [id, name, invite_code, captain_id, members]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        invite_code: { type: string, description: Invite code (members only). }
+        captain_id: { type: string, format: uuid, description: Captain's user ID. }
+        members:
+          type: array
+          description: Current members.
+          items: { $ref: "#/components/schemas/Member" }
+
+    Member:
+      type: object
+      description: A team member.
+      required: [id, username]
+      properties:
+        id: { type: string, format: uuid, description: User ID. }
+        username: { type: string, description: Handle. }
+
+    TeamSummary:
+      type: object
+      description: Team list entry.
+      required: [id, name, member_count, points]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        member_count: { type: integer, description: Number of members. }
+        rank:
+          type: integer
+          nullable: true
+          description: Rank on the scoreboard; null for banned teams.
+        points: { type: integer, description: Total points. }
+
+    TeamDetail:
+      type: object
+      description: Public team page.
+      required: [id, name, members, points, solves]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        members:
+          type: array
+          description: Current members.
+          items: { $ref: "#/components/schemas/Member" }
+        rank:
+          type: integer
+          nullable: true
+          description: Rank on the scoreboard; null for banned teams.
+        points: { type: integer, description: Total points. }
+        solves:
+          type: array
+          description: The team's scoring solves (includes solver usernames).
+          items: { $ref: "#/components/schemas/Solve" }
+        invite_code:
+          type: string
+          description: Present only when the caller is a member.
+
+    # ------------------------------------------------------------- event
+    Event:
+      type: object
+      description: Public event info.
+      required: [name, description, starts_at, ends_at, frozen, phase]
+      properties:
+        name: { type: string, description: Event name. }
+        description: { type: string, description: Markdown description. }
+        starts_at: { type: string, format: date-time, description: Window start. }
+        ends_at: { type: string, format: date-time, description: Window end. }
+        frozen: { type: boolean, description: Whether the public scoreboard is frozen. }
+        phase: { $ref: "#/components/schemas/EventPhase" }
+
+    EventAdmin:
+      type: object
+      description: Full event configuration.
+      required: [id, name, description, starts_at, ends_at]
+      properties:
+        id: { type: string, format: uuid, description: Event ID. }
+        name: { type: string, description: Event name. }
+        description: { type: string, description: Markdown description. }
+        starts_at: { type: string, format: date-time, description: Window start. }
+        ends_at: { type: string, format: date-time, description: Window end. }
+        freeze_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Scoreboard freeze point; null disables freezing.
+
+    EventUpdateRequest:
+      type: object
+      description: Partial event update. Omitted fields are unchanged.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Event name.
+        description: { type: string, description: Markdown description. }
+        starts_at: { type: string, format: date-time, description: Window start. }
+        ends_at: { type: string, format: date-time, description: Window end. }
+        freeze_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set to null to clear the freeze (unfreezes the board).
+
+    # ------------------------------------------------------------- challenges (participant)
+    Challenge:
+      type: object
+      description: Challenge board entry. Never contains the description or flag.
+      required: [id, slug, title, category, points, solves, solved_by_me, kind, has_instance]
+      properties:
+        id: { type: string, format: uuid, description: Challenge ID. }
+        slug: { type: string, description: URL-safe identifier. }
+        title: { type: string, description: Display title. }
+        category: { $ref: "#/components/schemas/Category" }
+        difficulty:
+          allOf:
+            - $ref: "#/components/schemas/Difficulty"
+          nullable: true
+          description: Difficulty label, if set.
+        points: { type: integer, description: Current point value. }
+        solves: { type: integer, description: Valid solve count. }
+        solved_by_me: { type: boolean, description: Whether the caller's team solved it. }
+        kind: { $ref: "#/components/schemas/ChallengeKind" }
+        has_instance: { type: boolean, description: Whether a container instance exists. }
+        connection_info:
+          type: string
+          nullable: true
+          description: Rendered connection string while the instance is running.
+
+    ChallengeDetail:
+      description: Full participant-facing challenge detail.
+      allOf:
+        - $ref: "#/components/schemas/Challenge"
+        - type: object
+          description: Full participant-facing challenge detail.
+          required: [description, attachments, attempts_used]
+          properties:
+            description: { type: string, description: Markdown body. }
+            attachments:
+              type: array
+              description: Downloadable files.
+              items: { $ref: "#/components/schemas/Attachment" }
+            max_attempts:
+              type: integer
+              nullable: true
+              description: Attempt cap; null = unlimited.
+            attempts_used:
+              type: integer
+              description: The caller team's attempts so far.
+
+    Attachment:
+      type: object
+      description: Downloadable challenge file.
+      required: [id, filename, size_bytes]
+      properties:
+        id: { type: string, format: uuid, description: Attachment ID. }
+        filename: { type: string, description: Display filename. }
+        size_bytes: { type: integer, format: int64, description: File size. }
+
+    SubmitFlagRequest:
+      type: object
+      description: Flag submission payload.
+      required: [flag]
+      properties:
+        flag:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The flag attempt, verbatim.
+
+    SubmitResult:
+      type: object
+      description: Submission verdict.
+      required: [correct]
+      properties:
+        correct: { type: boolean, description: Whether the flag matched. }
+        points:
+          type: integer
+          nullable: true
+          description: Points awarded (current challenge value) when correct; null otherwise.
+
+    # ------------------------------------------------------------- scoreboard
+    Scoreboard:
+      type: object
+      description: Standings snapshot.
+      required: [frozen, generated_at, standings]
+      properties:
+        frozen: { type: boolean, description: Whether the public board is frozen. }
+        generated_at: { type: string, format: date-time, description: Snapshot time. }
+        standings:
+          type: array
+          description: Ranked teams; banned teams trail unranked.
+          items: { $ref: "#/components/schemas/ScoreboardEntry" }
+
+    ScoreboardEntry:
+      type: object
+      description: One scoreboard row.
+      required: [team_id, name, points, solves, banned]
+      properties:
+        rank:
+          type: integer
+          nullable: true
+          description: Unique rank; null for banned teams.
+        team_id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        points: { type: integer, description: Total points. }
+        last_solve_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Time of the last score-changing solve; null when scoreless.
+        solves: { type: integer, description: Solve count. }
+        banned: { type: boolean, description: Rendered struck-through when true. }
+
+    # ------------------------------------------------------------- admin: challenges
+    ChallengeAdmin:
+      type: object
+      description: Full challenge as stored, including the flag and container config.
+      required:
+        [id, slug, title, category, description, kind, flag, flag_case_insensitive,
+         scoring, points_initial, visible, mem_limit_mb, cpu_millis, container_env,
+         attachments, solves, current_points, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid, description: Challenge ID. }
+        slug: { type: string, description: URL-safe identifier. }
+        title: { type: string, description: Display title. }
+        category: { $ref: "#/components/schemas/Category" }
+        description: { type: string, description: Markdown body. }
+        difficulty:
+          allOf:
+            - $ref: "#/components/schemas/Difficulty"
+          nullable: true
+          description: Difficulty label, if set.
+        kind: { $ref: "#/components/schemas/ChallengeKind" }
+        flag: { type: string, description: "The flag, verbatim." }
+        flag_case_insensitive: { type: boolean, description: Case-insensitive matching. }
+        scoring: { $ref: "#/components/schemas/ScoringMode" }
+        points_initial: { type: integer, description: Initial/static value. }
+        points_min:
+          type: integer
+          nullable: true
+          description: Floor value (dynamic only).
+        decay:
+          type: integer
+          nullable: true
+          description: Solve count at which the value reaches the floor (dynamic only).
+        max_attempts:
+          type: integer
+          nullable: true
+          description: Attempt cap; null = unlimited.
+        visible: { type: boolean, description: Whether participants can see it. }
+        image:
+          type: string
+          nullable: true
+          description: Docker image (container kind).
+        internal_port:
+          type: integer
+          nullable: true
+          description: Port the challenge listens on inside the container.
+        mem_limit_mb: { type: integer, description: Memory limit in MiB. }
+        cpu_millis: { type: integer, description: CPU limit in millicores. }
+        container_env:
+          type: object
+          description: Extra environment for the container.
+          additionalProperties: { type: string }
+        connection_template:
+          type: string
+          nullable: true
+          description: "Template with {host} and {port} placeholders."
+        attachments:
+          type: array
+          description: Attached files.
+          items: { $ref: "#/components/schemas/AttachmentAdmin" }
+        solves: { type: integer, description: Valid solve count. }
+        current_points: { type: integer, description: Current computed value. }
+        instance:
+          allOf:
+            - $ref: "#/components/schemas/Instance"
+          nullable: true
+          description: The instance summary, when one exists.
+        created_at: { type: string, format: date-time, description: Creation time. }
+        updated_at: { type: string, format: date-time, description: Last update time. }
+
+    ChallengeAdminCreate:
+      type: object
+      description: Challenge creation payload.
+      required: [title, category, flag, points_initial]
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: Derived from the title when omitted.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Display title.
+        category: { $ref: "#/components/schemas/Category" }
+        description: { type: string, description: Markdown body. }
+        difficulty: { $ref: "#/components/schemas/Difficulty" }
+        kind: { $ref: "#/components/schemas/ChallengeKind" }
+        flag:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The flag, stored verbatim.
+        flag_case_insensitive:
+          type: boolean
+          description: Case-insensitive matching (default false).
+        scoring: { $ref: "#/components/schemas/ScoringMode" }
+        points_initial:
+          type: integer
+          minimum: 1
+          description: Initial/static value.
+        points_min:
+          type: integer
+          minimum: 1
+          description: Floor value (required for dynamic).
+        decay:
+          type: integer
+          minimum: 1
+          description: Solve count to reach the floor (required for dynamic).
+        max_attempts:
+          type: integer
+          minimum: 1
+          description: Attempt cap; omit for unlimited.
+        visible:
+          type: boolean
+          description: Whether participants can see it (default false).
+        image:
+          type: string
+          description: Docker image (container kind).
+        internal_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Container listen port (container kind).
+        mem_limit_mb:
+          type: integer
+          minimum: 16
+          maximum: 8192
+          description: Memory limit in MiB (default 256).
+        cpu_millis:
+          type: integer
+          minimum: 100
+          maximum: 8000
+          description: CPU limit in millicores (default 500).
+        container_env:
+          type: object
+          description: Extra environment for the container.
+          additionalProperties: { type: string }
+        connection_template:
+          type: string
+          description: "Template with {host} and {port} placeholders."
+
+    ChallengeAdminUpdate:
+      type: object
+      description: Partial challenge update. Omitted fields are unchanged.
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: URL-safe identifier.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Display title.
+        category: { $ref: "#/components/schemas/Category" }
+        description: { type: string, description: Markdown body. }
+        difficulty:
+          allOf:
+            - $ref: "#/components/schemas/Difficulty"
+          nullable: true
+          description: Set null to clear.
+        flag:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The flag, stored verbatim.
+        flag_case_insensitive: { type: boolean, description: Case-insensitive matching. }
+        scoring: { $ref: "#/components/schemas/ScoringMode" }
+        points_initial:
+          type: integer
+          minimum: 1
+          description: Initial/static value.
+        points_min:
+          type: integer
+          nullable: true
+          description: Floor value.
+        decay:
+          type: integer
+          nullable: true
+          description: Solve count to reach the floor.
+        max_attempts:
+          type: integer
+          nullable: true
+          description: Attempt cap; null = unlimited.
+        visible: { type: boolean, description: Whether participants can see it. }
+        image:
+          type: string
+          nullable: true
+          description: Docker image.
+        internal_port:
+          type: integer
+          nullable: true
+          description: Container listen port.
+        mem_limit_mb:
+          type: integer
+          minimum: 16
+          maximum: 8192
+          description: Memory limit in MiB.
+        cpu_millis:
+          type: integer
+          minimum: 100
+          maximum: 8000
+          description: CPU limit in millicores.
+        container_env:
+          type: object
+          description: Extra environment for the container.
+          additionalProperties: { type: string }
+        connection_template:
+          type: string
+          nullable: true
+          description: "Template with {host} and {port} placeholders."
+
+    AttachmentAdmin:
+      type: object
+      description: Attachment with storage metadata.
+      required: [id, filename, size_bytes, content_type, created_at]
+      properties:
+        id: { type: string, format: uuid, description: Attachment ID. }
+        filename: { type: string, description: Display filename. }
+        size_bytes: { type: integer, format: int64, description: File size. }
+        content_type: { type: string, description: MIME type. }
+        created_at: { type: string, format: date-time, description: Upload time. }
+
+    ChallengeAdminPage:
+      type: object
+      description: Paginated challenges.
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ChallengeAdmin" }
+        total: { type: integer, description: Total matching rows. }
+        page: { type: integer, description: Current page (1-based). }
+        per_page: { type: integer, description: Page size. }
+
+    # ------------------------------------------------------------- admin: instances
+    Instance:
+      type: object
+      description: Challenge instance status.
+      required: [id, state]
+      properties:
+        id: { type: string, format: uuid, description: Instance ID. }
+        state: { $ref: "#/components/schemas/InstanceState" }
+        host_port:
+          type: integer
+          nullable: true
+          description: Published host port.
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Container start time.
+        last_health_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful health check.
+        error:
+          type: string
+          nullable: true
+          description: Last failure message, verbatim.
+        connection_info:
+          type: string
+          nullable: true
+          description: Rendered connection string while running.
+
+    InstanceLogs:
+      type: object
+      description: Recent container output.
+      required: [logs]
+      properties:
+        logs: { type: string, description: "Demuxed stdout+stderr, ANSI stripped." }
+
+    # ------------------------------------------------------------- admin: users/teams
+    UserAdmin:
+      type: object
+      description: User as seen in the admin panel.
+      required: [id, username, email, role, banned, hidden, created_at]
+      properties:
+        id: { type: string, format: uuid, description: User ID. }
+        username: { type: string, description: Handle. }
+        email: { type: string, description: Login email. }
+        role: { $ref: "#/components/schemas/Role" }
+        banned: { type: boolean, description: Cannot log in when true. }
+        hidden: { type: boolean, description: Excluded from scoreboard and solve counts. }
+        team:
+          allOf:
+            - $ref: "#/components/schemas/TeamRef"
+          nullable: true
+          description: The user's team, or null.
+        created_at: { type: string, format: date-time, description: Registration time. }
+
+    UserAdminUpdate:
+      type: object
+      description: Partial user update. Omitted fields are unchanged.
+      properties:
+        banned: { type: boolean, description: Ban/unban (ban revokes sessions). }
+        hidden: { type: boolean, description: Hide/unhide from scoring. }
+        role: { $ref: "#/components/schemas/Role" }
+
+    AdminPasswordResetRequest:
+      type: object
+      description: Admin-driven password reset payload.
+      required: [new_password]
+      properties:
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: The user's new password.
+
+    UserAdminPage:
+      type: object
+      description: Paginated users.
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/UserAdmin" }
+        total: { type: integer, description: Total matching rows. }
+        page: { type: integer, description: Current page (1-based). }
+        per_page: { type: integer, description: Page size. }
+
+    TeamAdmin:
+      type: object
+      description: Team as seen in the admin panel.
+      required: [id, name, banned, hidden, member_count, created_at]
+      properties:
+        id: { type: string, format: uuid, description: Team ID. }
+        name: { type: string, description: Team name. }
+        banned: { type: boolean, description: Members cannot submit when true. }
+        hidden: { type: boolean, description: Excluded from scoreboard and solve counts. }
+        member_count: { type: integer, description: Number of members. }
+        created_at: { type: string, format: date-time, description: Creation time. }
+
+    TeamAdminUpdate:
+      type: object
+      description: Partial team update. Omitted fields are unchanged.
+      properties:
+        banned: { type: boolean, description: Ban/unban the team. }
+        hidden: { type: boolean, description: Hide/unhide from scoring. }
+
+    TeamAdminPage:
+      type: object
+      description: Paginated teams.
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TeamAdmin" }
+        total: { type: integer, description: Total matching rows. }
+        page: { type: integer, description: Current page (1-based). }
+        per_page: { type: integer, description: Page size. }
+
+    # ------------------------------------------------------------- admin: submissions/stats
+    SubmissionAdmin:
+      type: object
+      description: A logged flag attempt.
+      required: [id, challenge, team, user, provided, correct, created_at]
+      properties:
+        id: { type: string, format: uuid, description: Submission ID. }
+        challenge: { $ref: "#/components/schemas/ChallengeRef" }
+        team: { $ref: "#/components/schemas/TeamRef" }
+        user: { $ref: "#/components/schemas/Member" }
+        provided: { type: string, description: "The submitted text, verbatim." }
+        correct: { type: boolean, description: Whether it matched. }
+        ip:
+          type: string
+          nullable: true
+          description: Source IP at submission time.
+        created_at: { type: string, format: date-time, description: Submission time. }
+
+    ChallengeRef:
+      type: object
+      description: Compact challenge reference.
+      required: [id, slug, title]
+      properties:
+        id: { type: string, format: uuid, description: Challenge ID. }
+        slug: { type: string, description: Challenge slug. }
+        title: { type: string, description: Challenge title. }
+
+    SubmissionAdminPage:
+      type: object
+      description: Paginated submissions.
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SubmissionAdmin" }
+        total: { type: integer, description: Total matching rows. }
+        page: { type: integer, description: Current page (1-based). }
+        per_page: { type: integer, description: Page size. }
+
+    AdminStats:
+      type: object
+      description: Admin dashboard tiles.
+      required: [users, teams, submissions, solves, instances_running, ws_connections]
+      properties:
+        users: { type: integer, description: Registered users. }
+        teams: { type: integer, description: Teams. }
+        submissions: { type: integer, description: Total flag attempts. }
+        solves: { type: integer, description: Correct submissions. }
+        instances_running: { type: integer, description: Instances in running state. }
+        ws_connections: { type: integer, description: Open WebSocket connections. }

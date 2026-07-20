@@ -47,7 +47,12 @@ dev: ## Start Postgres, Redis, MinIO for local development
 
 .PHONY: dev-api
 dev-api: ## Run the API locally against dev services
-	cd api && set -a && source ../.env && set +a && go run ./cmd/platform serve
+	cd api && set -a && source ../.env && set +a && \
+	OSCTF_DATABASE_URL="postgres://osctf:osctf@localhost:55432/osctf?sslmode=disable" \
+	OSCTF_REDIS_URL="redis://localhost:6379/0" \
+	OSCTF_S3_ENDPOINT="localhost:9000" \
+	OSCTF_LOG_FORMAT=text \
+	go run ./cmd/platform serve
 
 .PHONY: dev-web
 dev-web: ## Run the Vite dev server (:5173, proxies /api -> :8080)
@@ -69,7 +74,7 @@ generate: ## Regenerate all committed generated code (oapi-codegen, sqlc, TS typ
 lint: ## Run all linters (Go, TS, OpenAPI)
 	cd api && golangci-lint run
 	cd dashboard && npm run lint && npm run typecheck
-	vacuum lint -d api/openapi/openapi.yaml
+	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
 .PHONY: test
 test: ## Run unit tests (Go -short + web)

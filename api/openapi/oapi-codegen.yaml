@@ -1,0 +1,9 @@
+# oapi-codegen config: strict-server over chi, types + server into internal/apigen.
+package: apigen
+output: internal/apigen/apigen.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+output-options:
+  skip-prune: true

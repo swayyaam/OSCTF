@@ -40,7 +40,7 @@ jobs:
           version: v2.12.2
           working-directory: api
       - run: go install github.com/daveshanley/vacuum@v0.17.0
-      - run: vacuum lint -d api/openapi/openapi.yaml
+      - run: vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
   api-test:
     name: api test

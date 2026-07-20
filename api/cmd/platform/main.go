@@ -16,6 +16,7 @@ import (
 
 	"github.com/osctf/platform/internal/config"
 	"github.com/osctf/platform/internal/db"
+	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
 	appversion "github.com/osctf/platform/internal/version"
@@ -150,9 +151,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	handler := httpserver.New(httpserver.Deps{
-		Log:        log,
-		APIHandler: nil, // wired to the generated handlers as milestones land
-		Ready:      ready,
+		Log:      log,
+		Handlers: handlers.New(),
+		Ready:    ready,
 	})
 
 	srv := &http.Server{

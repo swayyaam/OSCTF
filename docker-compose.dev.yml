@@ -10,7 +10,8 @@ services:
 
   postgres:
     ports:
-      - "5432:5432"
+      # 55432 on the host: avoids colliding with a natively installed Postgres on 5432.
+      - "55432:5432"
     environment:
       POSTGRES_USER: osctf
       POSTGRES_PASSWORD: osctf

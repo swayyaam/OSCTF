@@ -25,12 +25,13 @@ sql:
               pointer: true
           - db_type: citext
             go_type: string
-          - db_type: pg_catalog.timestamptz
+          - db_type: timestamptz
             go_type: time.Time
-          - db_type: pg_catalog.timestamptz
+          - db_type: timestamptz
             nullable: true
             go_type:
-              type: time.Time
+              import: time
+              type: Time
               pointer: true
           - db_type: inet
             go_type:

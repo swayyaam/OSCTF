@@ -25,6 +25,7 @@ import (
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/seed"
+	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 	appversion "github.com/osctf/platform/internal/version"
 )
@@ -166,6 +167,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// Composition root: concrete implementations wired to interfaces here only.
 	sessions := auth.NewSessionStore(rdb, cfg.SessionTTL)
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
+	teamsSvc := teams.New(pool, cfg.TeamMaxSize)
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -176,6 +178,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	h := handlers.New(handlers.Deps{
 		Users:         usersSvc,
+		Teams:         teamsSvc,
 		Auth:          provider,
 		Sessions:      sessions,
 		Limiter:       limiter,

@@ -7,9 +7,9 @@ package gen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countEvents = `-- name: CountEvents :one
@@ -33,9 +33,9 @@ type CreateEventParams struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
-	StartsAt    pgtype.Timestamptz
-	EndsAt      pgtype.Timestamptz
-	FreezeAt    pgtype.Timestamptz
+	StartsAt    time.Time
+	EndsAt      time.Time
+	FreezeAt    *time.Time
 }
 
 func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error) {
@@ -99,10 +99,10 @@ type UpdateEventParams struct {
 	ID          uuid.UUID
 	Name        *string
 	Description *string
-	StartsAt    pgtype.Timestamptz
-	EndsAt      pgtype.Timestamptz
+	StartsAt    *time.Time
+	EndsAt      *time.Time
 	SetFreeze   bool
-	FreezeAt    pgtype.Timestamptz
+	FreezeAt    *time.Time
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error) {

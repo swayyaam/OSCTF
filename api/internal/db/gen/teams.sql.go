@@ -7,9 +7,9 @@ package gen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addTeamMember = `-- name: AddTeamMember :exec
@@ -163,7 +163,7 @@ WHERE tm.user_id = $1
 
 type GetUserTeamRow struct {
 	Team     Team
-	JoinedAt pgtype.Timestamptz
+	JoinedAt time.Time
 }
 
 func (q *Queries) GetUserTeam(ctx context.Context, userID uuid.UUID) (GetUserTeamRow, error) {
@@ -235,7 +235,7 @@ type ListTeamMembersRow struct {
 	ID       uuid.UUID
 	Username string
 	Hidden   bool
-	JoinedAt pgtype.Timestamptz
+	JoinedAt time.Time
 }
 
 func (q *Queries) ListTeamMembers(ctx context.Context, teamID uuid.UUID) ([]ListTeamMembersRow, error) {
@@ -285,8 +285,8 @@ type ListTeamsAdminRow struct {
 	CaptainID   uuid.UUID
 	Banned      bool
 	Hidden      bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 	MemberCount int64
 }
 

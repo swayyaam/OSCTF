@@ -7,9 +7,9 @@ package gen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countInstancesByState = `-- name: CountInstancesByState :many
@@ -219,8 +219,8 @@ type UpdateInstanceParams struct {
 	ContainerID  *string
 	SetError     bool
 	Error        *string
-	StartedAt    pgtype.Timestamptz
-	LastHealthAt pgtype.Timestamptz
+	StartedAt    *time.Time
+	LastHealthAt *time.Time
 }
 
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (Instance, error) {

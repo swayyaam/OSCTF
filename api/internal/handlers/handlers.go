@@ -13,6 +13,7 @@ import (
 	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 )
 
@@ -24,6 +25,7 @@ var ErrNotImplemented = errors.New("not implemented")
 // as milestones land; nil fields leave their endpoints on the 501 stub.
 type Deps struct {
 	Users    *users.Service
+	Teams    *teams.Service
 	Auth     auth.AuthProvider
 	Sessions *auth.SessionStore
 	Limiter  *redisx.Limiter
@@ -110,26 +112,6 @@ func (s *Server) AdminListSubmissions(ctx context.Context, request apigen.AdminL
 	return nil, ErrNotImplemented
 }
 
-func (s *Server) AdminListTeams(ctx context.Context, request apigen.AdminListTeamsRequestObject) (apigen.AdminListTeamsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminUpdateTeam(ctx context.Context, request apigen.AdminUpdateTeamRequestObject) (apigen.AdminUpdateTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminListUsers(ctx context.Context, request apigen.AdminListUsersRequestObject) (apigen.AdminListUsersResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminUpdateUser(ctx context.Context, request apigen.AdminUpdateUserRequestObject) (apigen.AdminUpdateUserResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminResetPassword(ctx context.Context, request apigen.AdminResetPasswordRequestObject) (apigen.AdminResetPasswordResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
 func (s *Server) ListChallenges(ctx context.Context, request apigen.ListChallengesRequestObject) (apigen.ListChallengesResponseObject, error) {
 	return nil, ErrNotImplemented
 }
@@ -151,37 +133,5 @@ func (s *Server) GetEvent(ctx context.Context, request apigen.GetEventRequestObj
 }
 
 func (s *Server) GetScoreboard(ctx context.Context, request apigen.GetScoreboardRequestObject) (apigen.GetScoreboardResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) ListTeams(ctx context.Context, request apigen.ListTeamsRequestObject) (apigen.ListTeamsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) CreateTeam(ctx context.Context, request apigen.CreateTeamRequestObject) (apigen.CreateTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) JoinTeam(ctx context.Context, request apigen.JoinTeamRequestObject) (apigen.JoinTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) LeaveTeam(ctx context.Context, request apigen.LeaveTeamRequestObject) (apigen.LeaveTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetTeam(ctx context.Context, request apigen.GetTeamRequestObject) (apigen.GetTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) RenameTeam(ctx context.Context, request apigen.RenameTeamRequestObject) (apigen.RenameTeamResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) RegenerateInviteCode(ctx context.Context, request apigen.RegenerateInviteCodeRequestObject) (apigen.RegenerateInviteCodeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetUser(ctx context.Context, request apigen.GetUserRequestObject) (apigen.GetUserResponseObject, error) {
 	return nil, ErrNotImplemented
 }

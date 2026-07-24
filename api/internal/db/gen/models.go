@@ -6,9 +6,9 @@ package gen
 
 import (
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AuditLog struct {
@@ -18,7 +18,7 @@ type AuditLog struct {
 	SubjectType string
 	SubjectID   string
 	Meta        []byte
-	CreatedAt   pgtype.Timestamptz
+	CreatedAt   time.Time
 }
 
 type Challenge struct {
@@ -43,8 +43,8 @@ type Challenge struct {
 	CpuMillis           int32
 	ContainerEnv        []byte
 	ConnectionTemplate  *string
-	CreatedAt           pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type ChallengeAttachment struct {
@@ -54,18 +54,18 @@ type ChallengeAttachment struct {
 	SizeBytes   int64
 	ContentType string
 	ObjectKey   string
-	CreatedAt   pgtype.Timestamptz
+	CreatedAt   time.Time
 }
 
 type Event struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
-	StartsAt    pgtype.Timestamptz
-	EndsAt      pgtype.Timestamptz
-	FreezeAt    pgtype.Timestamptz
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	StartsAt    time.Time
+	EndsAt      time.Time
+	FreezeAt    *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Instance struct {
@@ -75,10 +75,10 @@ type Instance struct {
 	ContainerID  *string
 	HostPort     *int32
 	Error        *string
-	StartedAt    pgtype.Timestamptz
-	LastHealthAt pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
+	StartedAt    *time.Time
+	LastHealthAt *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Submission struct {
@@ -89,7 +89,7 @@ type Submission struct {
 	Provided    string
 	Correct     bool
 	Ip          *netip.Addr
-	CreatedAt   pgtype.Timestamptz
+	CreatedAt   time.Time
 }
 
 type Team struct {
@@ -99,14 +99,14 @@ type Team struct {
 	CaptainID  uuid.UUID
 	Banned     bool
 	Hidden     bool
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type TeamMember struct {
 	TeamID   uuid.UUID
 	UserID   uuid.UUID
-	JoinedAt pgtype.Timestamptz
+	JoinedAt time.Time
 }
 
 type User struct {
@@ -117,6 +117,6 @@ type User struct {
 	Role         string
 	Banned       bool
 	Hidden       bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }

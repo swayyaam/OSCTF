@@ -8,9 +8,9 @@ package gen
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countChallengeSolves = `-- name: CountChallengeSolves :one
@@ -61,8 +61,8 @@ type CountSubmissionsAdminParams struct {
 	TeamID      *uuid.UUID
 	UserID      *uuid.UUID
 	Correct     *bool
-	Since       pgtype.Timestamptz
-	Until       pgtype.Timestamptz
+	Since       *time.Time
+	Until       *time.Time
 }
 
 func (q *Queries) CountSubmissionsAdmin(ctx context.Context, arg CountSubmissionsAdminParams) (int64, error) {
@@ -208,8 +208,8 @@ type ListSubmissionsAdminParams struct {
 	TeamID      *uuid.UUID
 	UserID      *uuid.UUID
 	Correct     *bool
-	Since       pgtype.Timestamptz
-	Until       pgtype.Timestamptz
+	Since       *time.Time
+	Until       *time.Time
 }
 
 type ListSubmissionsAdminRow struct {
@@ -220,7 +220,7 @@ type ListSubmissionsAdminRow struct {
 	Provided       string
 	Correct        bool
 	Ip             *netip.Addr
-	CreatedAt      pgtype.Timestamptz
+	CreatedAt      time.Time
 	ChallengeSlug  string
 	ChallengeTitle string
 	TeamName       string
@@ -281,7 +281,7 @@ ORDER BY s.created_at ASC
 
 type ListTeamSolvesRow struct {
 	ChallengeID uuid.UUID
-	SolvedAt    pgtype.Timestamptz
+	SolvedAt    time.Time
 	Username    string
 	Slug        string
 	Title       string
@@ -326,7 +326,7 @@ ORDER BY s.created_at ASC
 
 type ListUserSolvesRow struct {
 	ChallengeID uuid.UUID
-	SolvedAt    pgtype.Timestamptz
+	SolvedAt    time.Time
 	Slug        string
 	Title       string
 	Category    string
@@ -379,7 +379,7 @@ ORDER BY s.created_at ASC
 type ListValidSolvesRow struct {
 	TeamID        uuid.UUID
 	ChallengeID   uuid.UUID
-	SolvedAt      pgtype.Timestamptz
+	SolvedAt      time.Time
 	TeamName      string
 	TeamBanned    bool
 	Scoring       string

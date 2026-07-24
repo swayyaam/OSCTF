@@ -3,8 +3,10 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/testsupport"
 	"github.com/osctf/platform/internal/users"
 )
@@ -28,9 +31,11 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Han
 	q := gen.New(pool)
 	sessions := auth.NewSessionStore(rdb, time.Hour)
 	usersSvc := users.New(q, sessions, true)
+	teamsSvc := teams.New(pool, 4)
 	provider := auth.NewEmailPasswordProvider(q, nil)
 	h := handlers.New(handlers.Deps{
 		Users:      usersSvc,
+		Teams:      teamsSvc,
 		Auth:       provider,
 		Sessions:   sessions,
 		Limiter:    redisx.NewLimiter(rdb),
@@ -119,6 +124,11 @@ func (j *cookieJar) update(resp *http.Response) {
 	j.cookies = append(j.cookies, resp.Cookies()...)
 }
 
+// reqCounter gives each request a distinct client IP so IP-based rate limits
+// (register-ip, login-ip) don't cross-contaminate functional tests. Rate limiting
+// itself is verified separately (see the M2 curl checks / TestRateLimit).
+var reqCounter atomic.Uint32
+
 func do(t *testing.T, srv http.Handler, jar *cookieJar, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
@@ -129,6 +139,8 @@ func do(t *testing.T, srv http.Handler, jar *cookieJar, method, path, body strin
 		r = httptest.NewRequest(method, path, nil)
 	}
 	r.Header.Set("Origin", testOrigin)
+	n := reqCounter.Add(1)
+	r.RemoteAddr = fmt.Sprintf("10.%d.%d.%d:40000", (n>>16)&0xff, (n>>8)&0xff, n&0xff)
 	jar.apply(r)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, r)

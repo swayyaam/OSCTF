@@ -34,6 +34,7 @@ import (
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 	appversion "github.com/osctf/platform/internal/version"
+	"github.com/osctf/platform/internal/ws"
 )
 
 // version is set via -ldflags at build time.
@@ -194,6 +195,10 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	challengesSvc := challenges.New(q, store)
 	submissionsSvc := submissions.New(pool, eventsSvc, clk)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
+
+	hub := ws.NewHub(log)
+	go hub.Run(ctx)
+	scoreboardSvc.SetBroadcaster(hub.BroadcastScoreboard)
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -235,6 +240,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Sessions:      sessions,
 		BaseOrigin:    cfg.BaseOrigin(),
 		CORSDevOrigin: cfg.CORSDevOrigin,
+		WSHandler:     hub.Handler(),
 	})
 
 	srv := &http.Server{
@@ -242,6 +248,8 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	go runTickers(ctx, log, eventsSvc, scoreboardSvc, hub)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -263,5 +271,36 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		log.Info("shutdown complete")
 		return nil
+	}
+}
+
+// runTickers drives periodic background work: freeze snapshot capture and event
+// phase-transition broadcasts. Interval 15s (docs/v0.1/01-architecture.md).
+func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *scoreboard.Service, hub *ws.Hub) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	lastPhase := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := sb.MaybeSnapshotFreeze(tctx); err != nil {
+				log.Warn("freeze snapshot failed", "error", err.Error())
+			}
+			if e, err := ev.Get(tctx); err == nil {
+				phase := string(ev.Phase(e))
+				if lastPhase != "" && phase != lastPhase {
+					hub.BroadcastPhase(phase)
+					if rerr := sb.Recompute(tctx); rerr != nil {
+						log.Warn("recompute on phase change failed", "error", rerr.Error())
+					}
+				}
+				lastPhase = phase
+			}
+			cancel()
+		}
 	}
 }

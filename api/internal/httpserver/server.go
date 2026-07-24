@@ -33,6 +33,8 @@ type Deps struct {
 	// Sessions is set). CORSDevOrigin optionally allows the Vite dev server.
 	BaseOrigin    string
 	CORSDevOrigin string
+	// WSHandler serves GET /api/v0/ws (the live scoreboard socket). Nil disables it.
+	WSHandler http.Handler
 }
 
 // New builds the top-level HTTP handler.
@@ -70,6 +72,19 @@ func New(d Deps) http.Handler {
 		api = newAPIHandler(d.Handlers, d.Log)
 	} else {
 		api = http.HandlerFunc(notImplemented)
+	}
+	// The WebSocket lives at /api/v0/ws — not modelled in OpenAPI — so special-case
+	// it ahead of the generated handler (paths here are already /api/v0-stripped).
+	if d.WSHandler != nil {
+		generated := api
+		ws := d.WSHandler
+		api = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ws" {
+				ws.ServeHTTP(w, r)
+				return
+			}
+			generated.ServeHTTP(w, r)
+		})
 	}
 	if d.CORSDevOrigin != "" {
 		api = corsDevMiddleware(d.CORSDevOrigin)(api)

@@ -41,22 +41,31 @@ func New(q *gen.Queries, rdb *redis.Client, ev *events.Service, c clock.Clock) *
 // SetBroadcaster wires the WS hub (M6). Called once at startup after construction.
 func (s *Service) SetBroadcaster(b Broadcaster) { s.broadcast = b }
 
-// Recompute rebuilds standings from the DB, writes the cache, and broadcasts.
-// It is serialized by a per-process mutex (correctness does not depend on it).
+// Recompute rebuilds standings from the DB and writes the live cache, then
+// broadcasts the public snapshot (frozen data during a freeze so WS consumers,
+// who have no per-connection auth, never see live standings). The compute+write
+// is serialized by a per-process mutex; the broadcast runs after the lock is
+// released (Current may take the lock via the freeze path).
 func (s *Service) Recompute(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	snap, err := compute(ctx, s.q, s.clock())
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	snap.Frozen = s.frozen(ctx)
-	if err := s.write(ctx, keyCurrent, snap); err != nil {
-		return err
+	werr := s.write(ctx, keyCurrent, snap)
+	s.mu.Unlock()
+	if werr != nil {
+		return werr
 	}
+
 	if s.broadcast != nil {
-		s.broadcast(snap)
+		pub, perr := s.Current(ctx, false)
+		if perr != nil {
+			return perr
+		}
+		s.broadcast(pub)
 	}
 	return nil
 }

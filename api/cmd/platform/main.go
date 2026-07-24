@@ -27,6 +27,7 @@ import (
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scoreboard"
 	"github.com/osctf/platform/internal/seed"
 	"github.com/osctf/platform/internal/storage"
@@ -199,6 +200,17 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	hub := ws.NewHub(log)
 	go hub.Run(ctx)
 	scoreboardSvc.SetBroadcaster(hub.BroadcastScoreboard)
+
+	dockerRT, err := runtime.NewDockerRuntime(q, log, cfg.DockerHost)
+	if err != nil {
+		return err
+	}
+	rtMgr := runtime.NewManager(dockerRT, q, cfg.PublicHost, cfg.PortRangeStart, cfg.PortRangeEnd)
+	if rerr := rtMgr.Reconcile(ctx); rerr != nil {
+		log.Warn("initial runtime reconcile failed", "error", rerr.Error())
+	} else {
+		log.Info("runtime reconciled")
+	}
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -250,6 +262,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	go runTickers(ctx, log, eventsSvc, scoreboardSvc, hub)
+	go runReconcile(ctx, log, rtMgr)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -299,6 +312,25 @@ func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *s
 					}
 				}
 				lastPhase = phase
+			}
+			cancel()
+		}
+	}
+}
+
+// runReconcile periodically aligns tracked instances with actual container state
+// (docs/v0.1/08-challenge-runtime.md). Interval 60s.
+func runReconcile(ctx context.Context, log *slog.Logger, rt *runtime.Manager) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := rt.Reconcile(rctx); err != nil {
+				log.Warn("runtime reconcile failed", "error", err.Error())
 			}
 			cancel()
 		}

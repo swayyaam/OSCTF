@@ -13,6 +13,7 @@ import (
 	"github.com/osctf/platform/internal/challenges"
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/pagination"
+	"github.com/osctf/platform/internal/runtime"
 )
 
 // AdminListChallenges returns a page of all challenges (including invisible).
@@ -203,8 +204,18 @@ func (s *Server) AdminDeleteChallenge(ctx context.Context, request apigen.AdminD
 	return apigen.AdminDeleteChallenge204Response{}, nil
 }
 
-// destroyInstanceIfAny is a no-op until the runtime lands (M7).
-func (s *Server) destroyInstanceIfAny(_ context.Context, _ uuid.UUID) error { return nil }
+// destroyInstanceIfAny destroys the challenge's instance (if any) before deletion.
+// A runtime-unavailable error is tolerated so a challenge can still be removed
+// while Docker is down (the orphan container, if any, is cleaned on reconcile).
+func (s *Server) destroyInstanceIfAny(ctx context.Context, challengeID uuid.UUID) error {
+	if s.d.Runtime == nil {
+		return nil
+	}
+	if err := s.d.Runtime.DestroyForChallenge(ctx, challengeID); err != nil && !runtime.IsUnavailable(err) {
+		return mapRuntimeErr(err)
+	}
+	return nil
+}
 
 // AdminUploadAttachment stores an uploaded file as a challenge attachment.
 func (s *Server) AdminUploadAttachment(ctx context.Context, request apigen.AdminUploadAttachmentRequestObject) (apigen.AdminUploadAttachmentResponseObject, error) {

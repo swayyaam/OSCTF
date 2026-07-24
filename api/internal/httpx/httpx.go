@@ -129,6 +129,13 @@ func classify(err error) classified {
 		return classified{typ: "unauthenticated", title: "Authentication required", status: http.StatusUnauthorized, detail: "You must be signed in."}
 	case errors.Is(err, apperr.ErrBadRequest):
 		return classified{typ: "bad-request", title: "Bad request", status: http.StatusBadRequest, detail: "The request could not be understood."}
+	case errors.Is(err, apperr.ErrUnavailable):
+		var ua *apperr.Unavailable
+		detail := "A dependency is temporarily unavailable."
+		if errors.As(err, &ua) {
+			detail = ua.Detail
+		}
+		return classified{typ: "unavailable", title: "Service unavailable", status: http.StatusServiceUnavailable, detail: detail}
 	default:
 		return classified{typ: "internal", title: "Internal server error", status: http.StatusInternalServerError, detail: "Something broke. Reference the request id when reporting this."}
 	}

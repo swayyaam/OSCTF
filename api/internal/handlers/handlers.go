@@ -15,6 +15,7 @@ import (
 	"github.com/osctf/platform/internal/challenges"
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scoreboard"
 	"github.com/osctf/platform/internal/submissions"
 	"github.com/osctf/platform/internal/teams"
@@ -34,6 +35,7 @@ type Deps struct {
 	Challenges  *challenges.Service
 	Submissions *submissions.Service
 	Scoreboard  *scoreboard.Service
+	Runtime     *runtime.Manager
 	Auth        auth.AuthProvider
 	Sessions    *auth.SessionStore
 	Limiter     *redisx.Limiter
@@ -60,23 +62,3 @@ type Server struct {
 func New(d Deps) *Server { return &Server{d: d} }
 
 var _ apigen.StrictServerInterface = (*Server)(nil)
-
-func (s *Server) AdminDestroyInstance(ctx context.Context, request apigen.AdminDestroyInstanceRequestObject) (apigen.AdminDestroyInstanceResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminGetInstance(ctx context.Context, request apigen.AdminGetInstanceRequestObject) (apigen.AdminGetInstanceResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminDeployInstance(ctx context.Context, request apigen.AdminDeployInstanceRequestObject) (apigen.AdminDeployInstanceResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminGetInstanceLogs(ctx context.Context, request apigen.AdminGetInstanceLogsRequestObject) (apigen.AdminGetInstanceLogsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminRestartInstance(ctx context.Context, request apigen.AdminRestartInstanceRequestObject) (apigen.AdminRestartInstanceResponseObject, error) {
-	return nil, ErrNotImplemented
-}

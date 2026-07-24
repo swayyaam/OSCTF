@@ -7,6 +7,7 @@ import (
 
 	"github.com/osctf/platform/internal/apigen"
 	"github.com/osctf/platform/internal/apperr"
+	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/httpx"
 )
@@ -48,7 +49,9 @@ func (s *Server) ListChallenges(ctx context.Context, _ apigen.ListChallengesRequ
 	}
 	out := make([]apigen.Challenge, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, toChallenge(e))
+		c := toChallenge(e)
+		s.enrichInstance(ctx, e.Challenge.ID, e.Challenge, &c.HasInstance, &c.ConnectionInfo)
+		out = append(out, c)
 	}
 	return apigen.ListChallenges200JSONResponse(out), nil
 }
@@ -71,7 +74,25 @@ func (s *Server) GetChallenge(ctx context.Context, request apigen.GetChallengeRe
 	if err != nil {
 		return nil, err
 	}
-	return apigen.GetChallenge200JSONResponse(toChallengeDetail(detail)), nil
+	out := toChallengeDetail(detail)
+	s.enrichInstance(ctx, detail.Challenge.ID, detail.Challenge, &out.HasInstance, &out.ConnectionInfo)
+	return apigen.GetChallenge200JSONResponse(out), nil
+}
+
+// enrichInstance fills has_instance and connection_info for a container challenge
+// from the current instance row (no live inspection on the participant path).
+func (s *Server) enrichInstance(ctx context.Context, challengeID uuid.UUID, ch gen.Challenge, hasInstance *bool, connInfo **string) {
+	if s.d.Runtime == nil || ch.Kind != "container" {
+		return
+	}
+	inst, ok := s.d.Runtime.InstanceForChallenge(ctx, challengeID)
+	if !ok {
+		return
+	}
+	*hasInstance = true
+	if ci := s.d.Runtime.ConnectionInfo(ch, inst); ci != "" {
+		*connInfo = &ci
+	}
 }
 
 // DownloadAttachment streams an attachment for a visible challenge.

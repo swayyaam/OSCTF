@@ -21,7 +21,14 @@ const (
 	ErrConflict        = sentinel("conflict")
 	ErrUnauthenticated = sentinel("unauthenticated")
 	ErrBadRequest      = sentinel("bad request")
+	ErrUnavailable     = sentinel("service unavailable")
 )
+
+// Unavailable carries a specific detail; renders 503 (e.g. runtime unreachable).
+type Unavailable struct{ Detail string }
+
+func (e *Unavailable) Error() string   { return "unavailable: " + e.Detail }
+func (e *Unavailable) Is(t error) bool { return t == ErrUnavailable }
 
 // Validation is a set of field-level failures rendered as a 422 with an errors map.
 type Validation struct {

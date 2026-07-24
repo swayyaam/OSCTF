@@ -1,0 +1,20 @@
+slug: base-what
+title: base what?
+category: crypto
+difficulty: easy
+description: |
+  Encodings are not encryption. Peel the layers:
+
+  ```
+  SjVKVUdWQ0dQTldHQzZMRk9KWlY2MzNHTDVSR0M0M0ZMNVFYRVpLN05aWFhJWDNET0o0WEE1RFBQVT09PT09PQ==
+  ```
+
+  (A copy is attached as `encoded.txt`.)
+flag: "OSCTF{layers_of_base_are_not_crypto}"
+scoring: dynamic
+points_initial: 200
+points_min: 100
+decay: 30
+visible: true
+files:
+  - files/encoded.txt

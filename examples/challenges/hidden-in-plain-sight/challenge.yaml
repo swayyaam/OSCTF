@@ -1,0 +1,16 @@
+slug: hidden-in-plain-sight
+title: Hidden in Plain Sight
+category: forensics
+difficulty: easy
+description: |
+  A picture is worth a thousand words — and sometimes a flag.
+
+  Look closely at the attached badge. `strings` and `exiftool` are your friends.
+flag: "OSCTF{metadata_tells_all}"
+scoring: dynamic
+points_initial: 250
+points_min: 100
+decay: 30
+visible: true
+files:
+  - files/badge.png

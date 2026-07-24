@@ -19,6 +19,14 @@ func mapRuntimeErr(err error) error {
 	return err
 }
 
+// requireRuntime guards handlers against a missing runtime (defence in depth).
+func (s *Server) requireRuntime() error {
+	if s.d.Runtime == nil {
+		return &apperr.Unavailable{Detail: "the container runtime is not configured"}
+	}
+	return nil
+}
+
 // instancePayload builds the API instance object, rendering connection info from
 // the challenge's template.
 func (s *Server) instancePayload(ctx context.Context, ch gen.Challenge, inst runtime.Instance) apigen.Instance {
@@ -56,6 +64,9 @@ func (s *Server) AdminDeployInstance(ctx context.Context, request apigen.AdminDe
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireRuntime(); err != nil {
+		return nil, err
+	}
 	inst, err := s.d.Runtime.Deploy(ctx, request.Id)
 	if err != nil {
 		return nil, mapRuntimeErr(err)
@@ -72,6 +83,9 @@ func (s *Server) AdminDeployInstance(ctx context.Context, request apigen.AdminDe
 // AdminGetInstance returns the current instance status.
 func (s *Server) AdminGetInstance(ctx context.Context, request apigen.AdminGetInstanceRequestObject) (apigen.AdminGetInstanceResponseObject, error) {
 	if _, err := s.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.requireRuntime(); err != nil {
 		return nil, err
 	}
 	inst, ok, err := s.d.Runtime.Get(ctx, request.Id)
@@ -94,6 +108,9 @@ func (s *Server) AdminRestartInstance(ctx context.Context, request apigen.AdminR
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireRuntime(); err != nil {
+		return nil, err
+	}
 	inst, err := s.d.Runtime.Restart(ctx, request.Id)
 	if err != nil {
 		return nil, mapRuntimeErr(err)
@@ -112,6 +129,9 @@ func (s *Server) AdminDestroyInstance(ctx context.Context, request apigen.AdminD
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireRuntime(); err != nil {
+		return nil, err
+	}
 	if err := s.d.Runtime.Destroy(ctx, request.Id); err != nil {
 		return nil, mapRuntimeErr(err)
 	}
@@ -122,6 +142,9 @@ func (s *Server) AdminDestroyInstance(ctx context.Context, request apigen.AdminD
 // AdminGetInstanceLogs returns recent container output.
 func (s *Server) AdminGetInstanceLogs(ctx context.Context, request apigen.AdminGetInstanceLogsRequestObject) (apigen.AdminGetInstanceLogsResponseObject, error) {
 	if _, err := s.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.requireRuntime(); err != nil {
 		return nil, err
 	}
 	tail := 200

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"regexp"
 	"strconv"
 	"time"
@@ -319,9 +318,16 @@ func (d *DockerRuntime) ensureImage(ctx context.Context, ref string) error {
 	return nil
 }
 
-// health returns running/unhealthy based on a container-defined HEALTHCHECK when
-// present, else a TCP dial to the published host port.
-func (d *DockerRuntime) health(ctx context.Context, containerID string, hostPort int) (State, error) {
+// health returns the instance state from the live container. A container-defined
+// HEALTHCHECK is authoritative when present; otherwise a running container is
+// healthy.
+//
+// Note (decision log, docs/v0.1/08): the spec's extra "TCP dial to
+// 127.0.0.1:<HostPort>" assumed a host-networked platform. In the golden-path
+// compose deployment the platform runs in its own container and cannot reach the
+// host-published port on 127.0.0.1, so the dial is dropped — the container's
+// running state (plus its own HEALTHCHECK) is the health signal.
+func (d *DockerRuntime) health(ctx context.Context, containerID string, _ int) (State, error) {
 	insp, err := d.cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return StateError, err
@@ -334,16 +340,6 @@ func (d *DockerRuntime) health(ctx context.Context, containerID string, hostPort
 			return StateRunning, nil
 		}
 		return StateUnhealthy, nil
-	}
-	if hostPort > 0 {
-		dctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		var dialer net.Dialer
-		conn, derr := dialer.DialContext(dctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(hostPort)))
-		if derr != nil {
-			return StateUnhealthy, nil
-		}
-		_ = conn.Close()
 	}
 	return StateRunning, nil
 }

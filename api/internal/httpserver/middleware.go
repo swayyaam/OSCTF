@@ -3,6 +3,7 @@ package httpserver
 import (
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -70,6 +71,7 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 				if rec := recover(); rec != nil {
 					log.Error("panic recovered",
 						"error", rec,
+						"stack", string(debug.Stack()),
 						"request_id", httpx.RequestID(r.Context()),
 						"path", r.URL.Path)
 					httpx.WriteProblem(w, r, httpx.Problem{

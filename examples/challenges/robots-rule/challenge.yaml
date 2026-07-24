@@ -1,0 +1,18 @@
+slug: robots-rule
+title: Robots Rule
+category: web
+difficulty: easy
+description: |
+  A well-behaved crawler reads the rules first. What is this site trying to hide?
+
+  Connect to the instance and start looking.
+flag: "OSCTF{robots_txt_is_not_a_secret}"
+scoring: dynamic
+points_initial: 200
+points_min: 100
+decay: 40
+visible: true
+kind: container
+image: osctf/example-robots-rule:0.1
+internal_port: 8000
+connection_template: "http://{host}:{port}"

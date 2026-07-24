@@ -1,0 +1,14 @@
+slug: sanity-check
+title: Sanity Check
+category: misc
+difficulty: intro
+description: |
+  Welcome! Flags look like `OSCTF{...}`.
+
+  Submit this one to warm up:
+
+  `OSCTF{welcome_to_the_game}`
+flag: "OSCTF{welcome_to_the_game}"
+scoring: static
+points_initial: 50
+visible: true

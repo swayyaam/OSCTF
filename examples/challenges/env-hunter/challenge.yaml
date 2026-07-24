@@ -1,0 +1,19 @@
+slug: env-hunter
+title: Env Hunter
+category: misc
+difficulty: easy
+description: |
+  This service has a debug endpoint that echoes environment variables — but it
+  filters out the interesting ones from its listing. The platform injects the
+  flag into the container's `FLAG` variable at runtime (it is **not** baked into
+  the image). Can you read it anyway?
+
+  Hint: `GET /debug?var=SOMENAME`.
+flag: "OSCTF{the_platform_injects_flags}"
+scoring: static
+points_initial: 100
+visible: true
+kind: container
+image: osctf/example-env-hunter:0.1
+internal_port: 8000
+connection_template: "http://{host}:{port}"

@@ -1,0 +1,22 @@
+slug: overflow-lite
+title: Overflow Lite
+category: pwn
+difficulty: easy
+description: |
+  A gentle warm-up in memory corruption. The service asks for a password and
+  checks a `won` flag before handing over the real flag. The buffer is small and
+  the bounds check is missing — overflow it to flip `won`.
+
+  The source is attached as `vuln.c`. Connect with `nc`.
+flag: "OSCTF{stack_smashing_for_beginners}"
+scoring: dynamic
+points_initial: 350
+points_min: 150
+decay: 25
+visible: true
+kind: container
+image: osctf/example-overflow-lite:0.1
+internal_port: 9000
+connection_template: "nc {host} {port}"
+files:
+  - files/vuln.c

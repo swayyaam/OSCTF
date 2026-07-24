@@ -1,0 +1,17 @@
+slug: cookie-monster
+title: Cookie Monster
+category: web
+difficulty: easy
+description: |
+  The admin's cookie is too tasty. The site trusts whatever role your cookie
+  claims. Become the admin.
+flag: "OSCTF{c00kies_r_stateful}"
+scoring: dynamic
+points_initial: 300
+points_min: 100
+decay: 40
+visible: true
+kind: container
+image: osctf/example-cookie-monster:0.1
+internal_port: 8000
+connection_template: "http://{host}:{port}"

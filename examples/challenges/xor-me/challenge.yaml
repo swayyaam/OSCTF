@@ -1,0 +1,16 @@
+slug: xor-me
+title: XOR Me
+category: rev
+difficulty: easy
+description: |
+  Reverse the attached `checker` binary. It XORs your input with a fixed key and
+  compares it against some obfuscated bytes. Recover the key and the bytes, XOR
+  them back, and you have the flag.
+flag: "OSCTF{x0r_is_reversible_obviously}"
+scoring: dynamic
+points_initial: 300
+points_min: 100
+decay: 30
+visible: true
+files:
+  - files/checker

@@ -127,8 +127,31 @@ func cmdMigrate(ctx context.Context, cfg *config.Config, log *slog.Logger) error
 }
 
 func cmdSeed(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	// The seeder is wired in M10; for now migrations are the prerequisite it needs.
-	log.Info("seed: nothing to do yet (implemented in M10)")
+	pool, err := db.Connect(ctx, cfg.DatabaseURL, log)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	store, err := storage.NewS3Store(ctx, storage.Config{
+		Endpoint: cfg.S3Endpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey,
+		Bucket: cfg.S3Bucket, UseSSL: cfg.S3UseSSL,
+	})
+	if err != nil {
+		return err
+	}
+	q := gen.New(pool)
+	if err := seed.EnsureAdmin(ctx, q, cfg, log); err != nil {
+		return err
+	}
+	if err := events.New(q, clock.System()).EnsureDefault(ctx); err != nil {
+		return err
+	}
+	if cfg.SeedExamples {
+		if err := seed.NewExampleSeeder(q, challenges.New(q, store), log).Seed(ctx, cfg.ExamplesDir); err != nil {
+			return err
+		}
+	}
+	log.Info("seed complete")
 	return nil
 }
 
@@ -194,6 +217,11 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
 	teamsSvc := teams.New(pool, cfg.TeamMaxSize)
 	challengesSvc := challenges.New(q, store)
+	if cfg.SeedExamples {
+		if err := seed.NewExampleSeeder(q, challengesSvc, log).Seed(ctx, cfg.ExamplesDir); err != nil {
+			return err
+		}
+	}
 	submissionsSvc := submissions.New(pool, eventsSvc, clk)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
@@ -226,6 +254,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Challenges:  challengesSvc,
 		Submissions: submissionsSvc,
 		Scoreboard:  scoreboardSvc,
+		Runtime:     rtMgr,
 		Recompute: func(rctx context.Context) {
 			if err := scoreboardSvc.Recompute(rctx); err != nil {
 				log.Warn("scoreboard recompute failed", "error", err.Error())

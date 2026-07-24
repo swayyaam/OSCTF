@@ -29,6 +29,9 @@ FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates wget && \
     adduser -D -u 10001 osctf
 COPY --from=build /platform /platform
+# The example challenge definitions + attachments the seeder loads on first boot.
+COPY examples /examples
+ENV OSCTF_EXAMPLES_DIR=/examples
 USER 10001
 EXPOSE 8080
 ENTRYPOINT ["/platform"]

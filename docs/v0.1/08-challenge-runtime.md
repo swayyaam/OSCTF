@@ -98,3 +98,18 @@ None automatic in v0.1 (organizers often keep challenges up after ends_at for pr
 - Shared instances mean participants share state inside a challenge container — challenge authors are warned in the authoring guide (13) to design accordingly (no destructive writes, or periodic self-reset in the image).
 - Kernel-hostile challenges (pwn with kernel exploits) are out of scope for shared Docker isolation; the authoring guide says so (vision doc's isolation-depth open question lands in v0.2 hardening).
 - Container egress: leave enabled in v0.1 (many web challenges fetch things); note in authoring guide. Revisit `--internal` network options in v0.2.
+
+## Decision log (M7/M10)
+
+- **Health check drops the `127.0.0.1:<HostPort>` TCP dial** (2026-07-25): doc's
+  health definition assumed the platform runs on the host. In the golden-path
+  compose deployment the platform runs in its own container and cannot reach the
+  host-published port on `127.0.0.1`, which made every running instance report
+  `unhealthy`. Health is now: container `State.Running` (plus the container's own
+  `HEALTHCHECK` when defined). Participant reachability is validated by players
+  connecting; a network-level probe from the platform container would require
+  attaching it to the `osctf-challenges` bridge (revisit in v0.2 hardening).
+- **Example container images are built on the host and not pushed**: the seeder
+  creates the challenge rows on first boot; `make examples` builds
+  `osctf/example-<slug>:0.1` locally, and the platform (sharing the host Docker
+  socket) finds them via the if-not-present pull policy at deploy time.

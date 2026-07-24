@@ -43,6 +43,7 @@ type Config struct {
 
 	DockerHost   string `env:"OSCTF_DOCKER_HOST"`
 	SeedExamples bool   `env:"OSCTF_SEED_EXAMPLES" envDefault:"true"`
+	ExamplesDir  string `env:"OSCTF_EXAMPLES_DIR" envDefault:"examples"`
 	TrustProxy   bool   `env:"OSCTF_TRUST_PROXY" envDefault:"false"`
 
 	CORSDevOrigin string `env:"OSCTF_CORS_DEV_ORIGIN"`

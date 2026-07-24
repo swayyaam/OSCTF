@@ -15,6 +15,8 @@ import (
 	"github.com/osctf/platform/internal/challenges"
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/scoreboard"
+	"github.com/osctf/platform/internal/submissions"
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 )
@@ -26,14 +28,16 @@ var ErrNotImplemented = errors.New("not implemented")
 // Deps are the services and helpers the handlers dispatch to. Fields are added
 // as milestones land; nil fields leave their endpoints on the 501 stub.
 type Deps struct {
-	Users      *users.Service
-	Teams      *teams.Service
-	Events     *events.Service
-	Challenges *challenges.Service
-	Auth       auth.AuthProvider
-	Sessions   *auth.SessionStore
-	Limiter    *redisx.Limiter
-	Audit      *audit.Logger
+	Users       *users.Service
+	Teams       *teams.Service
+	Events      *events.Service
+	Challenges  *challenges.Service
+	Submissions *submissions.Service
+	Scoreboard  *scoreboard.Service
+	Auth        auth.AuthProvider
+	Sessions    *auth.SessionStore
+	Limiter     *redisx.Limiter
+	Audit       *audit.Logger
 
 	// Recompute triggers a scoreboard recompute + broadcast; wired in M5/M6.
 	// Nil is a no-op, so earlier milestones compile and run.
@@ -74,21 +78,5 @@ func (s *Server) AdminGetInstanceLogs(ctx context.Context, request apigen.AdminG
 }
 
 func (s *Server) AdminRestartInstance(ctx context.Context, request apigen.AdminRestartInstanceRequestObject) (apigen.AdminRestartInstanceResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminGetStats(ctx context.Context, request apigen.AdminGetStatsRequestObject) (apigen.AdminGetStatsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminListSubmissions(ctx context.Context, request apigen.AdminListSubmissionsRequestObject) (apigen.AdminListSubmissionsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) SubmitFlag(ctx context.Context, request apigen.SubmitFlagRequestObject) (apigen.SubmitFlagResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetScoreboard(ctx context.Context, request apigen.GetScoreboardRequestObject) (apigen.GetScoreboardResponseObject, error) {
 	return nil, ErrNotImplemented
 }

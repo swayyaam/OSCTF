@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 )
 
 // Registry is the process-wide Prometheus registry.
@@ -65,4 +66,13 @@ func init() {
 // Handler serves the metrics registry.
 func Handler() http.Handler {
 	return promhttp.HandlerFor(Registry, promhttp.HandlerOpts{})
+}
+
+// GaugeValue reads the current value of a gauge (for the admin stats tile).
+func GaugeValue(g prometheus.Gauge) float64 {
+	var m dto.Metric
+	if err := g.Write(&m); err != nil {
+		return 0
+	}
+	return m.GetGauge().GetValue()
 }

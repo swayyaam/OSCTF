@@ -81,12 +81,31 @@ func (s *Server) GetTeam(ctx context.Context, request apigen.GetTeamRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	solveRows, err := s.d.Teams.Solves(ctx, team.Row.ID)
+	if err != nil {
+		return nil, err
+	}
+	solves := make([]apigen.Solve, 0, len(solveRows))
+	points := 0
+	for _, r := range solveRows {
+		pts, perr := s.d.Challenges.CurrentValue(ctx, r.ChallengeID)
+		if perr != nil {
+			return nil, perr
+		}
+		points += pts
+		username := r.Username
+		solves = append(solves, apigen.Solve{
+			ChallengeId: r.ChallengeID, Slug: r.Slug, Title: r.Title,
+			Category: apigen.Category(r.Category), Points: pts, SolvedAt: r.SolvedAt,
+			Username: &username,
+		})
+	}
 	detail := apigen.TeamDetail{
 		Id:      team.Row.ID,
 		Name:    team.Row.Name,
 		Members: toMembers(team.Members),
-		Points:  0,
-		Solves:  []apigen.Solve{},
+		Points:  points,
+		Solves:  solves,
 	}
 	// Show the invite code only to a member of this team.
 	if id, ok := callerID(ctx); ok {

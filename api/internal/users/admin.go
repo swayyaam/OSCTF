@@ -102,3 +102,8 @@ func (s *Service) AdminResetPassword(ctx context.Context, targetID uuid.UUID, ne
 	}
 	return nil
 }
+
+// Solves returns a user's personal scoring solves.
+func (s *Service) Solves(ctx context.Context, userID uuid.UUID) ([]gen.ListUserSolvesRow, error) {
+	return s.q.ListUserSolves(ctx, userID)
+}

@@ -21,11 +21,22 @@ func (s *Server) GetUser(ctx context.Context, request apigen.GetUserRequestObjec
 			return nil, apperr.ErrNotFound
 		}
 	}
-	profile := apigen.PublicUser{
-		Id:       u.ID,
-		Username: u.Username,
-		Solves:   []apigen.Solve{},
+	solveRows, err := s.d.Users.Solves(ctx, u.ID)
+	if err != nil {
+		return nil, err
 	}
+	solves := make([]apigen.Solve, 0, len(solveRows))
+	for _, r := range solveRows {
+		pts, perr := s.d.Challenges.CurrentValue(ctx, r.ChallengeID)
+		if perr != nil {
+			return nil, perr
+		}
+		solves = append(solves, apigen.Solve{
+			ChallengeId: r.ChallengeID, Slug: r.Slug, Title: r.Title,
+			Category: apigen.Category(r.Category), Points: pts, SolvedAt: r.SolvedAt,
+		})
+	}
+	profile := apigen.PublicUser{Id: u.ID, Username: u.Username, Solves: solves}
 	team, err := s.d.Users.TeamOf(ctx, u.ID)
 	if err != nil {
 		return nil, err

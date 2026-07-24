@@ -33,7 +33,5 @@ sql:
               import: time
               type: Time
               pointer: true
-          - db_type: inet
-            go_type:
-              type: string
-              pointer: true
+          # inet stays pgx-native (netip.Addr); converted to/from string at the
+          # service boundary. pgx cannot scan inet into a plain string.

@@ -109,3 +109,17 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (gen.Challenge, er
 	}
 	return c, nil
 }
+
+// CurrentValue returns a challenge's current point value by loading it and its
+// solve count. Used by profile solve lists.
+func (s *Service) CurrentValue(ctx context.Context, challengeID uuid.UUID) (int, error) {
+	c, err := s.q.GetChallengeByID(ctx, challengeID)
+	if err != nil {
+		return 0, fmt.Errorf("challenges: current value: %w", err)
+	}
+	solves, err := s.q.CountChallengeSolves(ctx, challengeID)
+	if err != nil {
+		return 0, fmt.Errorf("challenges: current value solve count: %w", err)
+	}
+	return CurrentPoints(c, int(solves)), nil
+}

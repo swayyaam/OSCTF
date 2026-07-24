@@ -58,3 +58,13 @@ func (s *Service) MemberCount(ctx context.Context, teamID uuid.UUID) (int64, err
 func (s *Service) PublicList(ctx context.Context) ([]gen.ListPublicTeamsRow, error) {
 	return s.q.ListPublicTeams(ctx)
 }
+
+// GetRow fetches just the team row (hot-path membership/ban checks).
+func (s *Service) GetRow(ctx context.Context, teamID uuid.UUID) (gen.Team, error) {
+	return s.q.GetTeamByID(ctx, teamID)
+}
+
+// Solves returns a team's scoring solves (challenge rows + solver username).
+func (s *Service) Solves(ctx context.Context, teamID uuid.UUID) ([]gen.ListTeamSolvesRow, error) {
+	return s.q.ListTeamSolves(ctx, teamID)
+}

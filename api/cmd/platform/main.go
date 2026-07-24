@@ -27,8 +27,10 @@ import (
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
+	"github.com/osctf/platform/internal/scoreboard"
 	"github.com/osctf/platform/internal/seed"
 	"github.com/osctf/platform/internal/storage"
+	"github.com/osctf/platform/internal/submissions"
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 	appversion "github.com/osctf/platform/internal/version"
@@ -190,6 +192,8 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
 	teamsSvc := teams.New(pool, cfg.TeamMaxSize)
 	challengesSvc := challenges.New(q, store)
+	submissionsSvc := submissions.New(pool, eventsSvc, clk)
+	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -199,10 +203,17 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	limiter := redisx.NewLimiter(rdb)
 
 	h := handlers.New(handlers.Deps{
-		Users:           usersSvc,
-		Teams:           teamsSvc,
-		Events:          eventsSvc,
-		Challenges:      challengesSvc,
+		Users:       usersSvc,
+		Teams:       teamsSvc,
+		Events:      eventsSvc,
+		Challenges:  challengesSvc,
+		Submissions: submissionsSvc,
+		Scoreboard:  scoreboardSvc,
+		Recompute: func(rctx context.Context) {
+			if err := scoreboardSvc.Recompute(rctx); err != nil {
+				log.Warn("scoreboard recompute failed", "error", err.Error())
+			}
+		},
 		Auth:            provider,
 		Sessions:        sessions,
 		Limiter:         limiter,
@@ -212,6 +223,10 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		SessionTTL:      cfg.SessionTTL,
 		MaxAttachmentMB: cfg.MaxAttachmentMB,
 	})
+
+	if err := scoreboardSvc.Recompute(ctx); err != nil {
+		log.Warn("initial scoreboard compute failed", "error", err.Error())
+	}
 
 	handler := httpserver.New(httpserver.Deps{
 		Log:           log,

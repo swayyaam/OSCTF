@@ -77,3 +77,21 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+@keyframes shake {
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+  30%,
+  70% {
+    transform: translateX(2px);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}

@@ -51,6 +51,7 @@ dev-api: ## Run the API locally against dev services
 	OSCTF_DATABASE_URL="postgres://osctf:osctf@localhost:55432/osctf?sslmode=disable" \
 	OSCTF_REDIS_URL="redis://localhost:6379/0" \
 	OSCTF_S3_ENDPOINT="localhost:9000" \
+	OSCTF_CORS_DEV_ORIGIN="http://localhost:5173" \
 	OSCTF_LOG_FORMAT=text \
 	go run ./cmd/platform serve
 

@@ -21,6 +21,9 @@ import (
 // Postgres starts a throwaway Postgres, migrates it, and returns a connected pool.
 func Postgres(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
+	}
 	ctx := context.Background()
 	container, err := postgres.Run(ctx, "postgres:17-alpine",
 		postgres.WithDatabase("osctf"),
@@ -53,6 +56,9 @@ func Postgres(t *testing.T) (*pgxpool.Pool, string) {
 // Redis starts a throwaway Redis and returns a connected client.
 func Redis(t *testing.T) *redis.Client {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
+	}
 	ctx := context.Background()
 	container, err := tcredis.Run(ctx, "redis:7-alpine")
 	if err != nil {

@@ -153,3 +153,15 @@ All `admin` auth. Every mutation writes an `audit_log` row.
   `api/openapi/vacuum-ruleset.yaml` (recommended set minus `description-duplication`
   and `oas3-missing-example` — short field docs legitimately repeat, and per-schema
   examples are not maintained in v0.1).
+
+## Decision log (M4)
+
+- **`freeze_at` on `PATCH /admin/event` is always applied** (2026-07-24): OpenAPI 3.0
+  + oapi-codegen decode `freeze_at: null` and an absent `freeze_at` both to a nil
+  pointer, so the two cannot be distinguished after decoding. The admin UI always
+  submits the full event form, so the handler sets the freeze value on every PATCH
+  (nil clears it). CLI users must send the full event object.
+- **Clearing nullable challenge fields via PATCH is unsupported in v0.1** (2026-07-24):
+  same absent-vs-null limitation. `PATCH /admin/challenges/{id}` sets a field only
+  when it is present with a value; to clear `difficulty`/`max_attempts`/etc., a
+  future version needs a tri-state (absent/null/value) codec. Documented, not built.

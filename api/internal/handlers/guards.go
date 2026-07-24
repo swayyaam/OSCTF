@@ -8,6 +8,13 @@ import (
 	"github.com/osctf/platform/internal/db/gen"
 )
 
+// recompute triggers a scoreboard recompute + broadcast when wired (M5/M6).
+func (s *Server) recompute(ctx context.Context) {
+	if s.d.Recompute != nil {
+		s.d.Recompute(ctx)
+	}
+}
+
 // requireUser returns the caller identity or ErrUnauthenticated.
 func requireUser(ctx context.Context) (auth.Identity, error) {
 	id, ok := auth.IdentityFrom(ctx)

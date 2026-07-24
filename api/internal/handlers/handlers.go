@@ -12,6 +12,8 @@ import (
 	"github.com/osctf/platform/internal/apigen"
 	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/auth"
+	"github.com/osctf/platform/internal/challenges"
+	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
@@ -24,18 +26,25 @@ var ErrNotImplemented = errors.New("not implemented")
 // Deps are the services and helpers the handlers dispatch to. Fields are added
 // as milestones land; nil fields leave their endpoints on the 501 stub.
 type Deps struct {
-	Users    *users.Service
-	Teams    *teams.Service
-	Auth     auth.AuthProvider
-	Sessions *auth.SessionStore
-	Limiter  *redisx.Limiter
-	Audit    *audit.Logger
+	Users      *users.Service
+	Teams      *teams.Service
+	Events     *events.Service
+	Challenges *challenges.Service
+	Auth       auth.AuthProvider
+	Sessions   *auth.SessionStore
+	Limiter    *redisx.Limiter
+	Audit      *audit.Logger
+
+	// Recompute triggers a scoreboard recompute + broadcast; wired in M5/M6.
+	// Nil is a no-op, so earlier milestones compile and run.
+	Recompute func(context.Context)
 
 	// SecureCookies mirrors OSCTF_BASE_URL's scheme; TrustProxy gates
 	// X-Forwarded-For handling; SessionTTL sizes the cookie Max-Age.
-	SecureCookies bool
-	TrustProxy    bool
-	SessionTTL    time.Duration
+	SecureCookies   bool
+	TrustProxy      bool
+	SessionTTL      time.Duration
+	MaxAttachmentMB int
 }
 
 // Server implements apigen.StrictServerInterface.
@@ -47,34 +56,6 @@ type Server struct {
 func New(d Deps) *Server { return &Server{d: d} }
 
 var _ apigen.StrictServerInterface = (*Server)(nil)
-
-func (s *Server) AdminListChallenges(ctx context.Context, request apigen.AdminListChallengesRequestObject) (apigen.AdminListChallengesResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminCreateChallenge(ctx context.Context, request apigen.AdminCreateChallengeRequestObject) (apigen.AdminCreateChallengeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminDeleteChallenge(ctx context.Context, request apigen.AdminDeleteChallengeRequestObject) (apigen.AdminDeleteChallengeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminGetChallenge(ctx context.Context, request apigen.AdminGetChallengeRequestObject) (apigen.AdminGetChallengeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminUpdateChallenge(ctx context.Context, request apigen.AdminUpdateChallengeRequestObject) (apigen.AdminUpdateChallengeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminUploadAttachment(ctx context.Context, request apigen.AdminUploadAttachmentRequestObject) (apigen.AdminUploadAttachmentResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminDeleteAttachment(ctx context.Context, request apigen.AdminDeleteAttachmentRequestObject) (apigen.AdminDeleteAttachmentResponseObject, error) {
-	return nil, ErrNotImplemented
-}
 
 func (s *Server) AdminDestroyInstance(ctx context.Context, request apigen.AdminDestroyInstanceRequestObject) (apigen.AdminDestroyInstanceResponseObject, error) {
 	return nil, ErrNotImplemented
@@ -96,14 +77,6 @@ func (s *Server) AdminRestartInstance(ctx context.Context, request apigen.AdminR
 	return nil, ErrNotImplemented
 }
 
-func (s *Server) AdminGetEvent(ctx context.Context, request apigen.AdminGetEventRequestObject) (apigen.AdminGetEventResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) AdminUpdateEvent(ctx context.Context, request apigen.AdminUpdateEventRequestObject) (apigen.AdminUpdateEventResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
 func (s *Server) AdminGetStats(ctx context.Context, request apigen.AdminGetStatsRequestObject) (apigen.AdminGetStatsResponseObject, error) {
 	return nil, ErrNotImplemented
 }
@@ -112,23 +85,7 @@ func (s *Server) AdminListSubmissions(ctx context.Context, request apigen.AdminL
 	return nil, ErrNotImplemented
 }
 
-func (s *Server) ListChallenges(ctx context.Context, request apigen.ListChallengesRequestObject) (apigen.ListChallengesResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetChallenge(ctx context.Context, request apigen.GetChallengeRequestObject) (apigen.GetChallengeResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) DownloadAttachment(ctx context.Context, request apigen.DownloadAttachmentRequestObject) (apigen.DownloadAttachmentResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
 func (s *Server) SubmitFlag(ctx context.Context, request apigen.SubmitFlagRequestObject) (apigen.SubmitFlagResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Server) GetEvent(ctx context.Context, request apigen.GetEventRequestObject) (apigen.GetEventResponseObject, error) {
 	return nil, ErrNotImplemented
 }
 

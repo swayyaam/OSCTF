@@ -18,13 +18,17 @@ import (
 
 	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/auth"
+	"github.com/osctf/platform/internal/challenges"
+	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/config"
 	"github.com/osctf/platform/internal/db"
 	"github.com/osctf/platform/internal/db/gen"
+	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/seed"
+	"github.com/osctf/platform/internal/storage"
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/users"
 	appversion "github.com/osctf/platform/internal/version"
@@ -145,9 +149,23 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	defer func() { _ = rdb.Close() }()
 	log.Info("redis ready")
 
+	store, err := storage.NewS3Store(ctx, storage.Config{
+		Endpoint: cfg.S3Endpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey,
+		Bucket: cfg.S3Bucket, UseSSL: cfg.S3UseSSL,
+	})
+	if err != nil {
+		return err
+	}
+	log.Info("object storage ready", "bucket", cfg.S3Bucket)
+
 	q := gen.New(pool)
+	clk := clock.System()
 
 	if err := seed.EnsureAdmin(ctx, q, cfg, log); err != nil {
+		return err
+	}
+	eventsSvc := events.New(q, clk)
+	if err := eventsSvc.EnsureDefault(ctx); err != nil {
 		return err
 	}
 
@@ -161,6 +179,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		if err := rdb.Ping(pingCtx).Err(); err != nil {
 			failing["redis"] = err.Error()
 		}
+		if err := store.Ready(pingCtx); err != nil {
+			failing["minio"] = err.Error()
+		}
 		return failing
 	}
 
@@ -168,6 +189,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	sessions := auth.NewSessionStore(rdb, cfg.SessionTTL)
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
 	teamsSvc := teams.New(pool, cfg.TeamMaxSize)
+	challengesSvc := challenges.New(q, store)
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -177,15 +199,18 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	limiter := redisx.NewLimiter(rdb)
 
 	h := handlers.New(handlers.Deps{
-		Users:         usersSvc,
-		Teams:         teamsSvc,
-		Auth:          provider,
-		Sessions:      sessions,
-		Limiter:       limiter,
-		Audit:         auditLog,
-		SecureCookies: cfg.IsHTTPS(),
-		TrustProxy:    cfg.TrustProxy,
-		SessionTTL:    cfg.SessionTTL,
+		Users:           usersSvc,
+		Teams:           teamsSvc,
+		Events:          eventsSvc,
+		Challenges:      challengesSvc,
+		Auth:            provider,
+		Sessions:        sessions,
+		Limiter:         limiter,
+		Audit:           auditLog,
+		SecureCookies:   cfg.IsHTTPS(),
+		TrustProxy:      cfg.TrustProxy,
+		SessionTTL:      cfg.SessionTTL,
+		MaxAttachmentMB: cfg.MaxAttachmentMB,
 	})
 
 	handler := httpserver.New(httpserver.Deps{

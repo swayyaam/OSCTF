@@ -10,6 +10,11 @@ node_modules/
 dashboard/dist/
 dashboard/.vite/
 
+# Playwright (transient e2e output)
+dashboard/test-results/
+dashboard/playwright-report/
+dashboard/.playwright/
+
 # Embedded SPA (built into the binary at image-build time)
 api/internal/webdist/static/
 

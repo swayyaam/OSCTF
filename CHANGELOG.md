@@ -69,4 +69,7 @@ scoreboard, and an admin panel — no cloud account, no license key.
 - Manual scoreboard point adjustments (documented workaround in the event guide).
 - Registration is rate-limited to 5/hour per IP; events behind a shared NAT
   should set `OSCTF_TRUST_PROXY` or pre-register.
-- License: **TBD** — do not publish the repository until it is decided.
+
+### License
+
+Released under the [Apache License 2.0](LICENSE).

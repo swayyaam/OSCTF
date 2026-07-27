@@ -50,6 +50,11 @@ read [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
 | `docs/` | The build specification (`docs/v0.1/`) and vision (`docs/project-desc.md`) |
 | `scripts/` | Smoke test and dev helpers |
 
+## License
+
+[Apache License 2.0](LICENSE). Contributions are accepted under the same license
+(see [`NOTICE`](NOTICE)).
+
 ## Status
 
-Pre-release (v0.1 in progress). No API stability promises before v1.0. License: **TBD**.
+v0.1 (MVP), feature-complete. No API stability promises before v1.0.

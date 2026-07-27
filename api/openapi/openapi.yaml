@@ -17,8 +17,8 @@ info:
     name: OSCTF maintainers
     url: https://github.com/osctf/platform
   license:
-    name: TBD (see LICENSE)
-    url: https://github.com/osctf/platform/blob/main/LICENSE
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
   - url: /api/v0

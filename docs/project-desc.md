@@ -319,7 +319,7 @@ That is a larger and more durable vision than "an open-source CTF platform," and
 # Open Questions
 
 - **Name.** Needs to be decided before the repo goes public; check trademark/domain availability.
-- **License.** AGPL protects against closed-source SaaS forks but scares some companies; Apache-2.0 maximizes adoption. Decide before first release.
+- ~~**License.** AGPL protects against closed-source SaaS forks but scares some companies; Apache-2.0 maximizes adoption. Decide before first release.~~ **Resolved (2026-07): Apache-2.0** — maximizes adoption, includes a patent grant, keeps the plugin/marketplace ecosystem unencumbered, and fits the "become the standard foundation" goal.
 - **Instance isolation depth.** Are Docker containers enough for hostile pwn challenges, or is gVisor/Firecracker needed earlier than Phase 4? (Kernel-exploit challenges can escape plain containers.)
 - **How CTFd-compatible to be.** Supporting CTFd's challenge format as an import path would lower switching costs enormously — worth it, or does it constrain the design?
 - **Anti-cheat scope for MVP.** Flag-sharing detection is hard; is submission rate limiting + IP logging enough for v0.1?

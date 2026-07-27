@@ -85,4 +85,4 @@ The rule for deferred features: **define the interface, skip the implementation.
 | Challenge host port range | 30000–30999 |
 | Timezone handling | Everything UTC; timestamps are RFC 3339 in the API, `timestamptz` in Postgres |
 | IDs | UUID v7, exposed as strings |
-| License | Not decided (open question in vision doc). Ship `LICENSE` as a placeholder file containing `TBD` until decided; do not publish the repo before it is resolved. |
+| License | **Apache-2.0** (decided 2026-07; maximizes adoption + patent grant, matches the Kubernetes-style "become the standard" goal and the plugin/marketplace direction). `LICENSE` + `NOTICE` at the repo root. |

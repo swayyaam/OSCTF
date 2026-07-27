@@ -22,6 +22,16 @@ test("freeze behavior", async ({ page, request }) => {
   await setFreezeInPast(request);
   const slug = await createChallenge(request, { title: `Freeze ${id}`, flag: `OSCTF{frz_${id}}` });
 
+  // Wait for the freeze to actually propagate to the public API before loading
+  // the page (the banner is driven by the /scoreboard `frozen` flag; asserting on
+  // the UI alone races the recompute in slower CI environments).
+  await expect
+    .poll(async () => {
+      const r = await request.get(`${BASE}/api/v0/scoreboard`);
+      return ((await r.json()) as { frozen: boolean }).frozen;
+    })
+    .toBe(true);
+
   // The public scoreboard shows the frozen banner.
   await page.goto("/scoreboard");
   await expect(page.getByText("Frozen", { exact: true })).toBeVisible();

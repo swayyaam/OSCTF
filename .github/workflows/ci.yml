@@ -135,6 +135,16 @@ jobs:
           npx playwright install --with-deps chromium
           set -a; source ../.env; set +a
           BASE_URL=http://localhost:8080 npm run e2e
+      - name: upload playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: dashboard/test-results
+          retention-days: 7
+      - name: platform logs on failure
+        if: failure()
+        run: docker compose logs platform | tail -100
       - name: teardown
         if: always()
         run: docker compose down -v

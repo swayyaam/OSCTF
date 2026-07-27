@@ -135,8 +135,14 @@ func compute(ctx context.Context, q *gen.Queries, now time.Time) (Snapshot, erro
 	// Banned teams trail, unranked, in a deterministic order.
 	sort.SliceStable(banned, func(i, j int) bool { return banned[i].Name < banned[j].Name })
 
+	// Always a non-nil slice so it serializes as [] (not null) — a null here
+	// crashes clients that read standings.length (e.g. over the WebSocket).
+	standings := make([]Entry, 0, len(active)+len(banned))
+	standings = append(standings, active...)
+	standings = append(standings, banned...)
+
 	return Snapshot{
 		GeneratedAt: now,
-		Standings:   append(active, banned...),
+		Standings:   standings,
 	}, nil
 }

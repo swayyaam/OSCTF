@@ -164,8 +164,8 @@ export function AdminChallengeEditor() {
           <form onSubmit={onSubmit} className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Title</Label>
-                <Input value={form.title} onChange={(e) => { set("title", e.target.value); }} required />
+                <Label htmlFor="ch-title">Title</Label>
+                <Input id="ch-title" value={form.title} onChange={(e) => { set("title", e.target.value); }} required />
                 <FieldError messages={fe("title")} />
               </div>
               <div>
@@ -211,8 +211,9 @@ export function AdminChallengeEditor() {
             </div>
 
             <div>
-              <Label>Flag</Label>
+              <Label htmlFor="ch-flag">Flag</Label>
               <Input
+                id="ch-flag"
                 type="text"
                 value={form.flag}
                 onChange={(e) => { set("flag", e.target.value); }}
@@ -232,8 +233,9 @@ export function AdminChallengeEditor() {
 
             <div className="grid gap-3 sm:grid-cols-4">
               <div>
-                <Label>Scoring</Label>
+                <Label htmlFor="ch-scoring">Scoring</Label>
                 <select
+                  id="ch-scoring"
                   className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-text"
                   value={form.scoring}
                   onChange={(e) => { set("scoring", e.target.value); }}
@@ -243,8 +245,9 @@ export function AdminChallengeEditor() {
                 </select>
               </div>
               <div>
-                <Label>Initial</Label>
+                <Label htmlFor="ch-initial">Initial</Label>
                 <Input
+                  id="ch-initial"
                   type="number"
                   value={form.points_initial}
                   onChange={(e) => { set("points_initial", e.target.value); }}

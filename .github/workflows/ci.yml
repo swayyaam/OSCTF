@@ -106,7 +106,9 @@ jobs:
           cp .env.example .env
           docker compose up -d --build --wait
       - name: smoke test
-        run: BASE_URL=http://localhost:8080 bash scripts/smoke.sh
+        run: |
+          set -a; source .env; set +a
+          BASE_URL=http://localhost:8080 bash scripts/smoke.sh
       - name: logs on failure
         if: failure()
         run: docker compose logs platform
@@ -131,7 +133,8 @@ jobs:
         run: |
           cd dashboard && npm ci
           npx playwright install --with-deps chromium
-          npm run e2e
+          set -a; source ../.env; set +a
+          BASE_URL=http://localhost:8080 npm run e2e
       - name: teardown
         if: always()
         run: docker compose down -v

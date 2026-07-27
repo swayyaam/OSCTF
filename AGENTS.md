@@ -84,9 +84,23 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
 ## Gotchas
 
 - **Regenerate after editing `openapi.yaml` or the SQL schema**, or the build breaks
-  (`make generate`). The generated code is the contract handlers compile against.
+  (`make generate`). The generated code is the contract handlers compile against. The
+  OpenAPI is authored as 3.0.3 (oapi-codegen can't parse 3.1); lint it with the pinned
+  ruleset (`vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml`).
 - The dev build serves an SPA placeholder — that's expected. The real SPA is embedded
   only in `-tags embed_spa` builds (the Docker image); in dev use `make dev-web`.
-- `make dev-api` requires the dev datastores (`make dev`) to be up first.
+- `make dev-api` requires the dev datastores (`make dev`) first, and overrides the
+  datastore URLs to localhost with Postgres on **55432** (not 5432, to dodge a
+  natively-installed Postgres). It also sets `OSCTF_CORS_DEV_ORIGIN=http://localhost:5173`
+  — without it, browser mutations from the Vite dev origin get a 403 origin-check failure.
+- Integration tests need Docker (testcontainers) and skip under `-short`. The
+  container-runtime tests are build-tagged: `go test -tags dockerint ./internal/runtime/...`.
+- **Playwright e2e runs with `workers: 1`** — the flows mutate one shared global event
+  (window/freeze) and must not run concurrently.
+- Registration is rate-limited to **5/hour per IP**; re-running smoke/e2e within an hour
+  trips it. `docker compose exec redis redis-cli FLUSHALL` clears the counters locally.
+- If `make setup` fails building sqlc (a macOS cgo `strchrnul` conflict), install the
+  prebuilt binary — see Setup above.
 - The platform mounts the Docker socket in production — **root-equivalent on the host**.
-  Run events on a dedicated VM.
+  Run events on a dedicated VM. Example container images are built on the host by
+  `make examples` and found via the if-not-present pull policy at deploy time.

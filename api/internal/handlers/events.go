@@ -61,6 +61,13 @@ func (s *Server) AdminUpdateEvent(ctx context.Context, request apigen.AdminUpdat
 	if err != nil {
 		return nil, err
 	}
+	// Clearing freeze_at deletes the frozen snapshot so the board jumps to live
+	// (docs/v0.1/07-scoring.md).
+	if e.FreezeAt == nil && s.d.Scoreboard != nil {
+		if cerr := s.d.Scoreboard.ClearFreeze(ctx); cerr != nil {
+			return nil, cerr
+		}
+	}
 	s.d.Audit.Log(ctx, actor.ID, "event.update", "event", e.ID.String(), nil)
 	s.recompute(ctx)
 	return apigen.AdminUpdateEvent200JSONResponse(toEventAdmin(e)), nil

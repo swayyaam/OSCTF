@@ -28,12 +28,15 @@ test("admin challenge lifecycle", async ({ page, request }) => {
   await page.goto("/challenges");
   await expect(page.getByText(`Admin E2E ${id}`)).toBeVisible();
 
-  // Edit points and save.
+  // Edit points and save, then confirm the change persisted (durable — avoids
+  // racing the transient toast).
   await page.goto("/admin/challenges");
   await page.getByRole("link", { name: `Admin E2E ${id}` }).click();
   await page.getByLabel("Initial").fill("250");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Saved")).toBeVisible();
+  await expect(page.getByText("Saved").first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Initial")).toHaveValue("250");
 
   // Delete it.
   page.on("dialog", (d) => void d.accept());

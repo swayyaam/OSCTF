@@ -7,9 +7,11 @@ export default defineConfig({
   timeout: 30_000,
   fullyParallel: false,
   // The flows mutate one shared global event (window, freeze), so they must not
-  // run concurrently against the same backend.
+  // run concurrently against the same backend. Retries are off: a retry re-runs
+  // the admin login + registrations, which would burn the per-account/per-IP rate
+  // limits and cascade into the other flows.
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: "list",
   use: {
     baseURL: process.env.BASE_URL ?? "http://localhost:8080",

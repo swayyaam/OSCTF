@@ -14,9 +14,6 @@ export function ScoreboardPage() {
     return <Skeleton className="h-64 w-full" />;
   }
 
-  // Defend against a null standings payload (e.g. a legacy/edge snapshot).
-  const standings = data.standings ?? [];
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -31,7 +28,7 @@ export function ScoreboardPage() {
         )}
       </div>
 
-      {standings.length === 0 ? (
+      {data.standings.length === 0 ? (
         <EmptyState>No teams yet.</EmptyState>
       ) : (
         <Table data-testid="scoreboard-table">
@@ -45,7 +42,7 @@ export function ScoreboardPage() {
             </tr>
           </thead>
           <tbody aria-live="polite">
-            {standings.map((row) => (
+            {data.standings.map((row) => (
               <tr key={row.team_id} className={cn(row.banned && "opacity-50")}>
                 <Td className="font-mono text-text-muted">{row.rank ?? "—"}</Td>
                 <Td>

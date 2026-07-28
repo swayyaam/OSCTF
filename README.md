@@ -1,7 +1,8 @@
 # OSCTF
 
 > An open, self-hostable platform for cybersecurity competitions, labs, and training.
-> **v0.1 (MVP):** one person can host a real CTF for ~100 participants on a single server.
+> **v0.2:** dynamic **per-team challenge instances** — each team gets its own
+> isolated container, with its own flag, managed by a built-in scheduler.
 
 CTFs are the entry point; the durable goal is to be the open infrastructure layer that
 universities, communities, and companies build their security education on. See
@@ -55,6 +56,17 @@ read [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
 [Apache License 2.0](LICENSE). Contributions are accepted under the same license
 (see [`NOTICE`](NOTICE)).
 
+## Per-team instances (v0.2)
+
+Mark a `container` challenge `per_team` in the admin editor; participants then click
+**Start** to get their own container (own port, network-isolated, optional per-team
+unique flag) and **Stop**/**Extend** it. The scheduler expires instances on a TTL
+and tears them all down at event end. Tunable via `OSCTF_INSTANCE_TTL`,
+`OSCTF_INSTANCE_EXTEND`, `OSCTF_INSTANCE_MAX_TTL`, `OSCTF_TEAM_INSTANCE_QUOTA`, and
+`OSCTF_FLAG_PREFIX` (see [`.env.example`](.env.example)). Every challenge container
+now runs read-only-rootfs with egress control; per-team instancing needs the wider
+`OSCTF_PORT_RANGE` (30000–32767) open on the host. Full spec: [`docs/v0.2/`](docs/v0.2/README.md).
+
 ## Status
 
-v0.1 (MVP), feature-complete. No API stability promises before v1.0.
+v0.2, feature-complete. No API stability promises before v1.0.

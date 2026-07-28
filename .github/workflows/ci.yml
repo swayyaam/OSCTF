@@ -125,6 +125,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - name: build per-team example image (for the instance e2e flow)
+        run: docker build -t osctf/example-per-team-web:0.2 examples/challenges/per-team-web/src
       - name: compose up
         run: |
           cp .env.example .env

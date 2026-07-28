@@ -51,3 +51,31 @@ export async function createChallenge(
   const body = (await res.json()) as { slug: string };
   return body.slug;
 }
+
+/** createPerTeamWeb creates a visible per_team + per_instance container challenge
+ * backed by the per-team-web example image and returns its slug. */
+export async function createPerTeamWeb(
+  request: APIRequestContext,
+  title: string,
+): Promise<string> {
+  const res = await request.post(`${BASE}/api/v0/admin/challenges`, {
+    headers: ORIGIN,
+    data: {
+      title,
+      category: "web",
+      kind: "container",
+      flag: "OSCTF{placeholder}",
+      scoring: "static",
+      points_initial: 200,
+      visible: true,
+      image: "osctf/example-per-team-web:0.2",
+      internal_port: 8000,
+      connection_template: "http://{host}:{port}",
+      instancing: "per_team",
+      flag_mode: "per_instance",
+    },
+  });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  const body = (await res.json()) as { slug: string };
+  return body.slug;
+}

@@ -88,7 +88,12 @@ INSERT INTO challenges (
     instancing, flag_mode, instance_ttl_seconds, egress, writable_paths
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-    $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+    $17, $18, $19, $20, $21,
+    coalesce($22::text, 'shared'),
+    coalesce($23::text, 'static'),
+    $24::int,
+    coalesce($25::boolean, true),
+    coalesce($26::jsonb, '[]'::jsonb)
 )
 RETURNING id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths
 `
@@ -115,10 +120,10 @@ type CreateChallengeParams struct {
 	CpuMillis           int32
 	ContainerEnv        []byte
 	ConnectionTemplate  *string
-	Instancing          string
-	FlagMode            string
+	Instancing          *string
+	FlagMode            *string
 	InstanceTtlSeconds  *int32
-	Egress              bool
+	Egress              *bool
 	WritablePaths       []byte
 }
 

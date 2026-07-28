@@ -3,6 +3,61 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
+## v0.2.0 — Dynamic per-team instances
+
+The feature that sets OSCTF apart from CTFd-class tools: **per-team isolated
+challenge instances with an in-process scheduler.** Mark a `container` challenge
+`per_team` and each team clicks **Start** to get its own container — its own host
+port, its own unique flag, network-isolated from other teams — while the scheduler
+handles the whole lifecycle. A v0.1 event (all `shared`/`static`) upgrades in place
+and behaves identically.
+
+### Added
+
+- **Per-team instancing** — `challenges.instancing = shared | per_team`. A
+  per-team challenge is started on demand per team; the participant challenge view
+  gains a Start / Stop / Extend panel with connection info and a live TTL countdown.
+- **Scheduler** — an in-process, tick-driven component that spawns instances on
+  demand, enforces a per-team concurrent quota, expires them on a TTL, lets teams
+  extend up to a maximum lifetime, and tears down all per-team instances at event
+  end. Shared instances are left for post-event practice.
+- **Per-instance dynamic flags** — `challenges.flag_mode = static | per_instance`.
+  A per-instance challenge mints a unique `osctf{…}` flag per team instance,
+  injects it as `FLAG`, and validates submissions against the submitting team's own
+  instance. A team can never solve with another team's flag.
+- **Flag-sharing signal** — submitting a flag that matches a *different* team's
+  per-instance flag records a `flag.shared` audit entry and a metric. Detection
+  only; never revealed to the submitter and never logged with the flag value.
+- **Runtime hardening** (the v0.1-deferred pass) — every deployed container now
+  runs read-only-rootfs with `/tmp` (and declared `writable_paths`) as tmpfs, on a
+  **per-team Docker network**, with egress off (`--internal`) when the challenge
+  opts out. `no-new-privileges`, cap-drop ALL, and resource limits as before.
+- **Admin instances page** — a fleet view of every instance (shared + per-team)
+  with owner, state, port, network, age, expiry, and health, plus destroy-by-id.
+- **Example challenges** — `per-team-web` and `per-team-pwn` (per_team +
+  per_instance) and `hardening-demo` (a read-only-rootfs showcase).
+- **Config** — `OSCTF_INSTANCE_TTL` / `_EXTEND` / `_MAX_TTL`,
+  `OSCTF_TEAM_INSTANCE_QUOTA`, `OSCTF_FLAG_PREFIX`; the challenge host-port range
+  widened to `30000–32767`.
+
+### Changed
+
+- Migration `0002_dynamic_instances` is additive and non-destructive: new nullable
+  columns, owner-aware partial unique indexes replacing the one-instance-per-
+  challenge constraint, and a wider host-port range. Existing rows are unchanged.
+- The API stays `/api/v0`. New endpoints (`POST/DELETE /challenges/{slug}/instance`,
+  `/instance/extend`, `GET /admin/instances`, `DELETE /admin/instances/{id}`) are
+  additive; `getChallenge` gains `instancing`, `flag_mode`, and the caller's
+  instance; challenge authoring gains the new fields (rejected for non-container).
+
+### Security
+
+- Per-instance flags are secrets from birth: never serialized in any API response
+  (participant or admin), never logged, and never placed in audit metadata or
+  metric labels — enforced by leak-scan tests.
+- Per-team network isolation (internal networks) is verified with a real
+  cross-bridge connection probe in the runtime integration tests.
+
 ## v0.1.0 — MVP
 
 The first release: **one person can host a real CTF for ~100 participants on a

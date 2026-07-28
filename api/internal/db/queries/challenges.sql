@@ -7,7 +7,12 @@ INSERT INTO challenges (
     instancing, flag_mode, instance_ttl_seconds, egress, writable_paths
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-    $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+    $17, $18, $19, $20, $21,
+    coalesce(sqlc.narg('instancing')::text, 'shared'),
+    coalesce(sqlc.narg('flag_mode')::text, 'static'),
+    sqlc.narg('instance_ttl_seconds')::int,
+    coalesce(sqlc.narg('egress')::boolean, true),
+    coalesce(sqlc.narg('writable_paths')::jsonb, '[]'::jsonb)
 )
 RETURNING *;
 

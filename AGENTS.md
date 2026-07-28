@@ -52,6 +52,7 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
 | `api/internal/scoring` | Pure scoring engines (no I/O, no clock). |
 | `api/internal/scoreboard` `ws` | Standings computation + cache; WebSocket hub. |
 | `api/internal/runtime` `storage` | `ChallengeRuntime` (Docker) and `ObjectStore` (MinIO). |
+| `api/internal/scheduler` `flags` | Per-team instance lifecycle (spawn/expire/quota) and per-instance flag generation (v0.2; see [`docs/v0.2/`](docs/v0.2/README.md)). |
 | `api/internal/webdist` | Embeds the built SPA (build tag `embed_spa`; dev fallback otherwise). |
 | `dashboard/` | React 19 + TS SPA (Vite). |
 | `examples/challenges/` | Seeded example challenges (`challenge.yaml`). |

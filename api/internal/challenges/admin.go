@@ -109,8 +109,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 		MemLimitMb: 256, CpuMillis: 500, ContainerEnv: envJSON,
 		PointsMin: i32p(in.PointsMin), Decay: i32p(in.Decay), MaxAttempts: i32p(in.MaxAttempts),
 		Image: in.Image, InternalPort: i32p(in.InternalPort), ConnectionTemplate: in.ConnectionTemplate,
-		Instancing: in.Instancing, FlagMode: in.FlagMode,
-		InstanceTtlSeconds: i32p(in.InstanceTTLSeconds), Egress: egress, WritablePaths: wpJSON,
+		Instancing: &in.Instancing, FlagMode: &in.FlagMode,
+		InstanceTtlSeconds: i32p(in.InstanceTTLSeconds), Egress: &egress, WritablePaths: wpJSON,
 	}
 	if in.MemLimitMB != nil {
 		params.MemLimitMb = clampI32(*in.MemLimitMB)

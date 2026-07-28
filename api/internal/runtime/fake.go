@@ -20,6 +20,9 @@ type FakeRuntime struct {
 	FailDeploy bool
 	// Unavailable, when set, makes every op return a runtime-unavailable error.
 	Unavailable bool
+	// Deployed captures every spec passed to Deploy, so tests can assert the
+	// owner/network/hardening fields the Manager built.
+	Deployed []InstanceSpec
 }
 
 // NewFakeRuntime builds a fake over the instances store.
@@ -35,6 +38,7 @@ func (f *FakeRuntime) Deploy(ctx context.Context, spec InstanceSpec) (Instance, 
 	if f.Unavailable {
 		return Instance{}, Unavailable(fmt.Errorf("fake unavailable"))
 	}
+	f.Deployed = append(f.Deployed, spec)
 	now := f.now()
 	if f.FailDeploy {
 		row, err := f.update(ctx, spec.InstanceID, gen.UpdateInstanceParams{

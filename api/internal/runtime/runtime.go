@@ -28,7 +28,9 @@ const (
 	StateLost      State = "lost"
 )
 
-// InstanceSpec is the desired shape of a challenge instance.
+// InstanceSpec is the desired shape of a challenge instance. The v0.2 fields
+// (owner, network, hardening) are additive; the Manager fills them from the
+// challenge row so the runtime never has to know about instancing or flag mode.
 type InstanceSpec struct {
 	InstanceID   uuid.UUID
 	ChallengeID  uuid.UUID
@@ -38,18 +40,27 @@ type InstanceSpec struct {
 	HostPort     int
 	MemLimitMB   int
 	CPUMillis    int
-	Env          map[string]string
+	Env          map[string]string // already carries FLAG (per-instance value when set)
+
+	TeamID         *uuid.UUID // nil = shared instance (v0.1); set = per-team
+	NetworkName    string     // docker network to attach; "" = shared 'osctf-challenges'
+	Internal       bool       // true -> per-team network created --internal (egress off)
+	ReadonlyRootfs bool       // true -> read-only container rootfs
+	Tmpfs          []string   // writable tmpfs mount targets, e.g. ["/tmp"]
 }
 
 // Instance is the observed state of a challenge instance.
 type Instance struct {
 	ID           uuid.UUID
 	ChallengeID  uuid.UUID
+	TeamID       *uuid.UUID
 	State        State
 	ContainerID  string
 	HostPort     int
+	Network      string
 	StartedAt    *time.Time
 	LastHealthAt *time.Time
+	ExpiresAt    *time.Time
 	Err          string
 }
 

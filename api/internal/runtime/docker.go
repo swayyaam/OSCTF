@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -25,10 +26,12 @@ import (
 
 const (
 	challengeNetwork = "osctf-challenges"
+	teamNetPrefix    = "osctf-team-"
 	managedLabel     = "osctf.managed"
 	deployTimeout    = 120 * time.Second
 	pidsLimit        = 256
 	logCap           = 256 * 1024
+	tmpfsSize        = "64m"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -73,7 +76,11 @@ func (d *DockerRuntime) Deploy(ctx context.Context, spec InstanceSpec) (inst Ins
 		}
 	}()
 
-	if derr := d.ensureNetwork(ctx); derr != nil {
+	netName := spec.NetworkName
+	if netName == "" {
+		netName = challengeNetwork
+	}
+	if derr := d.ensureNamedNetwork(ctx, netName, spec.Internal); derr != nil {
 		return Instance{}, d.wrapUnavailable(derr)
 	}
 	if derr := d.ensureImage(ctx, spec.Image); derr != nil {
@@ -83,7 +90,14 @@ func (d *DockerRuntime) Deploy(ctx context.Context, spec InstanceSpec) (inst Ins
 	// Remove any stale container for this instance (retry/redeploy path).
 	d.removeByLabel(ctx, spec.InstanceID)
 
+	// Container name must be unique among concurrent containers. A shared instance
+	// keeps the v0.1 slug-only name; a per-team instance appends the instance id's
+	// random tail so two teams running the same challenge do not collide.
 	name := "osctf-chal-" + spec.Slug
+	if spec.TeamID != nil {
+		s := spec.InstanceID.String()
+		name += "-" + s[len(s)-8:]
+	}
 	portStr := strconv.Itoa(spec.InternalPort) + "/tcp"
 	exposed := nat.PortSet{nat.Port(portStr): struct{}{}}
 	bindings := nat.PortMap{nat.Port(portStr): []nat.PortBinding{{
@@ -114,11 +128,13 @@ func (d *DockerRuntime) Deploy(ctx context.Context, spec InstanceSpec) (inst Ins
 			NanoCPUs:   int64(spec.CPUMillis) * 1_000_000,
 			PidsLimit:  ptrInt64(pidsLimit),
 		},
-		SecurityOpt: []string{"no-new-privileges:true"},
-		CapDrop:     []string{"ALL"},
+		SecurityOpt:    []string{"no-new-privileges:true"},
+		CapDrop:        []string{"ALL"},
+		ReadonlyRootfs: spec.ReadonlyRootfs,
+		Tmpfs:          tmpfsMounts(spec.Tmpfs),
 	}
 	netCfg := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{challengeNetwork: {}},
+		EndpointsConfig: map[string]*network.EndpointSettings{netName: {}},
 	}
 
 	created, cerr := d.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, name)
@@ -280,25 +296,74 @@ func (d *DockerRuntime) Reconcile(ctx context.Context) error {
 			_ = d.cli.ContainerRemove(ctx, cid, container.RemoveOptions{Force: true})
 		}
 	}
+	d.gcTeamNetworks(ctx)
 	return nil
+}
+
+// gcTeamNetworks removes managed per-team bridges that no longer have any
+// attached containers (a team's last instance was destroyed). Networks in use
+// are skipped; connection failures are tolerated (skip the pass).
+func (d *DockerRuntime) gcTeamNetworks(ctx context.Context) {
+	nets, err := d.cli.NetworkList(ctx, network.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", managedLabel+"=true")),
+	})
+	if err != nil {
+		return
+	}
+	for _, n := range nets {
+		if !strings.HasPrefix(n.Name, teamNetPrefix) {
+			continue
+		}
+		full, ierr := d.cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
+		if ierr != nil {
+			continue
+		}
+		if len(full.Containers) > 0 {
+			continue // still in use
+		}
+		if rerr := d.cli.NetworkRemove(ctx, n.ID); rerr != nil {
+			d.log.Warn("runtime: removing empty team network", "network", n.Name, "error", rerr.Error())
+		}
+	}
 }
 
 // --- helpers ---------------------------------------------------------------
 
-func (d *DockerRuntime) ensureNetwork(ctx context.Context) error {
+func (d *DockerRuntime) ensureNamedNetwork(ctx context.Context, name string, internal bool) error {
 	nets, err := d.cli.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", challengeNetwork)),
+		Filters: filters.NewArgs(filters.Arg("name", name)),
 	})
 	if err != nil {
 		return err
 	}
 	for _, n := range nets {
-		if n.Name == challengeNetwork {
+		if n.Name == name {
 			return nil
 		}
 	}
-	_, err = d.cli.NetworkCreate(ctx, challengeNetwork, network.CreateOptions{Driver: "bridge"})
+	labels := map[string]string{managedLabel: "true"}
+	if strings.HasPrefix(name, teamNetPrefix) {
+		labels["osctf.team_network"] = "true"
+	}
+	_, err = d.cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:   "bridge",
+		Internal: internal,
+		Labels:   labels,
+	})
 	return err
+}
+
+// tmpfsMounts renders tmpfs mount targets into Docker's Tmpfs map. Each is small,
+// noexec, nosuid so a read-only-rootfs challenge still has scratch space.
+func tmpfsMounts(targets []string) map[string]string {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(targets))
+	for _, t := range targets {
+		out[t] = "rw,noexec,nosuid,size=" + tmpfsSize
+	}
+	return out
 }
 
 func (d *DockerRuntime) ensureImage(ctx context.Context, ref string) error {

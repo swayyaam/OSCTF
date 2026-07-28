@@ -30,6 +30,13 @@ func NewFakeRuntime(q *gen.Queries) *FakeRuntime {
 	return &FakeRuntime{q: q, now: func() time.Time { return time.Now().UTC() }}
 }
 
+// NewFakeRuntimeWithClock builds a fake whose started_at/health timestamps come
+// from the given clock, so tests injecting a clock into the scheduler see a
+// consistent timeline (started_at aligns with the scheduler's now).
+func NewFakeRuntimeWithClock(q *gen.Queries, now func() time.Time) *FakeRuntime {
+	return &FakeRuntime{q: q, now: now}
+}
+
 // Name implements ChallengeRuntime.
 func (f *FakeRuntime) Name() string { return "fake" }
 

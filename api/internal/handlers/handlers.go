@@ -16,6 +16,7 @@ import (
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/runtime"
+	"github.com/osctf/platform/internal/scheduler"
 	"github.com/osctf/platform/internal/scoreboard"
 	"github.com/osctf/platform/internal/submissions"
 	"github.com/osctf/platform/internal/teams"
@@ -36,6 +37,7 @@ type Deps struct {
 	Submissions *submissions.Service
 	Scoreboard  *scoreboard.Service
 	Runtime     *runtime.Manager
+	Scheduler   *scheduler.Scheduler
 	Auth        auth.AuthProvider
 	Sessions    *auth.SessionStore
 	Limiter     *redisx.Limiter

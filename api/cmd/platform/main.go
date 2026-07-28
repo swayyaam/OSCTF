@@ -24,10 +24,12 @@ import (
 	"github.com/osctf/platform/internal/db"
 	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/events"
+	"github.com/osctf/platform/internal/flags"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/runtime"
+	"github.com/osctf/platform/internal/scheduler"
 	"github.com/osctf/platform/internal/scoreboard"
 	"github.com/osctf/platform/internal/seed"
 	"github.com/osctf/platform/internal/storage"
@@ -240,6 +242,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else {
 		log.Info("runtime reconciled")
 	}
+	sched := scheduler.New(rtMgr, q, eventsSvc, flags.NewGenerator(cfg.FlagPrefix), auditLog, clk, log, scheduler.Config{
+		TTL: cfg.InstanceTTL, Extend: cfg.InstanceExtend, MaxTTL: cfg.InstanceMaxTTL, Quota: cfg.TeamInstanceQuota,
+	})
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
@@ -255,6 +260,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Submissions: submissionsSvc,
 		Scoreboard:  scoreboardSvc,
 		Runtime:     rtMgr,
+		Scheduler:   sched,
 		Recompute: func(rctx context.Context) {
 			if err := scoreboardSvc.Recompute(rctx); err != nil {
 				log.Warn("scoreboard recompute failed", "error", err.Error())
@@ -290,8 +296,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	go runTickers(ctx, log, eventsSvc, scoreboardSvc, hub)
+	go runTickers(ctx, log, eventsSvc, scoreboardSvc, hub, sched)
 	go runReconcile(ctx, log, rtMgr)
+	go sched.RunExpiry(ctx)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -318,7 +325,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 // runTickers drives periodic background work: freeze snapshot capture and event
 // phase-transition broadcasts. Interval 15s (docs/v0.1/01-architecture.md).
-func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *scoreboard.Service, hub *ws.Hub) {
+func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *scoreboard.Service, hub *ws.Hub, sched *scheduler.Scheduler) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -338,6 +345,12 @@ func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *s
 					hub.BroadcastPhase(phase)
 					if rerr := sb.Recompute(tctx); rerr != nil {
 						log.Warn("recompute on phase change failed", "error", rerr.Error())
+					}
+					// Event just ended: tear down every per-team instance.
+					if phase == string(events.PhaseEnded) {
+						if cerr := sched.CleanupEnded(tctx); cerr != nil {
+							log.Warn("event-end instance cleanup failed", "error", cerr.Error())
+						}
 					}
 				}
 				lastPhase = phase

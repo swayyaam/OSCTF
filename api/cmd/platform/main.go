@@ -222,7 +222,8 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return err
 		}
 	}
-	submissionsSvc := submissions.New(pool, eventsSvc, clk)
+	auditLog := audit.New(q, log)
+	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
 	hub := ws.NewHub(log)
@@ -244,7 +245,6 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
 		}
 	})
-	auditLog := audit.New(q, log)
 	limiter := redisx.NewLimiter(rdb)
 
 	h := handlers.New(handlers.Deps{

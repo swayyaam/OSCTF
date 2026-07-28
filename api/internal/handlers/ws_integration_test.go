@@ -58,7 +58,7 @@ func TestWebSocketScoreboardIntegration(t *testing.T) {
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4),
 		Events: ev, Challenges: challenges.New(q, newMemStore()),
-		Submissions: submissions.New(pool, ev, clock.System()), Scoreboard: sb,
+		Submissions: submissions.New(pool, ev, clock.System(), audit.New(q, discardLog())), Scoreboard: sb,
 		Recompute: func(rctx context.Context) { _ = sb.Recompute(rctx) },
 		Auth:      auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,

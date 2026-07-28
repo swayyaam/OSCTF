@@ -17,10 +17,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/osctf/platform/internal/apperr"
+	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/db"
 	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/events"
+	"github.com/osctf/platform/internal/metrics"
 	"github.com/osctf/platform/internal/scoring"
 )
 
@@ -30,11 +32,12 @@ type Service struct {
 	q      *gen.Queries
 	events *events.Service
 	clock  clock.Clock
+	audit  *audit.Logger
 }
 
 // New builds the service.
-func New(pool *pgxpool.Pool, ev *events.Service, c clock.Clock) *Service {
-	return &Service{pool: pool, q: gen.New(pool), events: ev, clock: c}
+func New(pool *pgxpool.Pool, ev *events.Service, c clock.Clock, auditLog *audit.Logger) *Service {
+	return &Service{pool: pool, q: gen.New(pool), events: ev, clock: c, audit: auditLog}
 }
 
 // Input is a validated submission request.
@@ -84,8 +87,10 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 	}
 
 	var correct bool
+	var sharingOwner *uuid.UUID // owning team when another team's per-instance flag was submitted
 	err = db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
+		sharingOwner = nil
 
 		// Lock the challenge as the solve-count anchor.
 		locked, lerr := qtx.GetChallengeForUpdate(ctx, ch.ID)
@@ -109,7 +114,17 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 			return &apperr.Forbidden{Detail: "no attempts remaining for this challenge"}
 		}
 
-		correct = compareFlag(in.Flag, locked.Flag, locked.FlagCaseInsensitive)
+		// Flag comparison: static compares against the challenge flag (v0.1);
+		// per_instance compares against the submitting team's own instance flag
+		// and raises a sharing signal if it matches a different team's flag.
+		if locked.FlagMode == "per_instance" {
+			correct, sharingOwner, lerr = s.comparePerInstance(ctx, qtx, ch.ID, in)
+			if lerr != nil {
+				return lerr
+			}
+		} else {
+			correct = compareFlag(in.Flag, locked.Flag, locked.FlagCaseInsensitive)
+		}
 
 		id, lerr := uuid.NewV7()
 		if lerr != nil {
@@ -133,6 +148,18 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		return Result{}, err
 	}
 
+	// A sharing signal is detection-only: log it and count it, never reveal it to
+	// the submitter and never record the flag value.
+	if sharingOwner != nil {
+		metrics.FlagSharingSignals.Inc()
+		if s.audit != nil {
+			s.audit.Log(ctx, in.UserID, "flag.shared", "team", in.TeamID.String(), map[string]any{
+				"challenge_id": ch.ID.String(),
+				"owner_team":   sharingOwner.String(),
+			})
+		}
+	}
+
 	res := Result{Correct: correct}
 	if correct {
 		// Value reflects the solve count including this solve (already committed).
@@ -144,6 +171,41 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		res.Points = &pts
 	}
 	return res, nil
+}
+
+// comparePerInstance compares against the submitting team's own instance flag.
+// It returns whether the flag is correct and, when incorrect, the owning team of
+// any *other* team's instance whose flag was submitted (the sharing signal). A
+// missing instance is a 403 (nothing legitimate to compare against) rather than a
+// silent wrong answer.
+func (s *Service) comparePerInstance(ctx context.Context, qtx *gen.Queries, challengeID uuid.UUID, in Input) (bool, *uuid.UUID, error) {
+	inst, err := qtx.GetTeamInstance(ctx, gen.GetTeamInstanceParams{ChallengeID: challengeID, TeamID: &in.TeamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil, &apperr.Forbidden{Detail: "start the challenge first"}
+		}
+		return false, nil, fmt.Errorf("submissions: get team instance: %w", err)
+	}
+	instFlag := ""
+	if inst.Flag != nil {
+		instFlag = *inst.Flag
+	}
+	if compareFlag(in.Flag, instFlag, false) {
+		return true, nil, nil
+	}
+	// Wrong flag: did it match a different team's instance flag?
+	owner, ferr := qtx.FindInstanceByFlag(ctx, gen.FindInstanceByFlagParams{ChallengeID: challengeID, Flag: &in.Flag})
+	if ferr != nil {
+		if errors.Is(ferr, pgx.ErrNoRows) {
+			return false, nil, nil
+		}
+		return false, nil, fmt.Errorf("submissions: sharing lookup: %w", ferr)
+	}
+	if owner.TeamID != nil && *owner.TeamID != in.TeamID {
+		t := *owner.TeamID
+		return false, &t, nil
+	}
+	return false, nil, nil
 }
 
 // parseIP converts a client IP string into the netip.Addr pgx stores for inet.

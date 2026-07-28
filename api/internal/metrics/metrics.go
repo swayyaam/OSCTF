@@ -52,6 +52,36 @@ var (
 		Name: "osctf_ratelimit_rejections_total",
 		Help: "Rate-limit rejections by scope.",
 	}, []string{"scope"})
+
+	// TeamInstances gauges per-team challenge instances by state.
+	TeamInstances = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "osctf_team_instances",
+		Help: "Per-team challenge instances by state.",
+	}, []string{"state"})
+
+	// InstanceSpawns counts per-team instance starts.
+	InstanceSpawns = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_instance_spawns_total",
+		Help: "Per-team instance starts.",
+	})
+
+	// InstanceExpiries counts TTL expirations.
+	InstanceExpiries = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_instance_expiries_total",
+		Help: "Per-team instances destroyed by TTL expiry.",
+	})
+
+	// InstanceCleanups counts destroys by reason (stop, event-end).
+	InstanceCleanups = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_instance_cleanups_total",
+		Help: "Per-team instances destroyed, by reason.",
+	}, []string{"reason"})
+
+	// FlagSharingSignals counts submissions of another team's per-instance flag.
+	FlagSharingSignals = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_flag_sharing_signals_total",
+		Help: "Flag-sharing signals raised (another team's per-instance flag submitted).",
+	})
 )
 
 func init() {
@@ -60,6 +90,7 @@ func init() {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		HTTPRequests, HTTPDuration, Submissions,
 		WSConnections, Instances, RateLimitRejections,
+		TeamInstances, InstanceSpawns, InstanceExpiries, InstanceCleanups, FlagSharingSignals,
 	)
 }
 

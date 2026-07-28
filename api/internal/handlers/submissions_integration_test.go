@@ -46,7 +46,7 @@ func fullServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, clk clock.C
 		Teams:       teams.New(pool, 4),
 		Events:      ev,
 		Challenges:  challenges.New(q, newMemStore()),
-		Submissions: submissions.New(pool, ev, clk),
+		Submissions: submissions.New(pool, ev, clk, audit.New(q, discardLog())),
 		Scoreboard:  sb,
 		Recompute:   func(rctx context.Context) { _ = sb.Recompute(rctx) },
 		Auth:        auth.NewEmailPasswordProvider(q, nil),

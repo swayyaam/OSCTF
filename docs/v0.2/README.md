@@ -1,33 +1,76 @@
-# v0.2 — Dynamic Instances
+# OSCTF v0.2 Build Documentation — Dynamic Instances
 
-> Status: **planned stub — not yet build-ready.** Scope below is inherited from the roadmap in [`../project-desc.md`](../project-desc.md#L184). Do not start building from this file; first expand it into full topic docs following the [`../v0.1/`](../v0.1/README.md) template.
+> Status: **authoritative build spec for v0.2** · Builds on the shipped v0.1 code.
+> Parent vision: [`../project-desc.md`](../project-desc.md) · Baseline spec: [`../v0.1/`](../v0.1/README.md)
 
-## Theme
+This directory is the complete, self-contained specification for building OSCTF v0.2.
+Unlike v0.1 (which was built from an empty repo), **v0.2 is a delta on the shipped
+v0.1 codebase** — it extends the existing packages, migrates the existing schema, and
+grows the existing API. Every doc here says what *changes* and what is *added*; it
+assumes the v0.1 code exists and passes its tests.
 
-**The feature that separates the platform from CTFd-class tools:** per-team isolated challenge instances.
+An agent pointed at this directory (plus the v0.1 code and `../v0.1/` for baseline
+detail) should be able to build v0.2 without asking product questions.
 
-## Scope (from roadmap)
+## The one feature
 
-- Per-team (and per-user) instance provisioning through the existing `ChallengeRuntime` interface — the interface was designed in v0.1 for exactly this, so this should extend, not replace, it.
-- The **scheduler**: spawn on demand, expire on TTL, cleanup on event end, per-team instance quotas.
-- Resource limits per instance (CPU, memory, pids) and **network isolation** between team instances.
-- Participant instance controls in the UI: start, stop, extend, connection info.
-- **Per-instance dynamic flags** (each team gets a unique flag) — the foundation for flag-sharing detection.
-- Instance observability: organizers see what's running, what's stuck, and what it costs.
-- **Hardening pass** on the runtime informed by the isolation-depth open question (seccomp profiles, no-new-privileges, read-only rootfs defaults, egress restrictions) — the v0.1 runtime doc lists these as explicitly deferred here.
+**Per-team isolated challenge instances.** In v0.1 a `container` challenge has one
+shared container that every team hits. In v0.2 a challenge can be **per-team**: each
+team starts its own container on demand, with its own port, its own **unique flag**,
+network-isolated from other teams, and a **scheduler** that expires it on a TTL and
+cleans it up at event end. This is the capability that separates OSCTF from
+CTFd-class tools.
 
-## Exit criterion
+## How to use these docs (read this first)
 
-An event with pwn/web challenges where **every team gets its own instances**, and the scheduler — not an operator watching `docker ps` — handles the full lifecycle.
+1. **The repo root is the directory containing `docs/`.** All paths are relative to it.
+   The v0.1 code lives at `api/`, `dashboard/`, `examples/`, etc. — you are editing it.
+2. **Build in milestone order.** [`10-milestones.md`](10-milestones.md) is the execution
+   plan: M0 → M7, each with tasks and acceptance checks. Do not skip ahead.
+3. **The v0.1 invariants still hold.** Everything in [`../v0.1/00-overview.md`](../v0.1/00-overview.md)
+   (principles, the four core interfaces, the API/DB source-of-truth rule, "define the
+   interface, skip the implementation") remains in force. v0.2 does not relitigate them.
+4. **Backwards compatibility is a requirement.** A v0.1 event (all-`shared` challenges)
+   must keep working unchanged after upgrading to v0.2. `instancing` defaults to
+   `shared`; `flag_mode` defaults to `static`. The migration is non-destructive.
+5. **When a detail is genuinely unspecified**, apply the Core Principles, pick the boring
+   option, and record it in a `## Decision log` at the bottom of the relevant doc. No
+   TODOs in code.
 
-## Builds on v0.1
+## Document map
 
-The v0.1 spec deliberately left seams for this work. When expanding this stub, review these v0.1 docs first — they name what was deferred to here:
+| Doc | Contents |
+|---|---|
+| [`00-overview.md`](00-overview.md) | Theme, scope (in/out), principles as build rules, success criteria, the exit criterion, fixed decisions |
+| [`01-architecture.md`](01-architecture.md) | Instance-ownership model, the new `scheduler` package, changed packages, key flows, what stays absent |
+| [`02-database.md`](02-database.md) | Migration `0002`: `instances`/`challenges` changes, new indexes/constraints, Redis keyspace, sqlc |
+| [`03-runtime.md`](03-runtime.md) | Extended `ChallengeRuntime`, per-team networks, hardening defaults, dynamic `FLAG` injection, reconcile |
+| [`04-scheduler.md`](04-scheduler.md) | The scheduler: spawn-on-demand, TTL expiry, event-end cleanup, per-team quotas, concurrency, metrics |
+| [`05-flags.md`](05-flags.md) | Per-instance dynamic flags: generation, storage, injection, submission validation, sharing-detection foundation |
+| [`06-api.md`](06-api.md) | New/changed endpoints (participant instance controls, admin observability, changed submit), WS, OpenAPI notes |
+| [`07-frontend.md`](07-frontend.md) | Participant instance panel, admin instances page, state handling, testids |
+| [`08-deployment.md`](08-deployment.md) | New env vars (TTLs, quotas, isolation), compose changes, sizing |
+| [`09-testing-ci.md`](09-testing-ci.md) | New tests (scheduler expiry, per-instance flags, quotas, isolation), the e2e flow, CI additions |
+| [`10-milestones.md`](10-milestones.md) | **The build plan**: M0–M7 with tasks, deliverables, acceptance |
+| [`11-example-challenges.md`](11-example-challenges.md) | `challenge.yaml` additions and the new/updated example challenges |
 
-- [`../v0.1/08-challenge-runtime.md`](../v0.1/08-challenge-runtime.md) — shared-instance-only; hardening, read-only rootfs, egress restriction, and TTL cleanup are all marked "v0.2".
-- [`../v0.1/04-database.md`](../v0.1/04-database.md) — `instances` has `uq_instances_challenge` (one shared instance); per-team instances require relaxing this to `(challenge_id, team_id)` and adding TTL/owner columns. This is a schema migration to design carefully.
-- [`../v0.1/07-scoring.md`](../v0.1/07-scoring.md) — "Manual point adjustments" and dynamic-flag-based anti-cheat are noted as revisited here.
+## Suggested kickoff prompt for a coding agent
 
-## To make this build-ready
+> Read `docs/v0.2/README.md` and `docs/v0.2/00-overview.md` in full, then skim the rest
+> of `docs/v0.2/` in order. The v0.1 platform is already built and tagged `v0.1.0`;
+> you are extending it. Execute the milestones in `docs/v0.2/10-milestones.md` starting
+> at M0, running each milestone's acceptance checks before proceeding. Preserve v0.1
+> behaviour for `shared`/`static` challenges. When the spec is ambiguous, follow its
+> rule for resolving ambiguity.
 
-Write the numbered topic docs this version needs (at minimum: an updated runtime spec, the scheduler design, the instance-lifecycle state machine, the network-isolation model, the dynamic-flag mechanism, schema migrations, new API surface, UI changes, and a milestone plan with acceptance checks) — same depth and style as `../v0.1/`.
+## Glossary (additions to the v0.1 glossary)
+
+| Term | Meaning |
+|---|---|
+| **Instancing** | A challenge's provisioning mode: `shared` (v0.1 — one container for everyone) or `per_team` (one container per team, started on demand). |
+| **Owner** | The team that a per-team instance belongs to. Shared instances have no owner (`team_id IS NULL`). v0.2 owns instances by **team**; per-user is deferred. |
+| **Flag mode** | `static` (v0.1 — one flag in `challenges.flag`) or `per_instance` (a unique flag generated per team instance, injected as `FLAG`, validated per team). |
+| **TTL** | Time-to-live of a per-team instance. The scheduler destroys it at `expires_at`; participants can **extend** it up to a maximum lifetime. |
+| **Quota** | The maximum number of concurrent running per-team instances one team may hold across all challenges. |
+| **Scheduler** | The in-process component that spawns instances on demand, expires them on TTL, cleans them up at event end, and enforces quotas. |
+| **Sharing signal** | A logged event raised when a team submits a flag that matches a *different* team's per-instance flag — the foundation for flag-sharing detection. |

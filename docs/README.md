@@ -9,8 +9,8 @@ This directory holds the vision and the per-version build specifications for the
 
 | Version | Theme | Status | Spec |
 |---|---|---|---|
-| **v0.1** | MVP — one person hosts a real CTF for ~100 players on one server | ✅ **Spec complete, ready to build** | [`v0.1/`](v0.1/README.md) |
-| v0.2 | Dynamic per-team instances + scheduler | 🕓 Planned (stub) | [`v0.2/`](v0.2/README.md) |
+| **v0.1** | MVP — one person hosts a real CTF for ~100 players on one server | ✅ **Built & shipped (`v0.1.0`)** | [`v0.1/`](v0.1/README.md) |
+| **v0.2** | Dynamic per-team instances + scheduler | ✅ **Spec complete, ready to build** | [`v0.2/`](v0.2/README.md) |
 | v0.3 | Extensibility: plugin system, CLI, stable API v1, MCP server | 🕓 Planned (stub) | [`v0.3/`](v0.3/README.md) |
 | v0.4 | Kubernetes runtime + operator, horizontal scale | 🕓 Planned (stub) | [`v0.4/`](v0.4/README.md) |
 | v0.5 | Multi-event / multi-tenancy | 🕓 Planned (stub) | [`v0.5/`](v0.5/README.md) |

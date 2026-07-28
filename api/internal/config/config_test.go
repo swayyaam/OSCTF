@@ -59,6 +59,49 @@ func TestLoadRejectsBadPortRange(t *testing.T) {
 	}
 }
 
+func TestLoadInstanceDefaults(t *testing.T) {
+	setRequired(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.InstanceTTL != time.Hour {
+		t.Errorf("InstanceTTL = %v, want 1h", cfg.InstanceTTL)
+	}
+	if cfg.InstanceExtend != 30*time.Minute {
+		t.Errorf("InstanceExtend = %v, want 30m", cfg.InstanceExtend)
+	}
+	if cfg.InstanceMaxTTL != 4*time.Hour {
+		t.Errorf("InstanceMaxTTL = %v, want 4h", cfg.InstanceMaxTTL)
+	}
+	if cfg.TeamInstanceQuota != 3 {
+		t.Errorf("TeamInstanceQuota = %d, want 3", cfg.TeamInstanceQuota)
+	}
+	if cfg.FlagPrefix != "osctf" {
+		t.Errorf("FlagPrefix = %q, want osctf", cfg.FlagPrefix)
+	}
+	if cfg.PortRangeEnd != 32767 {
+		t.Errorf("PortRangeEnd = %d, want 32767", cfg.PortRangeEnd)
+	}
+}
+
+func TestLoadRejectsMaxTTLBelowTTL(t *testing.T) {
+	setRequired(t)
+	t.Setenv("OSCTF_INSTANCE_TTL", "7200s")
+	t.Setenv("OSCTF_INSTANCE_MAX_TTL", "3600s")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted max TTL below TTL")
+	}
+}
+
+func TestLoadRejectsZeroQuota(t *testing.T) {
+	setRequired(t)
+	t.Setenv("OSCTF_TEAM_INSTANCE_QUOTA", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted zero instance quota")
+	}
+}
+
 func TestIsHTTPS(t *testing.T) {
 	setRequired(t)
 	t.Setenv("OSCTF_BASE_URL", "https://ctf.example.com")

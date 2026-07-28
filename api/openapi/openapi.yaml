@@ -403,6 +403,70 @@ paths:
         "422": { $ref: "#/components/responses/Validation" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
+  /challenges/{slug}/instance:
+    post:
+      tags: [challenges]
+      operationId: startInstance
+      summary: Start this team's instance
+      description: >
+        Starts (or returns) the caller team's instance for a per_team container challenge.
+        Requires a running event and team membership. Synchronous deploy (up to 120 s).
+        409 when the team is at its instance quota or the event is not running; 503 when
+        the runtime is unavailable.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+      responses:
+        "200":
+          description: An existing running instance (idempotent).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamInstance" }
+        "201":
+          description: A newly started instance.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamInstance" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+    delete:
+      tags: [challenges]
+      operationId: stopInstance
+      summary: Stop this team's instance
+      description: Stops and destroys the caller team's instance, freeing its port and quota slot.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+      responses:
+        "204": { description: Stopped. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
+  /challenges/{slug}/instance/extend:
+    post:
+      tags: [challenges]
+      operationId: extendInstance
+      summary: Extend this team's instance TTL
+      description: >
+        Extends the caller team's instance expiry by the configured step, capped at the
+        maximum lifetime. 409 when already at the maximum; 404 when there is no instance.
+      parameters:
+        - $ref: "#/components/parameters/SlugPath"
+      responses:
+        "200":
+          description: The instance with its new expiry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamInstance" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
   # ---------------------------------------------------------------- scoreboard
   /scoreboard:
     get:
@@ -721,6 +785,38 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/InstanceLogs" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+
+  /admin/instances:
+    get:
+      tags: [admin]
+      operationId: adminListInstances
+      summary: List all instances
+      description: >
+        Every instance (shared and per-team) with owner, state, port, network, age,
+        expiry, and health. Never contains flags.
+      responses:
+        "200":
+          description: The instances.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminInstanceList" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/instances/{id}:
+    delete:
+      tags: [admin]
+      operationId: adminDestroyInstanceById
+      summary: Destroy any instance
+      description: Stops and removes any instance by ID (shared or per-team), freeing its port.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204": { description: Destroyed. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1063,6 +1159,20 @@ components:
       description: Challenge instance lifecycle state.
       enum: [pending, starting, running, unhealthy, stopped, error, lost]
 
+    Instancing:
+      type: string
+      description: >
+        shared = one container everyone hits (v0.1); per_team = one container per team,
+        started on demand and managed by the scheduler.
+      enum: [shared, per_team]
+
+    FlagMode:
+      type: string
+      description: >
+        static = one flag in the challenge; per_instance = a unique flag generated per
+        team instance and injected as FLAG.
+      enum: [static, per_instance]
+
     # ------------------------------------------------------------- auth
     RegisterRequest:
       type: object
@@ -1332,7 +1442,7 @@ components:
     Challenge:
       type: object
       description: Challenge board entry. Never contains the description or flag.
-      required: [id, slug, title, category, points, solves, solved_by_me, kind, has_instance]
+      required: [id, slug, title, category, points, solves, solved_by_me, kind, instancing, has_instance]
       properties:
         id: { type: string, format: uuid, description: Challenge ID. }
         slug: { type: string, description: URL-safe identifier. }
@@ -1347,6 +1457,7 @@ components:
         solves: { type: integer, description: Valid solve count. }
         solved_by_me: { type: boolean, description: Whether the caller's team solved it. }
         kind: { $ref: "#/components/schemas/ChallengeKind" }
+        instancing: { $ref: "#/components/schemas/Instancing" }
         has_instance: { type: boolean, description: Whether a container instance exists. }
         connection_info:
           type: string
@@ -1359,7 +1470,7 @@ components:
         - $ref: "#/components/schemas/Challenge"
         - type: object
           description: Full participant-facing challenge detail.
-          required: [description, attachments, attempts_used]
+          required: [description, attachments, attempts_used, flag_mode]
           properties:
             description: { type: string, description: Markdown body. }
             attachments:
@@ -1373,6 +1484,14 @@ components:
             attempts_used:
               type: integer
               description: The caller team's attempts so far.
+            flag_mode: { $ref: "#/components/schemas/FlagMode" }
+            instance:
+              allOf:
+                - $ref: "#/components/schemas/TeamInstance"
+              nullable: true
+              description: >
+                The caller team's instance for this challenge (per_team), or the shared
+                instance (shared), or null when none exists.
 
     Attachment:
       type: object
@@ -1445,6 +1564,7 @@ components:
       required:
         [id, slug, title, category, description, kind, flag, flag_case_insensitive,
          scoring, points_initial, visible, mem_limit_mb, cpu_millis, container_env,
+         instancing, flag_mode, egress, writable_paths,
          attachments, solves, current_points, created_at, updated_at]
       properties:
         id: { type: string, format: uuid, description: Challenge ID. }
@@ -1493,6 +1613,17 @@ components:
           type: string
           nullable: true
           description: "Template with {host} and {port} placeholders."
+        instancing: { $ref: "#/components/schemas/Instancing" }
+        flag_mode: { $ref: "#/components/schemas/FlagMode" }
+        instance_ttl_seconds:
+          type: integer
+          nullable: true
+          description: Per-challenge TTL override; null = default, 0 = no TTL (container/per_team).
+        egress: { type: boolean, description: Whether the container may reach the network. }
+        writable_paths:
+          type: array
+          description: Extra writable tmpfs mounts on top of /tmp (read-only rootfs default).
+          items: { type: string }
         attachments:
           type: array
           description: Attached files.
@@ -1503,7 +1634,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/Instance"
           nullable: true
-          description: The instance summary, when one exists.
+          description: The shared instance summary, when one exists (shared kind only).
         created_at: { type: string, format: date-time, description: Creation time. }
         updated_at: { type: string, format: date-time, description: Last update time. }
 
@@ -1578,6 +1709,25 @@ components:
         connection_template:
           type: string
           description: "Template with {host} and {port} placeholders."
+        instancing:
+          allOf:
+            - $ref: "#/components/schemas/Instancing"
+          description: Provisioning mode (default shared; per_team requires container kind).
+        flag_mode:
+          allOf:
+            - $ref: "#/components/schemas/FlagMode"
+          description: Flag mode (default static; per_instance requires container kind).
+        instance_ttl_seconds:
+          type: integer
+          minimum: 0
+          description: Per-challenge TTL override; omit for default, 0 for no TTL.
+        egress:
+          type: boolean
+          description: Whether the container may reach the network (default true).
+        writable_paths:
+          type: array
+          description: Extra writable tmpfs mounts on top of /tmp.
+          items: { type: string }
 
     ChallengeAdminUpdate:
       type: object
@@ -1649,6 +1799,26 @@ components:
           type: string
           nullable: true
           description: "Template with {host} and {port} placeholders."
+        instancing:
+          allOf:
+            - $ref: "#/components/schemas/Instancing"
+          description: Provisioning mode (per_team requires container kind).
+        flag_mode:
+          allOf:
+            - $ref: "#/components/schemas/FlagMode"
+          description: Flag mode (per_instance requires container kind).
+        instance_ttl_seconds:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Per-challenge TTL override; null = default, 0 = no TTL.
+        egress:
+          type: boolean
+          description: Whether the container may reach the network.
+        writable_paths:
+          type: array
+          description: Extra writable tmpfs mounts on top of /tmp.
+          items: { type: string }
 
     AttachmentAdmin:
       type: object
@@ -1703,6 +1873,95 @@ components:
           type: string
           nullable: true
           description: Rendered connection string while running.
+
+    TeamInstance:
+      type: object
+      description: >
+        A per-team (or shared) challenge instance, participant-safe. Never contains the
+        flag. Superset of Instance with an expiry for the TTL countdown.
+      required: [id, state]
+      properties:
+        id: { type: string, format: uuid, description: Instance ID. }
+        state: { $ref: "#/components/schemas/InstanceState" }
+        host_port:
+          type: integer
+          nullable: true
+          description: Published host port.
+        connection_info:
+          type: string
+          nullable: true
+          description: Rendered connection string while running.
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Container start time.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Scheduler destroys the instance at this time; null = no TTL.
+        error:
+          type: string
+          nullable: true
+          description: Last failure message, verbatim.
+
+    AdminInstance:
+      type: object
+      description: >
+        A challenge instance as seen by an admin (shared or per-team). Never contains
+        the flag.
+      required: [id, challenge_id, state]
+      properties:
+        id: { type: string, format: uuid, description: Instance ID. }
+        challenge_id: { type: string, format: uuid, description: Challenge ID. }
+        challenge_slug: { type: string, description: Challenge slug. }
+        team_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Owning team; null = shared instance.
+        team_name:
+          type: string
+          nullable: true
+          description: Owning team name; null = shared.
+        state: { $ref: "#/components/schemas/InstanceState" }
+        host_port:
+          type: integer
+          nullable: true
+          description: Published host port.
+        network:
+          type: string
+          nullable: true
+          description: Docker network name; null = shared network.
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Container start time.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: TTL expiry; null = no TTL.
+        last_health_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful health check.
+        error:
+          type: string
+          nullable: true
+          description: Last failure message, verbatim.
+
+    AdminInstanceList:
+      type: object
+      description: All instances (shared + per-team).
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminInstance" }
 
     InstanceLogs:
       type: object

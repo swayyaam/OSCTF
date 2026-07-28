@@ -52,25 +52,44 @@ func (q *Queries) CountRunningInstances(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countTeamRunningInstances = `-- name: CountTeamRunningInstances :one
+SELECT count(*) FROM instances WHERE team_id = $1 AND state = 'running'
+`
+
+func (q *Queries) CountTeamRunningInstances(ctx context.Context, teamID *uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countTeamRunningInstances, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createInstance = `-- name: CreateInstance :one
-INSERT INTO instances (id, challenge_id, state, host_port)
-VALUES ($1, $2, $3, $4)
-RETURNING id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at
+INSERT INTO instances (id, challenge_id, team_id, state, host_port, flag, expires_at, network)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network
 `
 
 type CreateInstanceParams struct {
 	ID          uuid.UUID
 	ChallengeID uuid.UUID
+	TeamID      *uuid.UUID
 	State       string
 	HostPort    *int32
+	Flag        *string
+	ExpiresAt   *time.Time
+	Network     *string
 }
 
 func (q *Queries) CreateInstance(ctx context.Context, arg CreateInstanceParams) (Instance, error) {
 	row := q.db.QueryRow(ctx, createInstance,
 		arg.ID,
 		arg.ChallengeID,
+		arg.TeamID,
 		arg.State,
 		arg.HostPort,
+		arg.Flag,
+		arg.ExpiresAt,
+		arg.Network,
 	)
 	var i Instance
 	err := row.Scan(
@@ -84,6 +103,10 @@ func (q *Queries) CreateInstance(ctx context.Context, arg CreateInstanceParams) 
 		&i.LastHealthAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
 	)
 	return i, err
 }
@@ -97,8 +120,39 @@ func (q *Queries) DeleteInstance(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const findInstanceByFlag = `-- name: FindInstanceByFlag :one
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE challenge_id = $1 AND flag = $2 AND team_id IS NOT NULL
+`
+
+type FindInstanceByFlagParams struct {
+	ChallengeID uuid.UUID
+	Flag        *string
+}
+
+func (q *Queries) FindInstanceByFlag(ctx context.Context, arg FindInstanceByFlagParams) (Instance, error) {
+	row := q.db.QueryRow(ctx, findInstanceByFlag, arg.ChallengeID, arg.Flag)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.ChallengeID,
+		&i.State,
+		&i.ContainerID,
+		&i.HostPort,
+		&i.Error,
+		&i.StartedAt,
+		&i.LastHealthAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
+	)
+	return i, err
+}
+
 const getInstanceByChallenge = `-- name: GetInstanceByChallenge :one
-SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at FROM instances WHERE challenge_id = $1
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE challenge_id = $1
 `
 
 func (q *Queries) GetInstanceByChallenge(ctx context.Context, challengeID uuid.UUID) (Instance, error) {
@@ -115,12 +169,16 @@ func (q *Queries) GetInstanceByChallenge(ctx context.Context, challengeID uuid.U
 		&i.LastHealthAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
 	)
 	return i, err
 }
 
 const getInstanceByID = `-- name: GetInstanceByID :one
-SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at FROM instances WHERE id = $1
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE id = $1
 `
 
 func (q *Queries) GetInstanceByID(ctx context.Context, id uuid.UUID) (Instance, error) {
@@ -137,12 +195,114 @@ func (q *Queries) GetInstanceByID(ctx context.Context, id uuid.UUID) (Instance, 
 		&i.LastHealthAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
 	)
 	return i, err
 }
 
+const getSharedInstance = `-- name: GetSharedInstance :one
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE challenge_id = $1 AND team_id IS NULL
+`
+
+func (q *Queries) GetSharedInstance(ctx context.Context, challengeID uuid.UUID) (Instance, error) {
+	row := q.db.QueryRow(ctx, getSharedInstance, challengeID)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.ChallengeID,
+		&i.State,
+		&i.ContainerID,
+		&i.HostPort,
+		&i.Error,
+		&i.StartedAt,
+		&i.LastHealthAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
+	)
+	return i, err
+}
+
+const getTeamInstance = `-- name: GetTeamInstance :one
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE challenge_id = $1 AND team_id = $2
+`
+
+type GetTeamInstanceParams struct {
+	ChallengeID uuid.UUID
+	TeamID      *uuid.UUID
+}
+
+func (q *Queries) GetTeamInstance(ctx context.Context, arg GetTeamInstanceParams) (Instance, error) {
+	row := q.db.QueryRow(ctx, getTeamInstance, arg.ChallengeID, arg.TeamID)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.ChallengeID,
+		&i.State,
+		&i.ContainerID,
+		&i.HostPort,
+		&i.Error,
+		&i.StartedAt,
+		&i.LastHealthAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
+	)
+	return i, err
+}
+
+const listExpiredInstances = `-- name: ListExpiredInstances :many
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances
+WHERE expires_at IS NOT NULL AND expires_at < $1
+  AND state NOT IN ('stopped','error','lost')
+`
+
+func (q *Queries) ListExpiredInstances(ctx context.Context, now *time.Time) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listExpiredInstances, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChallengeID,
+			&i.State,
+			&i.ContainerID,
+			&i.HostPort,
+			&i.Error,
+			&i.StartedAt,
+			&i.LastHealthAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TeamID,
+			&i.Flag,
+			&i.ExpiresAt,
+			&i.Network,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInstances = `-- name: ListInstances :many
-SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at FROM instances ORDER BY created_at ASC
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances ORDER BY created_at ASC
 `
 
 func (q *Queries) ListInstances(ctx context.Context) ([]Instance, error) {
@@ -165,6 +325,88 @@ func (q *Queries) ListInstances(ctx context.Context) ([]Instance, error) {
 			&i.LastHealthAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TeamID,
+			&i.Flag,
+			&i.ExpiresAt,
+			&i.Network,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPerTeamInstances = `-- name: ListPerTeamInstances :many
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE team_id IS NOT NULL
+`
+
+func (q *Queries) ListPerTeamInstances(ctx context.Context) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listPerTeamInstances)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChallengeID,
+			&i.State,
+			&i.ContainerID,
+			&i.HostPort,
+			&i.Error,
+			&i.StartedAt,
+			&i.LastHealthAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TeamID,
+			&i.Flag,
+			&i.ExpiresAt,
+			&i.Network,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTeamInstances = `-- name: ListTeamInstances :many
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE team_id = $1 ORDER BY created_at ASC
+`
+
+func (q *Queries) ListTeamInstances(ctx context.Context, teamID *uuid.UUID) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listTeamInstances, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChallengeID,
+			&i.State,
+			&i.ContainerID,
+			&i.HostPort,
+			&i.Error,
+			&i.StartedAt,
+			&i.LastHealthAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TeamID,
+			&i.Flag,
+			&i.ExpiresAt,
+			&i.Network,
 		); err != nil {
 			return nil, err
 		}
@@ -200,6 +442,37 @@ func (q *Queries) ListUsedPorts(ctx context.Context) ([]*int32, error) {
 	return items, nil
 }
 
+const setInstanceExpiry = `-- name: SetInstanceExpiry :one
+UPDATE instances SET expires_at = $2, updated_at = now() WHERE id = $1 RETURNING id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network
+`
+
+type SetInstanceExpiryParams struct {
+	ID        uuid.UUID
+	ExpiresAt *time.Time
+}
+
+func (q *Queries) SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error) {
+	row := q.db.QueryRow(ctx, setInstanceExpiry, arg.ID, arg.ExpiresAt)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.ChallengeID,
+		&i.State,
+		&i.ContainerID,
+		&i.HostPort,
+		&i.Error,
+		&i.StartedAt,
+		&i.LastHealthAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
+	)
+	return i, err
+}
+
 const updateInstance = `-- name: UpdateInstance :one
 UPDATE instances SET
     state          = coalesce($2, state),
@@ -210,7 +483,7 @@ UPDATE instances SET
     last_health_at = coalesce($7, last_health_at),
     updated_at     = now()
 WHERE id = $1
-RETURNING id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at
+RETURNING id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network
 `
 
 type UpdateInstanceParams struct {
@@ -245,6 +518,10 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		&i.LastHealthAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
+		&i.Flag,
+		&i.ExpiresAt,
+		&i.Network,
 	)
 	return i, err
 }

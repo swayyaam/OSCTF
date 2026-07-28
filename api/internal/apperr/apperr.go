@@ -22,7 +22,15 @@ const (
 	ErrUnauthenticated = sentinel("unauthenticated")
 	ErrBadRequest      = sentinel("bad request")
 	ErrUnavailable     = sentinel("service unavailable")
+	ErrNotImplemented  = sentinel("not implemented")
 )
+
+// NotImplemented renders 501; used for endpoints whose contract exists but whose
+// implementation is not wired yet.
+type NotImplemented struct{ Detail string }
+
+func (e *NotImplemented) Error() string   { return "not implemented: " + e.Detail }
+func (e *NotImplemented) Is(t error) bool { return t == ErrNotImplemented }
 
 // Unavailable carries a specific detail; renders 503 (e.g. runtime unreachable).
 type Unavailable struct{ Detail string }

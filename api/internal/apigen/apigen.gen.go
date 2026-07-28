@@ -54,6 +54,12 @@ const (
 	EventPhaseRunning EventPhase = "running"
 )
 
+// Defines values for FlagMode.
+const (
+	FlagModePerInstance FlagMode = "per_instance"
+	FlagModeStatic      FlagMode = "static"
+)
+
 // Defines values for InstanceState.
 const (
 	InstanceStateError     InstanceState = "error"
@@ -63,6 +69,12 @@ const (
 	InstanceStateStarting  InstanceState = "starting"
 	InstanceStateStopped   InstanceState = "stopped"
 	InstanceStateUnhealthy InstanceState = "unhealthy"
+)
+
+// Defines values for Instancing.
+const (
+	PerTeam Instancing = "per_team"
+	Shared  Instancing = "shared"
 )
 
 // Defines values for MyTeamRefRole.
@@ -79,9 +91,53 @@ const (
 
 // Defines values for ScoringMode.
 const (
-	Dynamic ScoringMode = "dynamic"
-	Static  ScoringMode = "static"
+	ScoringModeDynamic ScoringMode = "dynamic"
+	ScoringModeStatic  ScoringMode = "static"
 )
+
+// AdminInstance A challenge instance as seen by an admin (shared or per-team). Never contains the flag.
+type AdminInstance struct {
+	// ChallengeId Challenge ID.
+	ChallengeId openapi_types.UUID `json:"challenge_id"`
+
+	// ChallengeSlug Challenge slug.
+	ChallengeSlug *string `json:"challenge_slug,omitempty"`
+
+	// Error Last failure message, verbatim.
+	Error *string `json:"error"`
+
+	// ExpiresAt TTL expiry; null = no TTL.
+	ExpiresAt *time.Time `json:"expires_at"`
+
+	// HostPort Published host port.
+	HostPort *int `json:"host_port"`
+
+	// Id Instance ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// LastHealthAt Last successful health check.
+	LastHealthAt *time.Time `json:"last_health_at"`
+
+	// Network Docker network name; null = shared network.
+	Network *string `json:"network"`
+
+	// StartedAt Container start time.
+	StartedAt *time.Time `json:"started_at"`
+
+	// State Challenge instance lifecycle state.
+	State InstanceState `json:"state"`
+
+	// TeamId Owning team; null = shared instance.
+	TeamId *openapi_types.UUID `json:"team_id"`
+
+	// TeamName Owning team name; null = shared.
+	TeamName *string `json:"team_name"`
+}
+
+// AdminInstanceList All instances (shared + per-team).
+type AdminInstanceList struct {
+	Items []AdminInstance `json:"items"`
+}
 
 // AdminPasswordResetRequest Admin-driven password reset payload.
 type AdminPasswordResetRequest struct {
@@ -160,6 +216,9 @@ type Challenge struct {
 	// Id Challenge ID.
 	Id openapi_types.UUID `json:"id"`
 
+	// Instancing shared = one container everyone hits (v0.1); per_team = one container per team, started on demand and managed by the scheduler.
+	Instancing Instancing `json:"instancing"`
+
 	// Kind standard = description/attachments only; container = also runs a Docker image.
 	Kind ChallengeKind `json:"kind"`
 
@@ -211,11 +270,17 @@ type ChallengeAdmin struct {
 	// Difficulty Difficulty label, if set.
 	Difficulty *Difficulty `json:"difficulty"`
 
+	// Egress Whether the container may reach the network.
+	Egress bool `json:"egress"`
+
 	// Flag The flag, verbatim.
 	Flag string `json:"flag"`
 
 	// FlagCaseInsensitive Case-insensitive matching.
 	FlagCaseInsensitive bool `json:"flag_case_insensitive"`
+
+	// FlagMode static = one flag in the challenge; per_instance = a unique flag generated per team instance and injected as FLAG.
+	FlagMode FlagMode `json:"flag_mode"`
 
 	// Id Challenge ID.
 	Id openapi_types.UUID `json:"id"`
@@ -223,8 +288,14 @@ type ChallengeAdmin struct {
 	// Image Docker image (container kind).
 	Image *string `json:"image"`
 
-	// Instance The instance summary, when one exists.
+	// Instance The shared instance summary, when one exists (shared kind only).
 	Instance *Instance `json:"instance"`
+
+	// InstanceTtlSeconds Per-challenge TTL override; null = default, 0 = no TTL (container/per_team).
+	InstanceTtlSeconds *int `json:"instance_ttl_seconds"`
+
+	// Instancing shared = one container everyone hits (v0.1); per_team = one container per team, started on demand and managed by the scheduler.
+	Instancing Instancing `json:"instancing"`
 
 	// InternalPort Port the challenge listens on inside the container.
 	InternalPort *int `json:"internal_port"`
@@ -261,6 +332,9 @@ type ChallengeAdmin struct {
 
 	// Visible Whether participants can see it.
 	Visible bool `json:"visible"`
+
+	// WritablePaths Extra writable tmpfs mounts on top of /tmp (read-only rootfs default).
+	WritablePaths []string `json:"writable_paths"`
 }
 
 // ChallengeAdminCreate Challenge creation payload.
@@ -286,14 +360,26 @@ type ChallengeAdminCreate struct {
 	// Difficulty Challenge difficulty label.
 	Difficulty *Difficulty `json:"difficulty,omitempty"`
 
+	// Egress Whether the container may reach the network (default true).
+	Egress *bool `json:"egress,omitempty"`
+
 	// Flag The flag, stored verbatim.
 	Flag string `json:"flag"`
 
 	// FlagCaseInsensitive Case-insensitive matching (default false).
 	FlagCaseInsensitive *bool `json:"flag_case_insensitive,omitempty"`
 
+	// FlagMode Flag mode (default static; per_instance requires container kind).
+	FlagMode *FlagMode `json:"flag_mode,omitempty"`
+
 	// Image Docker image (container kind).
 	Image *string `json:"image,omitempty"`
+
+	// InstanceTtlSeconds Per-challenge TTL override; omit for default, 0 for no TTL.
+	InstanceTtlSeconds *int `json:"instance_ttl_seconds,omitempty"`
+
+	// Instancing Provisioning mode (default shared; per_team requires container kind).
+	Instancing *Instancing `json:"instancing,omitempty"`
 
 	// InternalPort Container listen port (container kind).
 	InternalPort *int `json:"internal_port,omitempty"`
@@ -324,6 +410,9 @@ type ChallengeAdminCreate struct {
 
 	// Visible Whether participants can see it (default false).
 	Visible *bool `json:"visible,omitempty"`
+
+	// WritablePaths Extra writable tmpfs mounts on top of /tmp.
+	WritablePaths *[]string `json:"writable_paths,omitempty"`
 }
 
 // ChallengeAdminPage Paginated challenges.
@@ -363,14 +452,26 @@ type ChallengeAdminUpdate struct {
 	// Difficulty Set null to clear.
 	Difficulty *Difficulty `json:"difficulty"`
 
+	// Egress Whether the container may reach the network.
+	Egress *bool `json:"egress,omitempty"`
+
 	// Flag The flag, stored verbatim.
 	Flag *string `json:"flag,omitempty"`
 
 	// FlagCaseInsensitive Case-insensitive matching.
 	FlagCaseInsensitive *bool `json:"flag_case_insensitive,omitempty"`
 
+	// FlagMode Flag mode (per_instance requires container kind).
+	FlagMode *FlagMode `json:"flag_mode,omitempty"`
+
 	// Image Docker image.
 	Image *string `json:"image"`
+
+	// InstanceTtlSeconds Per-challenge TTL override; null = default, 0 = no TTL.
+	InstanceTtlSeconds *int `json:"instance_ttl_seconds"`
+
+	// Instancing Provisioning mode (per_team requires container kind).
+	Instancing *Instancing `json:"instancing,omitempty"`
 
 	// InternalPort Container listen port.
 	InternalPort *int `json:"internal_port"`
@@ -398,6 +499,9 @@ type ChallengeAdminUpdate struct {
 
 	// Visible Whether participants can see it.
 	Visible *bool `json:"visible,omitempty"`
+
+	// WritablePaths Extra writable tmpfs mounts on top of /tmp.
+	WritablePaths *[]string `json:"writable_paths,omitempty"`
 }
 
 // ChallengeDetail defines model for ChallengeDetail.
@@ -420,11 +524,20 @@ type ChallengeDetail struct {
 	// Difficulty Difficulty label, if set.
 	Difficulty *Difficulty `json:"difficulty"`
 
+	// FlagMode static = one flag in the challenge; per_instance = a unique flag generated per team instance and injected as FLAG.
+	FlagMode FlagMode `json:"flag_mode"`
+
 	// HasInstance Whether a container instance exists.
 	HasInstance bool `json:"has_instance"`
 
 	// Id Challenge ID.
 	Id openapi_types.UUID `json:"id"`
+
+	// Instance The caller team's instance for this challenge (per_team), or the shared instance (shared), or null when none exists.
+	Instance *TeamInstance `json:"instance"`
+
+	// Instancing shared = one container everyone hits (v0.1); per_team = one container per team, started on demand and managed by the scheduler.
+	Instancing Instancing `json:"instancing"`
 
 	// Kind standard = description/attachments only; container = also runs a Docker image.
 	Kind ChallengeKind `json:"kind"`
@@ -538,6 +651,9 @@ type EventUpdateRequest struct {
 	StartsAt *time.Time `json:"starts_at,omitempty"`
 }
 
+// FlagMode static = one flag in the challenge; per_instance = a unique flag generated per team instance and injected as FLAG.
+type FlagMode string
+
 // Instance Challenge instance status.
 type Instance struct {
 	// ConnectionInfo Rendered connection string while running.
@@ -570,6 +686,9 @@ type InstanceLogs struct {
 
 // InstanceState Challenge instance lifecycle state.
 type InstanceState string
+
+// Instancing shared = one container everyone hits (v0.1); per_team = one container per team, started on demand and managed by the scheduler.
+type Instancing string
 
 // InviteCode A team invite code.
 type InviteCode struct {
@@ -870,6 +989,30 @@ type TeamDetail struct {
 
 	// Solves The team's scoring solves (includes solver usernames).
 	Solves []Solve `json:"solves"`
+}
+
+// TeamInstance A per-team (or shared) challenge instance, participant-safe. Never contains the flag. Superset of Instance with an expiry for the TTL countdown.
+type TeamInstance struct {
+	// ConnectionInfo Rendered connection string while running.
+	ConnectionInfo *string `json:"connection_info"`
+
+	// Error Last failure message, verbatim.
+	Error *string `json:"error"`
+
+	// ExpiresAt Scheduler destroys the instance at this time; null = no TTL.
+	ExpiresAt *time.Time `json:"expires_at"`
+
+	// HostPort Published host port.
+	HostPort *int `json:"host_port"`
+
+	// Id Instance ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// StartedAt Container start time.
+	StartedAt *time.Time `json:"started_at"`
+
+	// State Challenge instance lifecycle state.
+	State InstanceState `json:"state"`
 }
 
 // TeamJoinRequest Invite-code join payload.
@@ -1200,6 +1343,12 @@ type ServerInterface interface {
 	// Update event settings
 	// (PATCH /admin/event)
 	AdminUpdateEvent(w http.ResponseWriter, r *http.Request)
+	// List all instances
+	// (GET /admin/instances)
+	AdminListInstances(w http.ResponseWriter, r *http.Request)
+	// Destroy any instance
+	// (DELETE /admin/instances/{id})
+	AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request, id IdPath)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(w http.ResponseWriter, r *http.Request)
@@ -1245,6 +1394,15 @@ type ServerInterface interface {
 	// Download an attachment
 	// (GET /challenges/{slug}/attachments/{id})
 	DownloadAttachment(w http.ResponseWriter, r *http.Request, slug SlugPath, id IdPath)
+	// Stop this team's instance
+	// (DELETE /challenges/{slug}/instance)
+	StopInstance(w http.ResponseWriter, r *http.Request, slug SlugPath)
+	// Start this team's instance
+	// (POST /challenges/{slug}/instance)
+	StartInstance(w http.ResponseWriter, r *http.Request, slug SlugPath)
+	// Extend this team's instance TTL
+	// (POST /challenges/{slug}/instance/extend)
+	ExtendInstance(w http.ResponseWriter, r *http.Request, slug SlugPath)
 	// Submit a flag
 	// (POST /challenges/{slug}/submit)
 	SubmitFlag(w http.ResponseWriter, r *http.Request, slug SlugPath)
@@ -1368,6 +1526,18 @@ func (_ Unimplemented) AdminUpdateEvent(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List all instances
+// (GET /admin/instances)
+func (_ Unimplemented) AdminListInstances(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Destroy any instance
+// (DELETE /admin/instances/{id})
+func (_ Unimplemented) AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request, id IdPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Dashboard stats
 // (GET /admin/stats)
 func (_ Unimplemented) AdminGetStats(w http.ResponseWriter, r *http.Request) {
@@ -1455,6 +1625,24 @@ func (_ Unimplemented) GetChallenge(w http.ResponseWriter, r *http.Request, slug
 // Download an attachment
 // (GET /challenges/{slug}/attachments/{id})
 func (_ Unimplemented) DownloadAttachment(w http.ResponseWriter, r *http.Request, slug SlugPath, id IdPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop this team's instance
+// (DELETE /challenges/{slug}/instance)
+func (_ Unimplemented) StopInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start this team's instance
+// (POST /challenges/{slug}/instance)
+func (_ Unimplemented) StartInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Extend this team's instance TTL
+// (POST /challenges/{slug}/instance/extend)
+func (_ Unimplemented) ExtendInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1999,6 +2187,57 @@ func (siw *ServerInterfaceWrapper) AdminUpdateEvent(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// AdminListInstances operation middleware
+func (siw *ServerInterfaceWrapper) AdminListInstances(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminListInstances(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminDestroyInstanceById operation middleware
+func (siw *ServerInterfaceWrapper) AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id IdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminDestroyInstanceById(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AdminGetStats operation middleware
 func (siw *ServerInterfaceWrapper) AdminGetStats(w http.ResponseWriter, r *http.Request) {
 
@@ -2502,6 +2741,99 @@ func (siw *ServerInterfaceWrapper) DownloadAttachment(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// StopInstance operation middleware
+func (siw *ServerInterfaceWrapper) StopInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "slug" -------------
+	var slug SlugPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", chi.URLParam(r, "slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopInstance(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartInstance operation middleware
+func (siw *ServerInterfaceWrapper) StartInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "slug" -------------
+	var slug SlugPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", chi.URLParam(r, "slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartInstance(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExtendInstance operation middleware
+func (siw *ServerInterfaceWrapper) ExtendInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "slug" -------------
+	var slug SlugPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", chi.URLParam(r, "slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExtendInstance(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SubmitFlag operation middleware
 func (siw *ServerInterfaceWrapper) SubmitFlag(w http.ResponseWriter, r *http.Request) {
 
@@ -2903,6 +3235,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/admin/event", wrapper.AdminUpdateEvent)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/instances", wrapper.AdminListInstances)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/instances/{id}", wrapper.AdminDestroyInstanceById)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/stats", wrapper.AdminGetStats)
 	})
 	r.Group(func(r chi.Router) {
@@ -2946,6 +3284,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/challenges/{slug}/attachments/{id}", wrapper.DownloadAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/challenges/{slug}/instance", wrapper.StopInstance)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/challenges/{slug}/instance", wrapper.StartInstance)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/challenges/{slug}/instance/extend", wrapper.ExtendInstance)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/challenges/{slug}/submit", wrapper.SubmitFlag)
@@ -3805,6 +4152,104 @@ func (response AdminUpdateEvent422ApplicationProblemPlusJSONResponse) VisitAdmin
 	return json.NewEncoder(w).Encode(response)
 }
 
+type AdminListInstancesRequestObject struct {
+}
+
+type AdminListInstancesResponseObject interface {
+	VisitAdminListInstancesResponse(w http.ResponseWriter) error
+}
+
+type AdminListInstances200JSONResponse AdminInstanceList
+
+func (response AdminListInstances200JSONResponse) VisitAdminListInstancesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListInstances401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListInstances401ApplicationProblemPlusJSONResponse) VisitAdminListInstancesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListInstances403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListInstances403ApplicationProblemPlusJSONResponse) VisitAdminListInstancesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminDestroyInstanceByIdRequestObject struct {
+	Id IdPath `json:"id"`
+}
+
+type AdminDestroyInstanceByIdResponseObject interface {
+	VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error
+}
+
+type AdminDestroyInstanceById204Response struct {
+}
+
+func (response AdminDestroyInstanceById204Response) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AdminDestroyInstanceById401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminDestroyInstanceById401ApplicationProblemPlusJSONResponse) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminDestroyInstanceById403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminDestroyInstanceById403ApplicationProblemPlusJSONResponse) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminDestroyInstanceById404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AdminDestroyInstanceById404ApplicationProblemPlusJSONResponse) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminDestroyInstanceById503ApplicationProblemPlusJSONResponse struct {
+	RuntimeUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response AdminDestroyInstanceById503ApplicationProblemPlusJSONResponse) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type AdminGetStatsRequestObject struct {
 }
 
@@ -4520,6 +4965,219 @@ func (response DownloadAttachment404ApplicationProblemPlusJSONResponse) VisitDow
 	return json.NewEncoder(w).Encode(response)
 }
 
+type StopInstanceRequestObject struct {
+	Slug SlugPath `json:"slug"`
+}
+
+type StopInstanceResponseObject interface {
+	VisitStopInstanceResponse(w http.ResponseWriter) error
+}
+
+type StopInstance204Response struct {
+}
+
+func (response StopInstance204Response) VisitStopInstanceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type StopInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response StopInstance401ApplicationProblemPlusJSONResponse) VisitStopInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response StopInstance403ApplicationProblemPlusJSONResponse) VisitStopInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StopInstance404ApplicationProblemPlusJSONResponse) VisitStopInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopInstance503ApplicationProblemPlusJSONResponse struct {
+	RuntimeUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response StopInstance503ApplicationProblemPlusJSONResponse) VisitStopInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstanceRequestObject struct {
+	Slug SlugPath `json:"slug"`
+}
+
+type StartInstanceResponseObject interface {
+	VisitStartInstanceResponse(w http.ResponseWriter) error
+}
+
+type StartInstance200JSONResponse TeamInstance
+
+func (response StartInstance200JSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance201JSONResponse TeamInstance
+
+func (response StartInstance201JSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response StartInstance401ApplicationProblemPlusJSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response StartInstance403ApplicationProblemPlusJSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StartInstance404ApplicationProblemPlusJSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response StartInstance409ApplicationProblemPlusJSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartInstance503ApplicationProblemPlusJSONResponse struct {
+	RuntimeUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response StartInstance503ApplicationProblemPlusJSONResponse) VisitStartInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstanceRequestObject struct {
+	Slug SlugPath `json:"slug"`
+}
+
+type ExtendInstanceResponseObject interface {
+	VisitExtendInstanceResponse(w http.ResponseWriter) error
+}
+
+type ExtendInstance200JSONResponse TeamInstance
+
+func (response ExtendInstance200JSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ExtendInstance401ApplicationProblemPlusJSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ExtendInstance403ApplicationProblemPlusJSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ExtendInstance404ApplicationProblemPlusJSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ExtendInstance409ApplicationProblemPlusJSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ExtendInstance503ApplicationProblemPlusJSONResponse struct {
+	RuntimeUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ExtendInstance503ApplicationProblemPlusJSONResponse) VisitExtendInstanceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type SubmitFlagRequestObject struct {
 	Slug SlugPath `json:"slug"`
 	Body *SubmitFlagJSONRequestBody
@@ -5024,6 +5682,12 @@ type StrictServerInterface interface {
 	// Update event settings
 	// (PATCH /admin/event)
 	AdminUpdateEvent(ctx context.Context, request AdminUpdateEventRequestObject) (AdminUpdateEventResponseObject, error)
+	// List all instances
+	// (GET /admin/instances)
+	AdminListInstances(ctx context.Context, request AdminListInstancesRequestObject) (AdminListInstancesResponseObject, error)
+	// Destroy any instance
+	// (DELETE /admin/instances/{id})
+	AdminDestroyInstanceById(ctx context.Context, request AdminDestroyInstanceByIdRequestObject) (AdminDestroyInstanceByIdResponseObject, error)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(ctx context.Context, request AdminGetStatsRequestObject) (AdminGetStatsResponseObject, error)
@@ -5069,6 +5733,15 @@ type StrictServerInterface interface {
 	// Download an attachment
 	// (GET /challenges/{slug}/attachments/{id})
 	DownloadAttachment(ctx context.Context, request DownloadAttachmentRequestObject) (DownloadAttachmentResponseObject, error)
+	// Stop this team's instance
+	// (DELETE /challenges/{slug}/instance)
+	StopInstance(ctx context.Context, request StopInstanceRequestObject) (StopInstanceResponseObject, error)
+	// Start this team's instance
+	// (POST /challenges/{slug}/instance)
+	StartInstance(ctx context.Context, request StartInstanceRequestObject) (StartInstanceResponseObject, error)
+	// Extend this team's instance TTL
+	// (POST /challenges/{slug}/instance/extend)
+	ExtendInstance(ctx context.Context, request ExtendInstanceRequestObject) (ExtendInstanceResponseObject, error)
 	// Submit a flag
 	// (POST /challenges/{slug}/submit)
 	SubmitFlag(ctx context.Context, request SubmitFlagRequestObject) (SubmitFlagResponseObject, error)
@@ -5522,6 +6195,56 @@ func (sh *strictHandler) AdminUpdateEvent(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// AdminListInstances operation middleware
+func (sh *strictHandler) AdminListInstances(w http.ResponseWriter, r *http.Request) {
+	var request AdminListInstancesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminListInstances(ctx, request.(AdminListInstancesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminListInstances")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminListInstancesResponseObject); ok {
+		if err := validResponse.VisitAdminListInstancesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdminDestroyInstanceById operation middleware
+func (sh *strictHandler) AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request, id IdPath) {
+	var request AdminDestroyInstanceByIdRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminDestroyInstanceById(ctx, request.(AdminDestroyInstanceByIdRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminDestroyInstanceById")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminDestroyInstanceByIdResponseObject); ok {
+		if err := validResponse.VisitAdminDestroyInstanceByIdResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AdminGetStats operation middleware
 func (sh *strictHandler) AdminGetStats(w http.ResponseWriter, r *http.Request) {
 	var request AdminGetStatsRequestObject
@@ -5934,6 +6657,84 @@ func (sh *strictHandler) DownloadAttachment(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DownloadAttachmentResponseObject); ok {
 		if err := validResponse.VisitDownloadAttachmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopInstance operation middleware
+func (sh *strictHandler) StopInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
+	var request StopInstanceRequestObject
+
+	request.Slug = slug
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopInstance(ctx, request.(StopInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopInstanceResponseObject); ok {
+		if err := validResponse.VisitStopInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartInstance operation middleware
+func (sh *strictHandler) StartInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
+	var request StartInstanceRequestObject
+
+	request.Slug = slug
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartInstance(ctx, request.(StartInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartInstanceResponseObject); ok {
+		if err := validResponse.VisitStartInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExtendInstance operation middleware
+func (sh *strictHandler) ExtendInstance(w http.ResponseWriter, r *http.Request, slug SlugPath) {
+	var request ExtendInstanceRequestObject
+
+	request.Slug = slug
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExtendInstance(ctx, request.(ExtendInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExtendInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExtendInstanceResponseObject); ok {
+		if err := validResponse.VisitExtendInstanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

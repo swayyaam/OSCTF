@@ -39,7 +39,14 @@ type Config struct {
 	MaxAttachmentMB  int           `env:"OSCTF_MAX_ATTACHMENT_MB" envDefault:"100"`
 
 	PortRangeStart int `env:"OSCTF_PORT_RANGE_START" envDefault:"30000"`
-	PortRangeEnd   int `env:"OSCTF_PORT_RANGE_END" envDefault:"30999"`
+	PortRangeEnd   int `env:"OSCTF_PORT_RANGE_END" envDefault:"32767"`
+
+	// Per-team instance scheduler (v0.2). See docs/v0.2/08-deployment.md.
+	InstanceTTL       time.Duration `env:"OSCTF_INSTANCE_TTL" envDefault:"3600s"`      // default per-team TTL
+	InstanceExtend    time.Duration `env:"OSCTF_INSTANCE_EXTEND" envDefault:"1800s"`   // added per Extend
+	InstanceMaxTTL    time.Duration `env:"OSCTF_INSTANCE_MAX_TTL" envDefault:"14400s"` // max total lifetime
+	TeamInstanceQuota int           `env:"OSCTF_TEAM_INSTANCE_QUOTA" envDefault:"3"`   // concurrent per team
+	FlagPrefix        string        `env:"OSCTF_FLAG_PREFIX" envDefault:"osctf"`       // per-instance flag prefix
 
 	DockerHost   string `env:"OSCTF_DOCKER_HOST"`
 	SeedExamples bool   `env:"OSCTF_SEED_EXAMPLES" envDefault:"true"`
@@ -84,6 +91,18 @@ func (c *Config) finalize() error {
 
 	if c.PortRangeStart < 1 || c.PortRangeEnd > 65535 || c.PortRangeStart > c.PortRangeEnd {
 		problems = append(problems, "OSCTF_PORT_RANGE_START/END must satisfy 1 <= start <= end <= 65535")
+	}
+	if c.InstanceTTL < 0 {
+		problems = append(problems, "OSCTF_INSTANCE_TTL must be >= 0")
+	}
+	if c.InstanceExtend <= 0 {
+		problems = append(problems, "OSCTF_INSTANCE_EXTEND must be > 0")
+	}
+	if c.InstanceMaxTTL < c.InstanceTTL || c.InstanceMaxTTL < c.InstanceExtend {
+		problems = append(problems, "OSCTF_INSTANCE_MAX_TTL must be >= OSCTF_INSTANCE_TTL and >= OSCTF_INSTANCE_EXTEND")
+	}
+	if c.TeamInstanceQuota < 1 {
+		problems = append(problems, "OSCTF_TEAM_INSTANCE_QUOTA must be >= 1")
 	}
 	if c.TeamMaxSize < 1 {
 		problems = append(problems, "OSCTF_TEAM_MAX_SIZE must be >= 1")

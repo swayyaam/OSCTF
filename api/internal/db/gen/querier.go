@@ -6,6 +6,7 @@ package gen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -23,6 +24,7 @@ type Querier interface {
 	CountSubmissionsAdmin(ctx context.Context, arg CountSubmissionsAdminParams) (int64, error)
 	CountTeamAttempts(ctx context.Context, arg CountTeamAttemptsParams) (int64, error)
 	CountTeamMembers(ctx context.Context, teamID uuid.UUID) (int64, error)
+	CountTeamRunningInstances(ctx context.Context, teamID *uuid.UUID) (int64, error)
 	CountTeamSubmissions(ctx context.Context, teamID uuid.UUID) (int64, error)
 	CountTeams(ctx context.Context) (int64, error)
 	CountTeamsAdmin(ctx context.Context, q_ *string) (int64, error)
@@ -39,6 +41,7 @@ type Querier interface {
 	DeleteChallenge(ctx context.Context, id uuid.UUID) error
 	DeleteInstance(ctx context.Context, id uuid.UUID) error
 	DeleteTeam(ctx context.Context, id uuid.UUID) error
+	FindInstanceByFlag(ctx context.Context, arg FindInstanceByFlagParams) (Instance, error)
 	GetAttachment(ctx context.Context, arg GetAttachmentParams) (ChallengeAttachment, error)
 	GetChallengeByID(ctx context.Context, id uuid.UUID) (Challenge, error)
 	GetChallengeBySlug(ctx context.Context, slug string) (Challenge, error)
@@ -46,8 +49,10 @@ type Querier interface {
 	GetEvent(ctx context.Context) (Event, error)
 	GetInstanceByChallenge(ctx context.Context, challengeID uuid.UUID) (Instance, error)
 	GetInstanceByID(ctx context.Context, id uuid.UUID) (Instance, error)
+	GetSharedInstance(ctx context.Context, challengeID uuid.UUID) (Instance, error)
 	GetTeamByID(ctx context.Context, id uuid.UUID) (Team, error)
 	GetTeamByInviteCode(ctx context.Context, inviteCode string) (Team, error)
+	GetTeamInstance(ctx context.Context, arg GetTeamInstanceParams) (Instance, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
@@ -56,11 +61,14 @@ type Querier interface {
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	ListAttachments(ctx context.Context, challengeID uuid.UUID) ([]ChallengeAttachment, error)
 	ListChallengesAdmin(ctx context.Context, arg ListChallengesAdminParams) ([]Challenge, error)
+	ListExpiredInstances(ctx context.Context, now *time.Time) ([]Instance, error)
 	ListInstances(ctx context.Context) ([]Instance, error)
+	ListPerTeamInstances(ctx context.Context) ([]Instance, error)
 	ListPublicTeams(ctx context.Context) ([]ListPublicTeamsRow, error)
 	// Every non-hidden team appears on the board from creation (zero-solve teams too).
 	ListScoreboardTeams(ctx context.Context) ([]ListScoreboardTeamsRow, error)
 	ListSubmissionsAdmin(ctx context.Context, arg ListSubmissionsAdminParams) ([]ListSubmissionsAdminRow, error)
+	ListTeamInstances(ctx context.Context, teamID *uuid.UUID) ([]Instance, error)
 	ListTeamMembers(ctx context.Context, teamID uuid.UUID) ([]ListTeamMembersRow, error)
 	ListTeamSolves(ctx context.Context, teamID uuid.UUID) ([]ListTeamSolvesRow, error)
 	ListTeamsAdmin(ctx context.Context, arg ListTeamsAdminParams) ([]ListTeamsAdminRow, error)
@@ -74,6 +82,7 @@ type Querier interface {
 	ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, error)
 	ListVisibleChallenges(ctx context.Context) ([]Challenge, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) error
+	SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error)
 	UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error)
 	UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (Instance, error)

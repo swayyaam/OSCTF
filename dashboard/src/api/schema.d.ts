@@ -332,6 +332,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/challenges/{slug}/instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start this team's instance
+         * @description Starts (or returns) the caller team's instance for a per_team container challenge. Requires a running event and team membership. Synchronous deploy (up to 120 s). 409 when the team is at its instance quota or the event is not running; 503 when the runtime is unavailable.
+         */
+        post: operations["startInstance"];
+        /**
+         * Stop this team's instance
+         * @description Stops and destroys the caller team's instance, freeing its port and quota slot.
+         */
+        delete: operations["stopInstance"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/challenges/{slug}/instance/extend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extend this team's instance TTL
+         * @description Extends the caller team's instance expiry by the configured step, capped at the maximum lifetime. 409 when already at the maximum; 404 when there is no instance.
+         */
+        post: operations["extendInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scoreboard": {
         parameters: {
             query?: never;
@@ -536,6 +580,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all instances
+         * @description Every instance (shared and per-team) with owner, state, port, network, age, expiry, and health. Never contains flags.
+         */
+        get: operations["adminListInstances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/instances/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Destroy any instance
+         * @description Stops and removes any instance by ID (shared or per-team), freeing its port.
+         */
+        delete: operations["adminDestroyInstanceById"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -732,6 +816,16 @@ export interface components {
          * @enum {string}
          */
         InstanceState: "pending" | "starting" | "running" | "unhealthy" | "stopped" | "error" | "lost";
+        /**
+         * @description shared = one container everyone hits (v0.1); per_team = one container per team, started on demand and managed by the scheduler.
+         * @enum {string}
+         */
+        Instancing: "shared" | "per_team";
+        /**
+         * @description static = one flag in the challenge; per_instance = a unique flag generated per team instance and injected as FLAG.
+         * @enum {string}
+         */
+        FlagMode: "static" | "per_instance";
         /** @description Account registration payload. */
         RegisterRequest: {
             /** @description Unique handle (case-insensitive). */
@@ -1012,6 +1106,7 @@ export interface components {
             /** @description Whether the caller's team solved it. */
             solved_by_me: boolean;
             kind: components["schemas"]["ChallengeKind"];
+            instancing: components["schemas"]["Instancing"];
             /** @description Whether a container instance exists. */
             has_instance: boolean;
             /** @description Rendered connection string while the instance is running. */
@@ -1027,6 +1122,9 @@ export interface components {
             max_attempts?: number | null;
             /** @description The caller team's attempts so far. */
             attempts_used: number;
+            flag_mode: components["schemas"]["FlagMode"];
+            /** @description The caller team's instance for this challenge (per_team), or the shared instance (shared), or null when none exists. */
+            instance?: components["schemas"]["TeamInstance"] | null;
         };
         /** @description Downloadable challenge file. */
         Attachment: {
@@ -1136,13 +1234,21 @@ export interface components {
             };
             /** @description Template with {host} and {port} placeholders. */
             connection_template?: string | null;
+            instancing: components["schemas"]["Instancing"];
+            flag_mode: components["schemas"]["FlagMode"];
+            /** @description Per-challenge TTL override; null = default, 0 = no TTL (container/per_team). */
+            instance_ttl_seconds?: number | null;
+            /** @description Whether the container may reach the network. */
+            egress: boolean;
+            /** @description Extra writable tmpfs mounts on top of /tmp (read-only rootfs default). */
+            writable_paths: string[];
             /** @description Attached files. */
             attachments: components["schemas"]["AttachmentAdmin"][];
             /** @description Valid solve count. */
             solves: number;
             /** @description Current computed value. */
             current_points: number;
-            /** @description The instance summary, when one exists. */
+            /** @description The shared instance summary, when one exists (shared kind only). */
             instance?: components["schemas"]["Instance"] | null;
             /**
              * Format: date-time
@@ -1195,6 +1301,16 @@ export interface components {
             };
             /** @description Template with {host} and {port} placeholders. */
             connection_template?: string;
+            /** @description Provisioning mode (default shared; per_team requires container kind). */
+            instancing?: components["schemas"]["Instancing"];
+            /** @description Flag mode (default static; per_instance requires container kind). */
+            flag_mode?: components["schemas"]["FlagMode"];
+            /** @description Per-challenge TTL override; omit for default, 0 for no TTL. */
+            instance_ttl_seconds?: number;
+            /** @description Whether the container may reach the network (default true). */
+            egress?: boolean;
+            /** @description Extra writable tmpfs mounts on top of /tmp. */
+            writable_paths?: string[];
         };
         /** @description Partial challenge update. Omitted fields are unchanged. */
         ChallengeAdminUpdate: {
@@ -1236,6 +1352,16 @@ export interface components {
             };
             /** @description Template with {host} and {port} placeholders. */
             connection_template?: string | null;
+            /** @description Provisioning mode (per_team requires container kind). */
+            instancing?: components["schemas"]["Instancing"];
+            /** @description Flag mode (per_instance requires container kind). */
+            flag_mode?: components["schemas"]["FlagMode"];
+            /** @description Per-challenge TTL override; null = default, 0 = no TTL. */
+            instance_ttl_seconds?: number | null;
+            /** @description Whether the container may reach the network. */
+            egress?: boolean;
+            /** @description Extra writable tmpfs mounts on top of /tmp. */
+            writable_paths?: string[];
         };
         /** @description Attachment with storage metadata. */
         AttachmentAdmin: {
@@ -1293,6 +1419,79 @@ export interface components {
             error?: string | null;
             /** @description Rendered connection string while running. */
             connection_info?: string | null;
+        };
+        /** @description A per-team (or shared) challenge instance, participant-safe. Never contains the flag. Superset of Instance with an expiry for the TTL countdown. */
+        TeamInstance: {
+            /**
+             * Format: uuid
+             * @description Instance ID.
+             */
+            id: string;
+            state: components["schemas"]["InstanceState"];
+            /** @description Published host port. */
+            host_port?: number | null;
+            /** @description Rendered connection string while running. */
+            connection_info?: string | null;
+            /**
+             * Format: date-time
+             * @description Container start time.
+             */
+            started_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Scheduler destroys the instance at this time; null = no TTL.
+             */
+            expires_at?: string | null;
+            /** @description Last failure message, verbatim. */
+            error?: string | null;
+        };
+        /** @description A challenge instance as seen by an admin (shared or per-team). Never contains the flag. */
+        AdminInstance: {
+            /**
+             * Format: uuid
+             * @description Instance ID.
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Challenge ID.
+             */
+            challenge_id: string;
+            /** @description Challenge slug. */
+            challenge_slug?: string;
+            /**
+             * Format: uuid
+             * @description Owning team; null = shared instance.
+             */
+            team_id?: string | null;
+            /** @description Owning team name; null = shared. */
+            team_name?: string | null;
+            state: components["schemas"]["InstanceState"];
+            /** @description Published host port. */
+            host_port?: number | null;
+            /** @description Docker network name; null = shared network. */
+            network?: string | null;
+            /**
+             * Format: date-time
+             * @description Container start time.
+             */
+            started_at?: string | null;
+            /**
+             * Format: date-time
+             * @description TTL expiry; null = no TTL.
+             */
+            expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Last successful health check.
+             */
+            last_health_at?: string | null;
+            /** @description Last failure message, verbatim. */
+            error?: string | null;
+        };
+        /** @description All instances (shared + per-team). */
+        AdminInstanceList: {
+            items: components["schemas"]["AdminInstance"][];
         };
         /** @description Recent container output. */
         InstanceLogs: {
@@ -1986,6 +2185,96 @@ export interface operations {
             429: components["responses"]["RateLimited"];
         };
     };
+    startInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Challenge slug. */
+                slug: components["parameters"]["SlugPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An existing running instance (idempotent). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamInstance"];
+                };
+            };
+            /** @description A newly started instance. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamInstance"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["RuntimeUnavailable"];
+        };
+    };
+    stopInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Challenge slug. */
+                slug: components["parameters"]["SlugPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["RuntimeUnavailable"];
+        };
+    };
+    extendInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Challenge slug. */
+                slug: components["parameters"]["SlugPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The instance with its new expiry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamInstance"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["RuntimeUnavailable"];
+        };
+    };
     getScoreboard: {
         parameters: {
             query?: never;
@@ -2399,6 +2688,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InstanceLogs"];
                 };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["RuntimeUnavailable"];
+        };
+    };
+    adminListInstances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The instances. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInstanceList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminDestroyInstanceById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource ID. */
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destroyed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];

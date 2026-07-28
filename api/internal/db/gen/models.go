@@ -45,6 +45,11 @@ type Challenge struct {
 	ConnectionTemplate  *string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	Instancing          string
+	FlagMode            string
+	InstanceTtlSeconds  *int32
+	Egress              bool
+	WritablePaths       []byte
 }
 
 type ChallengeAttachment struct {
@@ -79,6 +84,10 @@ type Instance struct {
 	LastHealthAt *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	TeamID       *uuid.UUID
+	Flag         *string
+	ExpiresAt    *time.Time
+	Network      *string
 }
 
 type Submission struct {

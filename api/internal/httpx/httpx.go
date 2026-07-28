@@ -136,6 +136,13 @@ func classify(err error) classified {
 			detail = ua.Detail
 		}
 		return classified{typ: "unavailable", title: "Service unavailable", status: http.StatusServiceUnavailable, detail: detail}
+	case errors.Is(err, apperr.ErrNotImplemented):
+		var ni *apperr.NotImplemented
+		detail := "This endpoint is not implemented yet."
+		if errors.As(err, &ni) {
+			detail = ni.Detail
+		}
+		return classified{typ: "not-implemented", title: "Not implemented", status: http.StatusNotImplemented, detail: detail}
 	default:
 		return classified{typ: "internal", title: "Internal server error", status: http.StatusInternalServerError, detail: "Something broke. Reference the request id when reporting this."}
 	}

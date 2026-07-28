@@ -9,6 +9,9 @@ interface ChallengeDetail {
 // per_instance challenge -> Start -> read the team's unique flag from its own
 // instance -> submit -> solved -> Extend -> Stop.
 test("per-team instance golden path", async ({ page, request }) => {
+  // Deploying a container (pull + start + health) can take a while on a cold CI
+  // runner; allow well over the default 30s so the running poll can complete.
+  test.setTimeout(150_000);
   const id = rid();
   await apiAdmin(request);
   await setEventWindow(request);

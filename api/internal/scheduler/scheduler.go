@@ -106,6 +106,8 @@ func (s *Scheduler) Start(ctx context.Context, actorID, teamID, challengeID uuid
 		ChallengeID: challengeID, TeamID: teamID, Flag: flag, ExpiresAt: s.ttlFor(ch),
 	})
 	if err != nil {
+		s.log.Warn("instance start: deploy failed",
+			"challenge_id", challengeID, "team_id", teamID, "error", err.Error())
 		return runtime.Instance{}, false, err
 	}
 	metrics.InstanceSpawns.Inc()

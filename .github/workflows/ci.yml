@@ -104,6 +104,10 @@ jobs:
       - name: compose up
         run: |
           cp .env.example .env
+          # Grant the platform container the runner's docker socket group so it can
+          # reach the daemon and deploy instances (the .env.example default of 0 is
+          # only correct on Docker Desktop).
+          echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
           docker compose up -d --build --wait
       - name: smoke test
         run: |
@@ -130,6 +134,9 @@ jobs:
       - name: compose up
         run: |
           cp .env.example .env
+          # Grant the platform container the runner's docker socket group so it can
+          # reach the daemon and deploy per-team instances.
+          echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
           docker compose up -d --build --wait
       - name: playwright
         run: |

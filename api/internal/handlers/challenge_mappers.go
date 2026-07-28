@@ -16,6 +16,14 @@ func decodeEnv(raw []byte) map[string]string {
 	return env
 }
 
+func decodeStrings(raw []byte) []string {
+	out := []string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out)
+	}
+	return out
+}
+
 func i32ptrToInt(p *int32) *int {
 	if p == nil {
 		return nil
@@ -67,6 +75,11 @@ func toChallengeAdmin(f challenges.Full) apigen.ChallengeAdmin {
 		CpuMillis:           int(c.CpuMillis),
 		ContainerEnv:        decodeEnv(c.ContainerEnv),
 		ConnectionTemplate:  c.ConnectionTemplate,
+		Instancing:          apigen.Instancing(c.Instancing),
+		FlagMode:            apigen.FlagMode(c.FlagMode),
+		InstanceTtlSeconds:  i32ptrToInt(c.InstanceTtlSeconds),
+		Egress:              c.Egress,
+		WritablePaths:       decodeStrings(c.WritablePaths),
 		Attachments:         atts,
 		Solves:              f.Solves,
 		CurrentPoints:       challenges.CurrentPoints(c, f.Solves),
@@ -89,6 +102,7 @@ func toChallenge(e challenges.BoardEntry) apigen.Challenge {
 		Solves:      e.Solves,
 		SolvedByMe:  e.SolvedByMe,
 		Kind:        apigen.ChallengeKind(c.Kind),
+		Instancing:  apigen.Instancing(c.Instancing),
 		HasInstance: false,
 	}
 }
@@ -109,6 +123,8 @@ func toChallengeDetail(d challenges.Detail) apigen.ChallengeDetail {
 		Solves:       d.Solves,
 		SolvedByMe:   d.SolvedByMe,
 		Kind:         apigen.ChallengeKind(c.Kind),
+		Instancing:   apigen.Instancing(c.Instancing),
+		FlagMode:     apigen.FlagMode(c.FlagMode),
 		HasInstance:  false,
 		Description:  c.Description,
 		Attachments:  atts,

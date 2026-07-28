@@ -110,6 +110,18 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (gen.Challenge, er
 	return c, nil
 }
 
+// GetByID returns a raw challenge by id (used by the admin instance fleet view).
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (gen.Challenge, error) {
+	c, err := s.q.GetChallengeByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gen.Challenge{}, apperr.ErrNotFound
+		}
+		return gen.Challenge{}, fmt.Errorf("challenges: get by id: %w", err)
+	}
+	return c, nil
+}
+
 // CurrentValue returns a challenge's current point value by loading it and its
 // solve count. Used by profile solve lists.
 func (s *Service) CurrentValue(ctx context.Context, challengeID uuid.UUID) (int, error) {

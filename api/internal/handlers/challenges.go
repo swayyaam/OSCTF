@@ -10,6 +10,7 @@ import (
 	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/httpx"
+	"github.com/osctf/platform/internal/runtime"
 )
 
 // eventStarted reports whether challenges are visible to participants: the event
@@ -75,8 +76,34 @@ func (s *Server) GetChallenge(ctx context.Context, request apigen.GetChallengeRe
 		return nil, err
 	}
 	out := toChallengeDetail(detail)
-	s.enrichInstance(ctx, detail.Challenge.ID, detail.Challenge, &out.HasInstance, &out.ConnectionInfo)
+	s.enrichDetailInstance(ctx, detail.Challenge, teamID, &out)
 	return apigen.GetChallenge200JSONResponse(out), nil
+}
+
+// enrichDetailInstance fills the detail's instance (and has_instance/connection_info)
+// with the caller team's instance for a per_team challenge, or the shared instance
+// otherwise. Never exposes the flag.
+func (s *Server) enrichDetailInstance(ctx context.Context, ch gen.Challenge, teamID uuid.UUID, out *apigen.ChallengeDetail) {
+	if s.d.Runtime == nil || ch.Kind != "container" {
+		return
+	}
+	var inst runtime.Instance
+	var ok bool
+	if ch.Instancing == "per_team" {
+		if teamID == uuid.Nil {
+			return
+		}
+		inst, ok, _ = s.d.Runtime.GetTeamInstance(ctx, ch.ID, teamID)
+	} else {
+		inst, ok = s.d.Runtime.InstanceForChallenge(ctx, ch.ID)
+	}
+	if !ok {
+		return
+	}
+	ti := s.toTeamInstance(ch, inst)
+	out.Instance = &ti
+	out.HasInstance = true
+	out.ConnectionInfo = ti.ConnectionInfo
 }
 
 // enrichInstance fills has_instance and connection_info for a container challenge

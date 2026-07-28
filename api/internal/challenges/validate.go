@@ -54,7 +54,40 @@ func validateCreate(in CreateInput, slug string) error {
 	if in.MaxAttempts != nil && *in.MaxAttempts < 1 {
 		v.Add("max_attempts", "must be positive when set")
 	}
+	validateInstancing(v, in.Kind, in.Instancing, in.FlagMode, in.InstanceTTLSeconds, in.Egress, len(in.WritablePaths) > 0)
 	return v.OrNil()
+}
+
+// validateInstancing enforces that per_team / per_instance / ttl / egress-off /
+// writable-paths are only valid for container challenges (mirrors the DB CHECK).
+func validateInstancing(v *apperr.Validation, kind, instancing, flagMode string, ttl *int, egress *bool, hasWritable bool) {
+	if instancing != "" && instancing != "shared" && instancing != "per_team" {
+		v.Add("instancing", "must be 'shared' or 'per_team'")
+	}
+	if flagMode != "" && flagMode != "static" && flagMode != "per_instance" {
+		v.Add("flag_mode", "must be 'static' or 'per_instance'")
+	}
+	if ttl != nil && *ttl < 0 {
+		v.Add("instance_ttl_seconds", "must be >= 0")
+	}
+	if kind == "container" {
+		return
+	}
+	if instancing == "per_team" {
+		v.Add("instancing", "per_team requires a container challenge")
+	}
+	if flagMode == "per_instance" {
+		v.Add("flag_mode", "per_instance requires a container challenge")
+	}
+	if ttl != nil {
+		v.Add("instance_ttl_seconds", "only applies to container challenges")
+	}
+	if egress != nil && !*egress {
+		v.Add("egress", "egress control only applies to container challenges")
+	}
+	if hasWritable {
+		v.Add("writable_paths", "only apply to container challenges")
+	}
 }
 
 // validateUpdate validates the row that would result from applying in to cur.
@@ -128,6 +161,30 @@ func validateUpdate(cur gen.Challenge, in UpdateInput) error {
 		}
 	}
 	validateContainerLimits(v, in.MemLimitMB, in.CPUMillis)
+
+	// Resolve instancing/flag_mode/egress/writable against the current row.
+	instancing := cur.Instancing
+	if in.Instancing != nil {
+		instancing = *in.Instancing
+	}
+	flagMode := cur.FlagMode
+	if in.FlagMode != nil {
+		flagMode = *in.FlagMode
+	}
+	var ttl *int
+	if in.SetInstanceTTL {
+		ttl = in.InstanceTTLSeconds
+	} else if cur.InstanceTtlSeconds != nil {
+		t := int(*cur.InstanceTtlSeconds)
+		ttl = &t
+	}
+	egress := cur.Egress
+	if in.Egress != nil {
+		egress = *in.Egress
+	}
+	// A standard challenge cannot already have writable paths (DB CHECK), so only
+	// the incoming patch can introduce them.
+	validateInstancing(v, cur.Kind, instancing, flagMode, ttl, &egress, len(in.WritablePaths) > 0)
 	return v.OrNil()
 }
 

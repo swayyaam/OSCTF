@@ -86,6 +86,17 @@ func (s *Server) AdminCreateChallenge(ctx context.Context, request apigen.AdminC
 	if b.ContainerEnv != nil {
 		in.ContainerEnv = *b.ContainerEnv
 	}
+	if b.Instancing != nil {
+		in.Instancing = string(*b.Instancing)
+	}
+	if b.FlagMode != nil {
+		in.FlagMode = string(*b.FlagMode)
+	}
+	in.InstanceTTLSeconds = b.InstanceTtlSeconds
+	in.Egress = b.Egress
+	if b.WritablePaths != nil {
+		in.WritablePaths = *b.WritablePaths
+	}
 	c, err := s.d.Challenges.Create(ctx, in)
 	if err != nil {
 		return nil, err
@@ -167,6 +178,22 @@ func (s *Server) AdminUpdateChallenge(ctx context.Context, request apigen.AdminU
 	if b.ConnectionTemplate != nil {
 		in.SetConnectionTmpl = true
 		in.ConnectionTemplate = b.ConnectionTemplate
+	}
+	if b.Instancing != nil {
+		iv := string(*b.Instancing)
+		in.Instancing = &iv
+	}
+	if b.FlagMode != nil {
+		fm := string(*b.FlagMode)
+		in.FlagMode = &fm
+	}
+	if b.InstanceTtlSeconds != nil {
+		in.SetInstanceTTL = true
+		in.InstanceTTLSeconds = b.InstanceTtlSeconds
+	}
+	in.Egress = b.Egress
+	if b.WritablePaths != nil {
+		in.WritablePaths = *b.WritablePaths
 	}
 	c, err := s.d.Challenges.Update(ctx, request.Id, in)
 	if err != nil {

@@ -3,10 +3,11 @@ INSERT INTO challenges (
     id, slug, title, category, description, difficulty, kind,
     flag, flag_case_insensitive, scoring, points_initial, points_min, decay,
     max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis,
-    container_env, connection_template
+    container_env, connection_template,
+    instancing, flag_mode, instance_ttl_seconds, egress, writable_paths
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-    $17, $18, $19, $20, $21
+    $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
 RETURNING *;
 
@@ -44,6 +45,12 @@ UPDATE challenges SET
     container_env         = coalesce(sqlc.narg('container_env'), container_env),
     connection_template   = CASE WHEN sqlc.arg('set_connection_template')::boolean
                                  THEN sqlc.narg('connection_template') ELSE connection_template END,
+    instancing            = coalesce(sqlc.narg('instancing'), instancing),
+    flag_mode             = coalesce(sqlc.narg('flag_mode'), flag_mode),
+    instance_ttl_seconds  = CASE WHEN sqlc.arg('set_instance_ttl_seconds')::boolean
+                                 THEN sqlc.narg('instance_ttl_seconds') ELSE instance_ttl_seconds END,
+    egress                = coalesce(sqlc.narg('egress'), egress),
+    writable_paths        = coalesce(sqlc.narg('writable_paths'), writable_paths),
     updated_at            = now()
 WHERE id = $1
 RETURNING *;

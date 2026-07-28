@@ -36,6 +36,11 @@ type CreateInput struct {
 	CPUMillis           *int
 	ContainerEnv        map[string]string
 	ConnectionTemplate  *string
+	Instancing          string // "" -> "shared"
+	FlagMode            string // "" -> "static"
+	InstanceTTLSeconds  *int   // nil -> default; 0 -> no TTL
+	Egress              *bool  // nil -> true
+	WritablePaths       []string
 }
 
 // Full is a challenge plus its attachments (instance summary is joined in the handler/M7).
@@ -52,6 +57,12 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 	}
 	if in.Scoring == "" {
 		in.Scoring = "dynamic"
+	}
+	if in.Instancing == "" {
+		in.Instancing = "shared"
+	}
+	if in.FlagMode == "" {
+		in.FlagMode = "static"
 	}
 	slug := ""
 	if in.Slug != nil {
@@ -77,6 +88,19 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 		return gen.Challenge{}, fmt.Errorf("challenges: generating id: %w", err)
 	}
 
+	egress := true
+	if in.Egress != nil {
+		egress = *in.Egress
+	}
+	wpJSON := []byte("[]")
+	if len(in.WritablePaths) > 0 {
+		b, merr := json.Marshal(in.WritablePaths)
+		if merr != nil {
+			return gen.Challenge{}, fmt.Errorf("challenges: marshaling writable_paths: %w", merr)
+		}
+		wpJSON = b
+	}
+
 	params := gen.CreateChallengeParams{
 		ID: id, Slug: slug, Title: in.Title, Category: in.Category,
 		Description: in.Description, Difficulty: in.Difficulty, Kind: in.Kind,
@@ -85,6 +109,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 		MemLimitMb: 256, CpuMillis: 500, ContainerEnv: envJSON,
 		PointsMin: i32p(in.PointsMin), Decay: i32p(in.Decay), MaxAttempts: i32p(in.MaxAttempts),
 		Image: in.Image, InternalPort: i32p(in.InternalPort), ConnectionTemplate: in.ConnectionTemplate,
+		Instancing: in.Instancing, FlagMode: in.FlagMode,
+		InstanceTtlSeconds: i32p(in.InstanceTTLSeconds), Egress: egress, WritablePaths: wpJSON,
 	}
 	if in.MemLimitMB != nil {
 		params.MemLimitMb = clampI32(*in.MemLimitMB)
@@ -192,6 +218,12 @@ type UpdateInput struct {
 	ContainerEnv        map[string]string
 	SetConnectionTmpl   bool
 	ConnectionTemplate  *string
+	Instancing          *string
+	FlagMode            *string
+	SetInstanceTTL      bool
+	InstanceTTLSeconds  *int
+	Egress              *bool
+	WritablePaths       []string
 }
 
 // Update applies a partial update after validating the resulting row.
@@ -221,6 +253,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (gen
 		SetInternalPort: in.SetInternalPort, InternalPort: i32p(in.InternalPort),
 		MemLimitMb: i32p(in.MemLimitMB), CpuMillis: i32p(in.CPUMillis),
 		SetConnectionTemplate: in.SetConnectionTmpl, ConnectionTemplate: in.ConnectionTemplate,
+		Instancing: in.Instancing, FlagMode: in.FlagMode,
+		SetInstanceTtlSeconds: in.SetInstanceTTL, InstanceTtlSeconds: i32p(in.InstanceTTLSeconds),
+		Egress: in.Egress,
 	}
 	if in.ContainerEnv != nil {
 		b, merr := json.Marshal(in.ContainerEnv)
@@ -228,6 +263,13 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (gen
 			return gen.Challenge{}, fmt.Errorf("challenges: marshaling env: %w", merr)
 		}
 		params.ContainerEnv = b
+	}
+	if in.WritablePaths != nil {
+		b, merr := json.Marshal(in.WritablePaths)
+		if merr != nil {
+			return gen.Challenge{}, fmt.Errorf("challenges: marshaling writable_paths: %w", merr)
+		}
+		params.WritablePaths = b
 	}
 
 	c, err := s.q.UpdateChallenge(ctx, params)

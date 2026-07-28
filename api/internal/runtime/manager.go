@@ -193,6 +193,19 @@ func (m *Manager) ListTeamInstances(ctx context.Context, teamID uuid.UUID) ([]In
 	return out, nil
 }
 
+// ListAll returns every instance row (shared + per-team) for the admin fleet view.
+func (m *Manager) ListAll(ctx context.Context) ([]Instance, error) {
+	rows, err := m.q.ListInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list instances: %w", err)
+	}
+	out := make([]Instance, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, rowToInstance(r))
+	}
+	return out, nil
+}
+
 // CountTeamRunning returns the number of running instances a team holds.
 func (m *Manager) CountTeamRunning(ctx context.Context, teamID uuid.UUID) (int, error) {
 	n, err := m.q.CountTeamRunningInstances(ctx, &teamID)

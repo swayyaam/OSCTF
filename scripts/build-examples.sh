@@ -17,10 +17,16 @@ echo "==> compiling the xor-me checker ELF (linux/amd64)"
 docker run --rm --platform linux/amd64 -v "$EX/xor-me:/w" -w /w gcc:13 \
   sh -c 'gcc -O2 -o files/checker src/checker.c && strip files/checker'
 
-echo "==> building container challenge images"
+echo "==> building v0.1 container challenge images"
 for slug in robots-rule cookie-monster env-hunter overflow-lite; do
   echo "    osctf/example-$slug:0.1"
   docker build -t "osctf/example-$slug:0.1" "$EX/$slug/src"
+done
+
+echo "==> building v0.2 container challenge images (per-team + hardening)"
+for slug in per-team-web per-team-pwn hardening-demo; do
+  echo "    osctf/example-$slug:0.2"
+  docker build -t "osctf/example-$slug:0.2" "$EX/$slug/src"
 done
 
 echo "==> done. Example images:"

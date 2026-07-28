@@ -1,0 +1,25 @@
+slug: per-team-pwn
+title: Your Very Own Shell
+category: pwn
+difficulty: easy
+description: |
+  A network service, **one instance per team**, that hands over your team's unique
+  flag once you say the magic word. Start your instance, connect with `nc`, and
+  talk to it. Your flag is yours alone — another team's flag won't score for you.
+
+  Connect and read the prompt.
+flag: "OSCTF{per_instance_dynamic_placeholder}"
+scoring: dynamic
+points_initial: 300
+points_min: 120
+decay: 20
+visible: true
+kind: container
+image: osctf/example-per-team-pwn:0.2
+internal_port: 9000
+connection_template: "nc {host} {port}"
+instancing: per_team
+flag_mode: per_instance
+instance_ttl_seconds: 3600
+egress: false
+mem_limit_mb: 128

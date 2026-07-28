@@ -89,6 +89,29 @@ for _ in $(seq 1 12); do
 done
 [ "$got429" = 1 ] || fail "no 429 seen"; ok
 
+step "per-team instance: admin creates a per_team challenge (public image)"
+PT_SLUG="pt-smoke-$SUFFIX"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" $ORIGIN -X POST "$BASE_URL/api/v0/admin/challenges" \
+  -H 'Content-Type: application/json' -d "{\"slug\":\"$PT_SLUG\",\"title\":\"PT Smoke\",\"category\":\"web\",\"kind\":\"container\",\"flag\":\"OSCTF{pt_smoke}\",\"scoring\":\"static\",\"points_initial\":100,\"visible\":true,\"image\":\"traefik/whoami:latest\",\"internal_port\":80,\"instancing\":\"per_team\"}")
+[ "$code" = 201 ] || fail "create per_team challenge got $code"; ok
+
+step "per-team instance: team A starts an instance"
+start_body=$(curl -s --max-time 150 -w '\n%{http_code}' -b "$JAR_A" $ORIGIN -X POST "$BASE_URL/api/v0/challenges/$PT_SLUG/instance")
+start_code=$(printf '%s' "$start_body" | tail -n1)
+start_json=$(printf '%s' "$start_body" | sed '$d')
+if [ "$start_code" = 503 ]; then
+  echo "SKIP (runtime unavailable in this stack)"
+elif [ "$start_code" = 201 ] || [ "$start_code" = 200 ]; then
+  port=$(printf '%s' "$start_json" | jget "['host_port']")
+  [ -n "$port" ] && [ "$port" != "None" ] || fail "instance has no host_port"
+  ok
+  step "per-team instance: team A stops the instance -> 204"
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_A" $ORIGIN -X DELETE "$BASE_URL/api/v0/challenges/$PT_SLUG/instance")
+  [ "$code" = 204 ] || fail "stop instance got $code"; ok
+else
+  fail "start instance got $start_code ($start_json)"
+fi
+
 step "/metrics exposes osctf_submissions_total"
 curl -s "$BASE_URL/metrics" | grep -q '^osctf_submissions_total' || fail "missing metric"; ok
 

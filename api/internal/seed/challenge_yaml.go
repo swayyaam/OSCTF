@@ -35,6 +35,12 @@ type ChallengeYAML struct {
 	InjectFlag          *bool             `yaml:"inject_flag"`
 	ContainerEnv        map[string]string `yaml:"container_env"`
 	Files               []string          `yaml:"files"`
+	// v0.2 per-team instancing (container-only).
+	Instancing         string   `yaml:"instancing"`
+	FlagMode           string   `yaml:"flag_mode"`
+	InstanceTTLSeconds *int     `yaml:"instance_ttl_seconds"`
+	Egress             *bool    `yaml:"egress"`
+	WritablePaths      []string `yaml:"writable_paths"`
 }
 
 // parseChallengeYAML reads and validates a challenge.yaml. dirName is the
@@ -81,6 +87,18 @@ func (c ChallengeYAML) validate(dirName string) error {
 		}
 	default:
 		return fmt.Errorf("kind %q must be standard or container", c.Kind)
+	}
+	if c.Instancing != "" && c.Instancing != "shared" && c.Instancing != "per_team" {
+		return fmt.Errorf("instancing %q must be shared or per_team", c.Instancing)
+	}
+	if c.FlagMode != "" && c.FlagMode != "static" && c.FlagMode != "per_instance" {
+		return fmt.Errorf("flag_mode %q must be static or per_instance", c.FlagMode)
+	}
+	if c.Kind != "container" {
+		if c.Instancing == "per_team" || c.FlagMode == "per_instance" ||
+			c.InstanceTTLSeconds != nil || (c.Egress != nil && !*c.Egress) || len(c.WritablePaths) > 0 {
+			return fmt.Errorf("per-team instancing / flag_mode / ttl / egress / writable_paths require kind: container")
+		}
 	}
 	if c.Scoring == "dynamic" && (c.PointsMin == nil || c.Decay == nil) {
 		return fmt.Errorf("dynamic scoring requires points_min and decay")

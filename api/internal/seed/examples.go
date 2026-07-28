@@ -88,6 +88,11 @@ func (s *ExampleSeeder) seedOne(ctx context.Context, chalDir, dirName, yamlPath 
 		if c.ConnectionTemplate != "" {
 			in.ConnectionTemplate = &c.ConnectionTemplate
 		}
+		in.Instancing = c.Instancing
+		in.FlagMode = c.FlagMode
+		in.InstanceTTLSeconds = c.InstanceTTLSeconds
+		in.Egress = c.Egress
+		in.WritablePaths = c.WritablePaths
 	}
 
 	created, err := s.challenges.Create(ctx, in)

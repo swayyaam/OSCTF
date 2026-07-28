@@ -1,0 +1,24 @@
+slug: per-team-web
+title: Your Very Own Web
+category: web
+difficulty: easy
+description: |
+  This challenge gives **your team its own instance**. Click **Start**, wait for
+  the connection info, and open it in your browser. Somewhere in this little app is
+  a flag that is **unique to your team** — someone else's flag won't score for you.
+
+  Start at `/` and look around. Hint: the notes endpoint is chattier than it should be.
+flag: "OSCTF{per_instance_dynamic_placeholder}"
+scoring: dynamic
+points_initial: 200
+points_min: 80
+decay: 25
+visible: true
+kind: container
+image: osctf/example-per-team-web:0.2
+internal_port: 8000
+connection_template: "http://{host}:{port}"
+instancing: per_team
+flag_mode: per_instance
+instance_ttl_seconds: 3600
+egress: false

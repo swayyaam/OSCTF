@@ -1,0 +1,23 @@
+slug: hardening-demo
+title: Locked Down
+category: misc
+difficulty: easy
+description: |
+  This service runs **hardened**: its root filesystem is read-only, only `/tmp`
+  (and any declared writable paths) can be written, all Linux capabilities are
+  dropped, and it cannot reach the network. The flag is served at `/`.
+
+  Poke at `/write?path=/etc/passwd` to watch the read-only rootfs reject a write,
+  and `/write?path=/tmp/x` to watch it succeed. Same hardening applies to every
+  challenge container in v0.2 — this one just shows it to you.
+flag: "OSCTF{read_only_rootfs_and_dropped_caps}"
+scoring: static
+points_initial: 100
+visible: true
+kind: container
+image: osctf/example-hardening-demo:0.2
+internal_port: 8080
+connection_template: "http://{host}:{port}"
+egress: false
+writable_paths:
+  - /data

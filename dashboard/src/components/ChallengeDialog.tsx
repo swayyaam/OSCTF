@@ -6,6 +6,7 @@ import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { CategoryBadge, Skeleton } from "./ui/misc";
+import { InstancePanel } from "./InstancePanel";
 import { cn } from "../lib/cn";
 
 interface Props {
@@ -70,20 +71,24 @@ export function ChallengeDialog({ slug, onClose }: Props) {
 
           <Markdown>{chal.description}</Markdown>
 
-          {chal.connection_info && (
-            <div className="rounded-md border border-border bg-surface-2 p-3">
-              <div className="mb-1 text-xs uppercase text-text-muted">Connection</div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 font-mono text-sm text-text">{chal.connection_info}</code>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void navigator.clipboard.writeText(chal.connection_info ?? "")}
-                >
-                  Copy
-                </Button>
+          {chal.instancing === "per_team" ? (
+            <InstancePanel slug={slug} instance={chal.instance} />
+          ) : (
+            chal.connection_info && (
+              <div className="rounded-md border border-border bg-surface-2 p-3">
+                <div className="mb-1 text-xs uppercase text-text-muted">Connection</div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 font-mono text-sm text-text">{chal.connection_info}</code>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void navigator.clipboard.writeText(chal.connection_info ?? "")}
+                  >
+                    Copy
+                  </Button>
+                </div>
               </div>
-            </div>
+            )
           )}
 
           {chal.attachments.length > 0 && (

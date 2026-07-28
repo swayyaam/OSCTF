@@ -38,6 +38,11 @@ interface FormState {
   mem_limit_mb: string;
   cpu_millis: string;
   connection_template: string;
+  instancing: string;
+  flag_mode: string;
+  instance_ttl_seconds: string;
+  egress: boolean;
+  writable_paths: string;
 }
 
 const empty: FormState = {
@@ -60,6 +65,11 @@ const empty: FormState = {
   mem_limit_mb: "256",
   cpu_millis: "500",
   connection_template: "",
+  instancing: "shared",
+  flag_mode: "static",
+  instance_ttl_seconds: "",
+  egress: true,
+  writable_paths: "",
 };
 
 function fromChallenge(c: ChallengeAdmin): FormState {
@@ -83,6 +93,11 @@ function fromChallenge(c: ChallengeAdmin): FormState {
     mem_limit_mb: String(c.mem_limit_mb),
     cpu_millis: String(c.cpu_millis),
     connection_template: c.connection_template ?? "",
+    instancing: c.instancing,
+    flag_mode: c.flag_mode,
+    instance_ttl_seconds: c.instance_ttl_seconds != null ? String(c.instance_ttl_seconds) : "",
+    egress: c.egress,
+    writable_paths: c.writable_paths.join("\n"),
   };
 }
 
@@ -128,7 +143,18 @@ export function AdminChallengeEditor() {
       cpu_millis: num(form.cpu_millis),
       connection_template: form.connection_template || undefined,
       ...(form.kind === "container"
-        ? { image: form.image, internal_port: num(form.internal_port) }
+        ? {
+            image: form.image,
+            internal_port: num(form.internal_port),
+            instancing: form.instancing as components["schemas"]["Instancing"],
+            flag_mode: form.flag_mode as components["schemas"]["FlagMode"],
+            instance_ttl_seconds: num(form.instance_ttl_seconds),
+            egress: form.egress,
+            writable_paths: form.writable_paths
+              .split(/[\n,]/)
+              .map((p) => p.trim())
+              .filter((p) => p.length > 0),
+          }
         : {}),
     };
 
@@ -341,6 +367,66 @@ export function AdminChallengeEditor() {
                     placeholder="nc {host} {port}"
                     className="font-mono"
                   />
+                </div>
+                <div>
+                  <Label htmlFor="ch-instancing">Instancing</Label>
+                  <select
+                    id="ch-instancing"
+                    className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-text"
+                    value={form.instancing}
+                    onChange={(e) => { set("instancing", e.target.value); }}
+                  >
+                    <option value="shared">shared</option>
+                    <option value="per_team">per-team</option>
+                  </select>
+                  <FieldError messages={fe("instancing")} />
+                </div>
+                <div>
+                  <Label htmlFor="ch-flag-mode">Flag mode</Label>
+                  <select
+                    id="ch-flag-mode"
+                    className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-text"
+                    value={form.flag_mode}
+                    onChange={(e) => { set("flag_mode", e.target.value); }}
+                  >
+                    <option value="static">static</option>
+                    <option value="per_instance">per-instance</option>
+                  </select>
+                  <FieldError messages={fe("flag_mode")} />
+                </div>
+                <div>
+                  <Label htmlFor="ch-instance-ttl">Instance TTL (s, blank = default, 0 = none)</Label>
+                  <Input
+                    id="ch-instance-ttl"
+                    type="number"
+                    value={form.instance_ttl_seconds}
+                    onChange={(e) => { set("instance_ttl_seconds", e.target.value); }}
+                    placeholder="default"
+                  />
+                  <FieldError messages={fe("instance_ttl_seconds")} />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 text-sm text-text">
+                    <input
+                      id="ch-egress"
+                      type="checkbox"
+                      checked={form.egress}
+                      onChange={(e) => { set("egress", e.target.checked); }}
+                    />
+                    Allow network egress
+                  </label>
+                </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="ch-writable-paths">Writable paths (one per line; /tmp is always writable)</Label>
+                  <textarea
+                    id="ch-writable-paths"
+                    value={form.writable_paths}
+                    onChange={(e) => { set("writable_paths", e.target.value); }}
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-surface p-2 font-mono text-sm text-text"
+                    placeholder="/var/run"
+                  />
+                  <FieldError messages={fe("writable_paths")} />
                 </div>
               </div>
             )}

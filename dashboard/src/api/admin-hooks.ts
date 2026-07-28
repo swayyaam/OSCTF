@@ -155,6 +155,28 @@ export function useDestroyInstance(id: string) {
   );
 }
 
+// --- instance fleet (v0.2) -------------------------------------------------
+
+export function useAdminInstances() {
+  return useQuery({
+    queryKey: queryKeys.adminInstances,
+    queryFn: () =>
+      unwrap<Schemas["AdminInstanceList"]>(api.GET("/admin/instances")),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useAdminDestroyInstanceById() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.DELETE("/admin/instances/{id}", { params: { path: { id } } })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.adminInstances });
+    },
+  });
+}
+
 export async function fetchInstanceLogs(id: string, tail: number): Promise<string> {
   const logs = await unwrap<Schemas["InstanceLogs"]>(
     api.GET("/admin/challenges/{id}/instance/logs", {

@@ -53,6 +53,14 @@ export function useChallenge(slug: string, enabled = true) {
         api.GET("/challenges/{slug}", { params: { path: { slug } } }),
       ),
     enabled,
+    // Poll while a per-team instance is settling or running, so the panel catches
+    // pending->running transitions and TTL expiry without a manual refresh.
+    refetchInterval: (query) => {
+      const st = query.state.data?.instance?.state;
+      if (st === "pending" || st === "starting") return 2500;
+      if (st === "running") return 20_000;
+      return false;
+    },
   });
 }
 
@@ -175,6 +183,41 @@ export function useRegenInvite(id: string) {
       ),
     onSuccess: () => { invalidateMe(qc); },
   });
+}
+
+// --- per-team instances ----------------------------------------------------
+
+function useInstanceMutation(slug: string, action: () => Promise<unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: action,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.challenge(slug) });
+      void qc.invalidateQueries({ queryKey: queryKeys.challenges });
+    },
+  });
+}
+
+export function useStartInstance(slug: string) {
+  return useInstanceMutation(slug, () =>
+    unwrap<Schemas["TeamInstance"]>(
+      api.POST("/challenges/{slug}/instance", { params: { path: { slug } } }),
+    ),
+  );
+}
+
+export function useStopInstance(slug: string) {
+  return useInstanceMutation(slug, () =>
+    unwrap(api.DELETE("/challenges/{slug}/instance", { params: { path: { slug } } })),
+  );
+}
+
+export function useExtendInstance(slug: string) {
+  return useInstanceMutation(slug, () =>
+    unwrap<Schemas["TeamInstance"]>(
+      api.POST("/challenges/{slug}/instance/extend", { params: { path: { slug } } }),
+    ),
+  );
 }
 
 // --- submission ------------------------------------------------------------

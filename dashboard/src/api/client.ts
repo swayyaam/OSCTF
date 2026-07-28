@@ -82,6 +82,7 @@ export const queryKeys = {
   adminChallenges: (filters?: unknown) => ["admin", "challenges", filters] as const,
   adminChallenge: (id: string) => ["admin", "challenge", id] as const,
   adminInstance: (id: string) => ["admin", "instance", id] as const,
+  adminInstances: ["admin", "instances"] as const,
   adminUsers: (filters?: unknown) => ["admin", "users", filters] as const,
   adminTeams: (filters?: unknown) => ["admin", "teams", filters] as const,
   adminSubmissions: (filters?: unknown) => ["admin", "submissions", filters] as const,

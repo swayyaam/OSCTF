@@ -15,6 +15,7 @@ import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminEventPage } from "./pages/admin/AdminEventPage";
 import { AdminChallengesPage } from "./pages/admin/AdminChallengesPage";
 import { AdminChallengeEditor } from "./pages/admin/AdminChallengeEditor";
+import { AdminInstancesPage } from "./pages/admin/AdminInstancesPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminTeamsPage } from "./pages/admin/AdminTeamsPage";
 import { AdminSubmissionsPage } from "./pages/admin/AdminSubmissionsPage";
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
           { path: "/admin/challenges", element: <AdminChallengesPage /> },
           { path: "/admin/challenges/new", element: <AdminChallengeEditor /> },
           { path: "/admin/challenges/:id", element: <AdminChallengeEditor /> },
+          { path: "/admin/instances", element: <AdminInstancesPage /> },
           { path: "/admin/users", element: <AdminUsersPage /> },
           { path: "/admin/teams", element: <AdminTeamsPage /> },
           { path: "/admin/submissions", element: <AdminSubmissionsPage /> },

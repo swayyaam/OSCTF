@@ -41,6 +41,20 @@ var (
 		Help: "Current number of open WebSocket connections.",
 	})
 
+	// WSRejections counts WebSocket handshakes refused by a connection cap or the
+	// handshake rate limit, labelled by which limit fired.
+	WSRejections = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_ws_rejections_total",
+		Help: "WebSocket handshakes rejected, by limit (global, per_key, handshake_rate).",
+	}, []string{"limit"})
+
+	// WSReadPumpPanics counts panics recovered in a WebSocket read pump. Any nonzero
+	// value is a bug worth chasing — a recovered panic must leave a trace, not vanish.
+	WSReadPumpPanics = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_ws_readpump_panics_total",
+		Help: "Panics recovered in a WebSocket read pump (should always be 0).",
+	})
+
 	// Instances gauges challenge instances by state.
 	Instances = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "osctf_instances",

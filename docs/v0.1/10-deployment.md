@@ -52,12 +52,37 @@ Named volumes: `pgdata`, `miniodata`.
 | `OSCTF_PORT_RANGE_START` / `OSCTF_PORT_RANGE_END` | `30000` / `30999` | — | Challenge host ports — **must be reachable/open on the host firewall**; the install guide says so |
 | `OSCTF_DOCKER_HOST` | *(empty = SDK default)* | — | Alternate docker endpoint |
 | `OSCTF_SEED_EXAMPLES` | `true` | — | Seed the 8 example challenges on first boot |
-| `OSCTF_TRUST_PROXY` | `false` | — | Honor X-Forwarded-For / X-Forwarded-Proto (set true behind the caddy profile or any proxy) |
+| `OSCTF_TRUST_PROXY` | `false` | — | Honor X-Forwarded-For / X-Forwarded-Proto (set true behind the caddy profile or any proxy). See **Reverse proxies & client IP** below |
+| `OSCTF_WS_MAX_CONNS` | `20000` | — | Global ceiling on live scoreboard WebSocket connections (0 = unlimited) |
+| `OSCTF_WS_MAX_CONNS_PER_CLIENT` | `256` | — | Live WebSocket connections per client — per authenticated user, or per IP for anonymous connections (0 = unlimited). Raise for large events with many anonymous viewers behind one NAT |
+| `OSCTF_WS_HANDSHAKE_BURST` | `600` | — | WebSocket handshakes per client per window (0 = unlimited) |
+| `OSCTF_WS_HANDSHAKE_WINDOW` | `60s` | — | Sliding window for the handshake rate limit |
 | `OSCTF_CORS_DEV_ORIGIN` | *(empty)* | — | Dev only: allow the Vite origin |
 | `OSCTF_LOG_FORMAT` | `json` | — | `json` \| `text` |
 | `OSCTF_LOG_LEVEL` | `info` | — | `debug` \| `info` \| `warn` \| `error` |
 
 Config parse failure = process exit listing every missing/invalid var at once (not first-error-only).
+
+## Reverse proxies & client IP (shared-IP / NAT events)
+
+The scoreboard WebSocket is public and unauthenticated. Admission control (the `OSCTF_WS_*`
+caps above and the per-IP rate limits on register/login) keys on the **authenticated user**
+where a session cookie is present, and falls back to the **client IP** only for anonymous
+connections. So a whole campus lab or venue behind one NAT of *logged-in* players is not
+squeezed through a single IP budget — each user has their own. Only anonymous scoreboard
+viewers behind one IP share a bucket; raise `OSCTF_WS_MAX_CONNS_PER_CLIENT` /
+`OSCTF_WS_HANDSHAKE_BURST` if you expect many. (This is the same shared-IP class as
+[GitHub issue #1](https://github.com/osctf/platform/issues/1) — the register-IP rate limit.)
+
+**`OSCTF_TRUST_PROXY` cuts both ways — get it right:**
+
+- **Behind a reverse proxy (Caddy/nginx/ALB): set `OSCTF_TRUST_PROXY=true`.** Otherwise every
+  request resolves to the *proxy's* IP, and all anonymous clients — the entire event — collapse
+  into one shared per-IP bucket and lock each other out. The server logs a one-time warning if it
+  sees `X-Forwarded-For` while `OSCTF_TRUST_PROXY` is off.
+- **Directly exposed (no proxy): keep `OSCTF_TRUST_PROXY=false`.** With it on and no trusted proxy
+  in front, a client can forge `X-Forwarded-For` to dodge its own limit or exhaust another IP's.
+  Only enable it when a proxy **you control** overwrites the header.
 
 ## First boot & seeding
 
@@ -75,6 +100,8 @@ All seeding is idempotent (checks before writes) and logged.
 
 - **Backups**: `docs/guides/install.md` documents `docker compose exec postgres pg_dump -U osctf osctf > backup.sql` + MinIO volume copy; recommend a cron during events. No built-in backup in v0.1.
 - **Upgrades**: `git pull && docker compose up -d --build` — migrations run on boot; releases state when a migration is destructive (none should be in v0.x).
+  - **v0.2 → v0.2.1 (per-instance flag exposure — operator action):** v0.2 stored the raw submitted flag in `submissions.provided`, so a per-team instance flag that was submitted (a team's own correct solve, or another team's flag via sharing) was readable through the admin submissions view. v0.2.1 redacts these on write, and migration `0004_redact_historical_provided_flags` backfills existing rows (correct per-instance solves, plus wrong guesses whose value still matches a live instance flag) to `[redacted per-instance flag]` on boot. This is **best-effort**: a shared flag whose instance was already destroyed cannot be matched by value and is left as-is (correct solves are always caught, so a team's own flag is never left exposed). If your event handled sensitive per-instance flags, treat any already-exported `submissions.provided` data as exposed. Genuine wrong guesses are preserved for triage.
 - **Sizing**: 100 participants ≈ 2 vCPU / 4 GB for the stack; challenge containers extra (`sum(mem_limit_mb)` is the honest planning number). Document in install guide.
+- **File descriptors are the real WS limit (large events)**: each live scoreboard WebSocket is a socket fd, but it is **not** a big memory cost — the scoreboard snapshot is serialized once per broadcast and the same buffer is shared across all connections (each client holds only a slice header, coalesced to the latest), so even 5000 connections on a 1000-team board is well under a gigabyte of hub memory. The binding constraint is fd count: `OSCTF_WS_MAX_CONNS` is **automatically clamped at startup to a quarter-reserved fraction of `RLIMIT_NOFILE`** (headroom for Postgres, Docker, Redis, S3, and HTTP), and the server logs a loud warning when the configured cap exceeds what the ulimit supports. The default soft limit (1024–4096 on most hosts) caps you well below a few thousand WS connections — for a large public scoreboard, **raise the ulimit** (e.g. `LimitNOFILE=65536` in the systemd unit, or `ulimits: nofile:` in compose) and size `OSCTF_WS_MAX_CONNS` accordingly. Without headroom you would otherwise hit `accept: too many open files`, which fails HTTP, DB, and Docker calls together rather than shedding WS load.
 - **/metrics** must not be exposed by the operator's proxy (Caddyfile in `deploy/` already excludes it).
 - **Docker socket warning** (from [`08-challenge-runtime.md`](08-challenge-runtime.md)) is repeated in the install guide with the dedicated-VM recommendation.

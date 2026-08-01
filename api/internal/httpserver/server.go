@@ -35,6 +35,10 @@ type Deps struct {
 	CORSDevOrigin string
 	// WSHandler serves GET /api/v0/ws (the live scoreboard socket). Nil disables it.
 	WSHandler http.Handler
+	// TrustProxy mirrors OSCTF_TRUST_PROXY. When false the server warns once if it
+	// receives a forwarded header, since a proxy is likely in front but its client IPs
+	// are being ignored (every request would then key to the proxy IP).
+	TrustProxy bool
 }
 
 // New builds the top-level HTTP handler.
@@ -44,6 +48,7 @@ func New(d Deps) http.Handler {
 	r.Use(recoverer(d.Log))
 	r.Use(observability(d.Log))
 	r.Use(securityHeaders)
+	r.Use(proxyMisconfigWarn(d.Log, d.TrustProxy))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")

@@ -77,6 +77,9 @@ func TestLoadInstanceDefaults(t *testing.T) {
 	if cfg.TeamInstanceQuota != 3 {
 		t.Errorf("TeamInstanceQuota = %d, want 3", cfg.TeamInstanceQuota)
 	}
+	if cfg.InstanceReapAfter != 15*time.Minute {
+		t.Errorf("InstanceReapAfter = %v, want 15m", cfg.InstanceReapAfter)
+	}
 	if cfg.FlagPrefix != "osctf" {
 		t.Errorf("FlagPrefix = %q, want osctf", cfg.FlagPrefix)
 	}

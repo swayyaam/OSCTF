@@ -42,16 +42,29 @@ type Config struct {
 	PortRangeEnd   int `env:"OSCTF_PORT_RANGE_END" envDefault:"32767"`
 
 	// Per-team instance scheduler (v0.2). See docs/v0.2/08-deployment.md.
-	InstanceTTL       time.Duration `env:"OSCTF_INSTANCE_TTL" envDefault:"3600s"`      // default per-team TTL
-	InstanceExtend    time.Duration `env:"OSCTF_INSTANCE_EXTEND" envDefault:"1800s"`   // added per Extend
-	InstanceMaxTTL    time.Duration `env:"OSCTF_INSTANCE_MAX_TTL" envDefault:"14400s"` // max total lifetime
-	TeamInstanceQuota int           `env:"OSCTF_TEAM_INSTANCE_QUOTA" envDefault:"3"`   // concurrent per team
-	FlagPrefix        string        `env:"OSCTF_FLAG_PREFIX" envDefault:"osctf"`       // per-instance flag prefix
+	InstanceTTL       time.Duration `env:"OSCTF_INSTANCE_TTL" envDefault:"3600s"`       // default per-team TTL
+	InstanceExtend    time.Duration `env:"OSCTF_INSTANCE_EXTEND" envDefault:"1800s"`    // added per Extend
+	InstanceMaxTTL    time.Duration `env:"OSCTF_INSTANCE_MAX_TTL" envDefault:"14400s"`  // max total lifetime
+	TeamInstanceQuota int           `env:"OSCTF_TEAM_INSTANCE_QUOTA" envDefault:"3"`    // concurrent per team
+	InstanceReapAfter time.Duration `env:"OSCTF_INSTANCE_REAP_AFTER" envDefault:"900s"` // reap stuck pending/error rows older than this (frees leaked ports)
+	FlagPrefix        string        `env:"OSCTF_FLAG_PREFIX" envDefault:"osctf"`        // per-instance flag prefix
 
 	DockerHost   string `env:"OSCTF_DOCKER_HOST"`
 	SeedExamples bool   `env:"OSCTF_SEED_EXAMPLES" envDefault:"true"`
 	ExamplesDir  string `env:"OSCTF_EXAMPLES_DIR" envDefault:"examples"`
 	TrustProxy   bool   `env:"OSCTF_TRUST_PROXY" envDefault:"false"`
+
+	// Live-scoreboard WebSocket admission control. The endpoint is public and
+	// unauthenticated; these caps stop a client from opening connections until the
+	// process dies. Caps and the handshake rate key on the authenticated user where a
+	// session exists, falling back to the client IP for anonymous connections — so a
+	// campus/venue NAT of logged-in players is not throttled as a single IP (the
+	// shared-IP class of GitHub issue #1). Raise the per-connection cap for large events
+	// with many anonymous scoreboard viewers behind one NAT.
+	WSMaxConns        int           `env:"OSCTF_WS_MAX_CONNS" envDefault:"20000"`          // global live-connection ceiling
+	WSMaxConnsPerConn int           `env:"OSCTF_WS_MAX_CONNS_PER_CLIENT" envDefault:"256"` // per user (or per anon IP)
+	WSHandshakeBurst  int           `env:"OSCTF_WS_HANDSHAKE_BURST" envDefault:"600"`      // handshakes per client per window
+	WSHandshakeWindow time.Duration `env:"OSCTF_WS_HANDSHAKE_WINDOW" envDefault:"60s"`
 
 	CORSDevOrigin string `env:"OSCTF_CORS_DEV_ORIGIN"`
 
@@ -104,11 +117,22 @@ func (c *Config) finalize() error {
 	if c.TeamInstanceQuota < 1 {
 		problems = append(problems, "OSCTF_TEAM_INSTANCE_QUOTA must be >= 1")
 	}
+	// The reaper must trail the 120s Deploy cap so a mid-deploy pending row is
+	// never mistaken for a leak (0 disables reaping entirely).
+	if c.InstanceReapAfter != 0 && c.InstanceReapAfter < 2*time.Minute {
+		problems = append(problems, "OSCTF_INSTANCE_REAP_AFTER must be 0 (disabled) or >= 120s (it must exceed the deploy timeout)")
+	}
 	if c.TeamMaxSize < 1 {
 		problems = append(problems, "OSCTF_TEAM_MAX_SIZE must be >= 1")
 	}
 	if c.MaxAttachmentMB < 1 {
 		problems = append(problems, "OSCTF_MAX_ATTACHMENT_MB must be >= 1")
+	}
+	if c.WSMaxConns < 0 || c.WSMaxConnsPerConn < 0 || c.WSHandshakeBurst < 0 {
+		problems = append(problems, "OSCTF_WS_MAX_CONNS / OSCTF_WS_MAX_CONNS_PER_CLIENT / OSCTF_WS_HANDSHAKE_BURST must be >= 0 (0 disables that limit)")
+	}
+	if c.WSHandshakeBurst > 0 && c.WSHandshakeWindow <= 0 {
+		problems = append(problems, "OSCTF_WS_HANDSHAKE_WINDOW must be > 0 when OSCTF_WS_HANDSHAKE_BURST is set")
 	}
 	switch c.LogFormat {
 	case "json", "text":

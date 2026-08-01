@@ -51,12 +51,16 @@ type Hub struct {
 	clients map[*client]struct{}
 	done    chan struct{} // closed when Run exits
 
+	// admit bounds the public endpoint (connection caps + handshake rate); see limits.go.
+	admit *admissions
+
 	// Read/written only inside Run (no cross-goroutine access → no races).
 	lastScoreboard []byte
 	lastFrozen     bool
 }
 
-// NewHub builds a hub. Call Run in a goroutine to start it.
+// NewHub builds a hub with the default connection limits. Call Run in a goroutine to
+// start it; use SetLimits/SetKeyResolver before serving to override the defaults.
 func NewHub(log *slog.Logger) *Hub {
 	return &Hub{
 		log:        log,
@@ -65,15 +69,25 @@ func NewHub(log *slog.Logger) *Hub {
 		incoming:   make(chan outbound, 16),
 		clients:    make(map[*client]struct{}),
 		done:       make(chan struct{}),
+		admit:      newAdmissions(DefaultLimits()),
 	}
 }
+
+// SetLimits overrides the connection caps and handshake rate limit. Call before serving.
+func (h *Hub) SetLimits(l Limits) { h.admit.limits = l }
+
+// SetKeyResolver installs the admission-key resolver: authenticated connections should
+// key on the user id and anonymous ones on the (proxy-aware) client IP, so a shared NAT
+// of logged-in players is not throttled as one IP. Call before serving. Nil (the default)
+// keys on the socket peer IP.
+func (h *Hub) SetKeyResolver(fn func(*http.Request) string) { h.admit.keyFn = fn }
 
 // Run is the hub's single-goroutine event loop. It returns when ctx is cancelled,
 // closing all connections with code 1001 (going away).
 func (h *Hub) Run(ctx context.Context) {
 	var (
 		lastSend time.Time
-		pending  []byte
+		pending  []byte // a throttled, latest-wins SNAPSHOT awaiting flush (never a phase frame)
 		havePend bool
 		timer    = time.NewTimer(time.Hour)
 	)

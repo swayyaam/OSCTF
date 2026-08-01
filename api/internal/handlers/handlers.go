@@ -7,6 +7,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/osctf/platform/internal/apigen"
@@ -47,6 +49,10 @@ type Deps struct {
 	// Nil is a no-op, so earlier milestones compile and run.
 	Recompute func(context.Context)
 
+	// Log is used for safety-net logging (e.g. serving cached freeze state when the
+	// events read fails). Nil falls back to slog.Default().
+	Log *slog.Logger
+
 	// SecureCookies mirrors OSCTF_BASE_URL's scheme; TrustProxy gates
 	// X-Forwarded-For handling; SessionTTL sizes the cookie Max-Age.
 	SecureCookies   bool
@@ -58,9 +64,21 @@ type Deps struct {
 // Server implements apigen.StrictServerInterface.
 type Server struct {
 	d Deps
+	// lastFreeze caches the most recent successful freeze decision so a transient
+	// events-read failure can hold the last known state instead of flipping the
+	// visibility of every team's post-freeze solves at once (see guards.go).
+	lastFreeze atomic.Pointer[freezeSnapshot]
 }
 
 // New builds the handler set.
 func New(d Deps) *Server { return &Server{d: d} }
+
+// logger returns the configured logger, or the process default when unset.
+func (s *Server) logger() *slog.Logger {
+	if s.d.Log != nil {
+		return s.d.Log
+	}
+	return slog.Default()
+}
 
 var _ apigen.StrictServerInterface = (*Server)(nil)

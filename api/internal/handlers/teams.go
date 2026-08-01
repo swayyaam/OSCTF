@@ -85,9 +85,13 @@ func (s *Server) GetTeam(ctx context.Context, request apigen.GetTeamRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	hide, cutoff := s.freezeHidesSolvesAfter(ctx, &team.Row.ID) // own team sees its own; others pre-freeze only
 	solves := make([]apigen.Solve, 0, len(solveRows))
 	points := 0
 	for _, r := range solveRows {
+		if hide && !r.SolvedAt.Before(cutoff) {
+			continue
+		}
 		pts, perr := s.d.Challenges.CurrentValue(ctx, r.ChallengeID)
 		if perr != nil {
 			return nil, perr

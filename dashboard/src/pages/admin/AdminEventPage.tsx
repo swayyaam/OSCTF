@@ -38,6 +38,12 @@ export function AdminEventPage() {
 
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
+  // A freeze persists until an admin clears it — it is NOT lifted when the event ends.
+  // Surface the footgun: a frozen scoreboard that outlives the event hides final
+  // standings from everyone but admins indefinitely (3a-viii).
+  const eventEnded = !!event.ends_at && new Date(event.ends_at).getTime() < Date.now();
+  const freezeStillSet = !!event.freeze_at;
+
   const onSubmit = (e: SyntheticEvent) => {
     e.preventDefault();
     setErr(null);
@@ -60,6 +66,16 @@ export function AdminEventPage() {
     <div>
       <AdminNav />
       <h1 className="mb-4 text-2xl font-bold text-text">Event settings</h1>
+      {eventEnded && freezeStillSet && (
+        <div
+          role="alert"
+          className="mb-4 max-w-xl rounded-md border border-warning/40 bg-warning/20 p-3 text-sm text-warning"
+        >
+          <span className="font-medium">Scoreboard still frozen after the event ended.</span>{" "}
+          The freeze is not lifted automatically — the public scoreboard stays frozen and final
+          standings remain hidden from everyone but admins until you clear the freeze time below.
+        </div>
+      )}
       <Card className="max-w-xl">
         <p className="mb-3 text-xs text-text-muted">All times are UTC.</p>
         <form onSubmit={onSubmit} className="space-y-3">

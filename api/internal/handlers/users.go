@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
+
 	"github.com/osctf/platform/internal/apigen"
 	"github.com/osctf/platform/internal/apperr"
 )
@@ -25,8 +27,23 @@ func (s *Server) GetUser(ctx context.Context, request apigen.GetUserRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	// Own team (the viewed user's team) sees its own progress live during a freeze;
+	// everyone else sees pre-freeze solves only. Fetch the team up front so it also
+	// drives the freeze check, not just the profile payload.
+	team, err := s.d.Users.TeamOf(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	var resourceTeam *uuid.UUID
+	if team != nil {
+		resourceTeam = &team.ID
+	}
+	hide, cutoff := s.freezeHidesSolvesAfter(ctx, resourceTeam)
 	solves := make([]apigen.Solve, 0, len(solveRows))
 	for _, r := range solveRows {
+		if hide && !r.SolvedAt.Before(cutoff) {
+			continue
+		}
 		pts, perr := s.d.Challenges.CurrentValue(ctx, r.ChallengeID)
 		if perr != nil {
 			return nil, perr
@@ -37,10 +54,6 @@ func (s *Server) GetUser(ctx context.Context, request apigen.GetUserRequestObjec
 		})
 	}
 	profile := apigen.PublicUser{Id: u.ID, Username: u.Username, Solves: solves}
-	team, err := s.d.Users.TeamOf(ctx, u.ID)
-	if err != nil {
-		return nil, err
-	}
 	if team != nil {
 		profile.Team = &apigen.TeamRef{Id: team.ID, Name: team.Name}
 	}

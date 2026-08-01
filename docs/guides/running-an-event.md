@@ -84,6 +84,12 @@ hour before close). After the freeze point:
 
 Clearing Freeze unfreezes the board and jumps it to live.
 
+> ⚠️ **The freeze is not lifted when the event ends.** A freeze persists until an
+> admin clears **Freeze**. If you leave it set after close, the public scoreboard
+> stays frozen and final standings stay hidden from everyone but admins
+> indefinitely. When you're ready to reveal the results, clear Freeze (Admin →
+> Event). The admin Event page shows a warning while a freeze outlives an ended event.
+
 ## 7. Close and wrap up
 
 At the end time the board moves to the `ended` phase. Submissions stop counting

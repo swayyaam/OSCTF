@@ -1,3 +1,5 @@
+//go:build integration
+
 package handlers_test
 
 import (
@@ -15,7 +17,9 @@ import (
 
 	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/auth"
+	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/db/gen"
+	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/redisx"
@@ -36,6 +40,7 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Han
 	h := handlers.New(handlers.Deps{
 		Users:      usersSvc,
 		Teams:      teamsSvc,
+		Events:     events.New(q, clock.System()), // freeze hiding is a security control; always wire it
 		Auth:       provider,
 		Sessions:   sessions,
 		Limiter:    redisx.NewLimiter(rdb),

@@ -68,6 +68,7 @@ Concurrency: serialize recomputes with a per-process mutex + a "dirty" flag (a r
 - After freeze: non-admin REST reads and all WS broadcasts serve the frozen snapshot; live recomputes continue internally (admins read live via REST; `GET /scoreboard` for an admin session returns live data with `frozen: false`... **no** — returns live data with `frozen: true` so admin UI can still show the banner. The `frozen` field describes the event state, not the payload source. Admin payloads are live; the field says the *public* board is frozen).
 - Clearing `freeze_at` (admin PATCH) deletes `scoreboard:frozen` — the board unfreezes and jumps to live.
 - Submissions after freeze count normally — freeze affects display only.
+- **A freeze is phase-independent and is NOT lifted at event end.** Reaching the `ended` phase does not clear `freeze_at`; the frozen snapshot outlives the event until an admin clears it, so final standings stay hidden from non-admins indefinitely. This is deliberate (an admin may want a suspenseful reveal) but is a footgun — the admin Event page warns when the event is ended while `freeze_at` is still set (3a-viii).
 
 ## Points shown on challenges
 

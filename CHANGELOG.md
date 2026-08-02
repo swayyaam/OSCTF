@@ -3,6 +3,135 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
+## v0.2.1 — Security and reliability hardening
+
+A patch release: security fixes, reliability fixes, and a large test-coverage
+expansion. A v0.2.0 event upgrades in place. The only OpenAPI change is the additive,
+backward-compatible `unadopted` / `unadopted_networks` fields noted below.
+
+### Security
+
+Each item names the vulnerable behaviour, the impact, and whether operator action is
+required on upgrade.
+
+- **Frozen scoreboard leaked through `getTeam` / `getUser`.** Both public routes
+  returned live solves (with `solved_at`) and derived points during a freeze, so the
+  standings a freeze hides could be reconstructed by polling; the same visibility check
+  also failed **open** on a transient Events read error and was unguarded when Events
+  was unwired. Fixed to hide post-freeze solves from non-members, fail closed on a
+  missing dependency, and serve the last known freeze state on a transient error.
+  *Impact:* pre-disclosure of a frozen scoreboard. *Operator action:* none.
+- **Unauthenticated WebSocket denial of service.** The public scoreboard socket had no
+  connection cap, per-client cap, or handshake rate limit, so one client could open
+  connections until the process died. Added admission control (global + per-user/IP
+  caps + handshake rate, the global cap clamped to `RLIMIT_NOFILE`). *Impact:* DoS on a
+  single-server deployment. *Operator action:* none for defaults; for a large public
+  scoreboard raise the process ulimit and `OSCTF_WS_MAX_CONNS`, and behind a reverse
+  proxy set `OSCTF_TRUST_PROXY=true`.
+- **Instance extend after the event ended.** `Extend` had no phase gate, so a
+  participant could push a live instance's TTL past the event during the cleanup
+  window and outlive the event. Extend is now rejected outside the running phase.
+  *Impact:* instances holding ports/resources past close. *Operator action:* none.
+- **Session revocation evadable via index drift.** The `sess:user:{id}` reverse index
+  could expire while an actively-used session slid its own TTL forward, so bulk
+  revocation (ban/force-logout) could miss a live session. The index is now re-extended
+  whenever a session refreshes. *Impact:* a banned user retaining a working session.
+  *Operator action:* none (drift self-heals on next request).
+- **Per-team bridge reclaimed after upgrade.** A team bridge carrying no resolvable
+  `osctf.team_id` (any bridge created under v0.2.0) took the network-GC branch and was
+  deleted, including mid-deploy. Such bridges are now flagged unadopted, never
+  garbage-collected, and surfaced in the admin fleet view. *Impact:* a live team's
+  network torn out from under a running instance after upgrade. *Operator action:*
+  after upgrade, review unadopted networks in the fleet view and remove stale bridges
+  by hand.
+- **Per-instance flags exposed through the admin submissions view.** `submissions.provided`
+  stored the raw submitted flag, so a per-team instance flag that was submitted (a
+  team's own correct solve, or another team's via sharing) was echoed verbatim in the
+  admin submissions view. The write path now redacts real per-instance flags, and
+  migration `0004` backfills existing rows. *Impact:* per-team instance flags disclosed
+  to admin-panel viewers. *Operator action:* **REQUIRED awareness** — migration 0004
+  runs automatically on boot, but **any deployment that ran v0.2 has real per-instance
+  flags sitting in `submissions.provided`**, and any such data exported before upgrade
+  should be treated as exposed. Backfill is best-effort: a shared flag whose instance
+  was already destroyed cannot be matched by value; correct solves are always caught, so
+  a team's own flag is never left exposed.
+- **Registration blocked for venues on a shared NAT.** Anonymous sign-up was hard-capped
+  at 5 per hour per client IP, so a venue registering a hundred-plus players from one NAT
+  in the first couple of minutes failed by an order of magnitude. Registration is
+  unauthenticated (nothing to key on but the IP), so the limit is now generous by default
+  (`OSCTF_REGISTER_IP_BURST=500` per `OSCTF_REGISTER_IP_WINDOW=600s`) and configurable;
+  set the burst to 0 to disable, or `OSCTF_REGISTRATION_OPEN=false` to close registration
+  for an invite-only event. *Impact:* availability -- legitimate players unable to sign up
+  (GitHub issue #1). *Operator action:* none for the default; tune `OSCTF_REGISTER_IP_*`
+  for a public-internet deployment.
+
+**Minimum security backport set (for a v0.2 deployment).** The freeze, WebSocket, extend,
+session, registration-limit, and per-instance-flag fixes apply cleanly on their own. The
+network-GC fix and
+the reconcile clock-skew fix ship inside the reconcile-rewrite commit
+(`fix(runtime): reconcile against the DB clock…`) and cannot be separated from it, so
+backporting either requires that commit (and its fleet-view companion).
+
+### Fixed (reliability)
+
+- **Reconcile no longer no-ops under clock skew.** Grace is evaluated against the
+  database clock (`clock_timestamp()`, read in the same pass) instead of the app host's
+  clock; a row ahead of the clock is treated as an anomaly (skipped, counted, logged),
+  not ignored. A row still recording its container id is never removed regardless of
+  age, and a team's bridge is not GC'd while that team has a pending or fresh row.
+- **Instance operations no longer serialize behind one slow deploy**, and **leaked host
+  ports are reclaimed.** Per-team locks replace the single scheduler mutex; a stale-row
+  reaper removes pending/error rows (and their reserved ports) older than
+  `OSCTF_INSTANCE_REAP_AFTER`.
+- **Background workers are joined on shutdown** with per-pass timeouts, so an in-flight
+  teardown is not cut off.
+- **WS and REST cannot serve divergent scoreboards.** The hub broadcasts the same
+  `apigen.Scoreboard` wire type the REST endpoint returns. WS frames are delivered in
+  order (hello before any snapshot; phase never reordered against its snapshot) and
+  scoreboard snapshots coalesce per client, bounding a slow client to one pending
+  snapshot.
+
+### Added
+
+- **`instances.flag` unique index** (`0003`) so two live instances can never share a
+  per-instance flag.
+- **Admin fleet view surfaces unresolvable Docker resources.** `AdminInstanceList` gains
+  optional `unadopted` and `unadopted_networks` arrays. **Additive, optional,
+  backward-compatible OpenAPI change.** New metrics: `osctf_unadopted_containers`,
+  `osctf_unadopted_networks`, `osctf_reconcile_actions`, `osctf_reconcile_grace_skipped`,
+  `osctf_reconcile_future_rows_total`, `osctf_ws_rejections_total`,
+  `osctf_ws_readpump_panics_total`.
+
+### Tests
+
+- Fixed the CI selector and lint build-tags so the integration/dockerint tiers actually
+  run (a set of tagged tests, and one file missing its tag, had never executed).
+- A 1260-cell authorization matrix (every route × 7 identities × 4 phases, exact status
+  per cell), enumeration-safety probes (hidden ≡ nonexistent in status/body/timing), a
+  reusable flag-containment scanner (REST/WS/logs/metrics/audit), scoreboard and ws
+  white-box unit tests, and reconcile fault injection over a fake runtime.
+
+### Upgrade notes
+
+- **Historical per-instance flag redaction.** Migration `0004` redacts real per-instance
+  flags left in `submissions.provided` by v0.2 on boot (see Security above). Best-effort;
+  treat any already-exported `submissions.provided` data as exposed.
+- **WebSocket file descriptors.** The global WS cap is clamped to a reserved fraction of
+  `RLIMIT_NOFILE`. For a large public scoreboard, raise the process ulimit and
+  `OSCTF_WS_MAX_CONNS`. See `docs/v0.1/10-deployment.md`.
+- Per-team bridges created before this release carry no `osctf.team_id` label; after
+  upgrade they are never garbage-collected and appear under `unadopted_networks` in the
+  admin fleet view for manual removal once idle. New bridges carry the label and GC
+  normally.
+
+### A note on this release's history
+
+This release was assembled from a large branch as grouped, individually-referenceable
+commits rather than one squash, so `git log` names each fix. The commits are
+self-consistent and readable in isolation, but were **not** each built or tested in
+isolation — only the release HEAD is green across every tier. Do not `git bisect`
+expecting every intermediate commit to compile.
+
 ## v0.2.0 — Dynamic per-team instances
 
 The feature that sets OSCTF apart from CTFd-class tools: **per-team isolated

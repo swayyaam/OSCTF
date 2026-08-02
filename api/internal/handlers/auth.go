@@ -153,6 +153,14 @@ func (s *Server) Login(ctx context.Context, request apigen.LoginRequestObject) (
 	if err != nil {
 		return nil, err
 	}
+	// Close the ban-during-login race: a ban that committed after Authenticate would
+	// have run DeleteAllForUser before this session existed. Re-check now that the
+	// token is indexed; if banned, revoke the just-created session and reject. (Login
+	// is not the hot path, so the extra read is fine.)
+	if fresh, gerr := s.d.Users.Get(ctx, u.ID); gerr == nil && fresh.Banned {
+		_ = s.d.Sessions.Delete(ctx, sess.Token)
+		return nil, apperr.ErrUnauthenticated
+	}
 	s.setSessionCookie(ctx, sess.Token, s.d.SessionTTL)
 	me, err := s.mePayload(ctx, u)
 	if err != nil {

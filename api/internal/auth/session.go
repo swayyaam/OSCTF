@@ -96,7 +96,15 @@ func (s *SessionStore) Get(ctx context.Context, token string) (Session, error) {
 
 	ttl, err := s.rdb.TTL(ctx, sessKey(token)).Result()
 	if err == nil && ttl > 0 && ttl < s.ttl/2 {
-		_ = s.rdb.Expire(ctx, sessKey(token), s.ttl).Err()
+		// Refresh the session AND re-index it, so the sess:user set can never expire
+		// (or drop this token) while the session is still live — otherwise
+		// DeleteAllForUser would read a stale/empty index and a banned user would keep
+		// a live session. Since 2*ttl > the session's ttl, the set always outlives it.
+		pipe := s.rdb.TxPipeline()
+		pipe.Expire(ctx, sessKey(token), s.ttl)
+		pipe.SAdd(ctx, userSetKey(userID), token)
+		pipe.Expire(ctx, userSetKey(userID), s.ttl*2)
+		_, _ = pipe.Exec(ctx)
 	}
 
 	return Session{

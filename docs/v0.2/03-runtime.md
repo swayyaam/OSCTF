@@ -32,7 +32,7 @@ type InstanceSpec struct {
     // v0.2 additions:
     TeamID         *uuid.UUID // nil = shared instance (v0.1); set = per-team
     NetworkName    string     // docker network to attach; "" = shared 'osctf-challenges'
-    Internal       bool       // true → per-team network created --internal (egress off)
+    NoEgress       bool       // true → per-team network created without outbound NAT
     ReadonlyRootfs bool       // true → read-only container rootfs
     Tmpfs          []string   // writable tmpfs mount targets, e.g. ["/tmp","/run"]
 }
@@ -79,7 +79,7 @@ type DeployReq struct {
    start for the same (challenge, team) returns the winner's row — idempotent Start).
 2. Idempotent: a `running` row is returned unchanged.
 3. Build `InstanceSpec` from the challenge row **and** the request: `Env["FLAG"]=req.Flag`,
-   `TeamID=&req.TeamID`, `NetworkName=row.network`, `Internal=!ch.egress`,
+   `TeamID=&req.TeamID`, `NetworkName=row.network`, `NoEgress=!ch.egress`,
    `ReadonlyRootfs=true`, `Tmpfs=append(["/tmp"], ch.writable_paths...)`.
 4. `rt.Deploy(spec)` — synchronous, 120 s cap (unchanged).
 
@@ -96,23 +96,77 @@ within an event (UUID v7 prefix + full id in a label).
 New helper, generalizing `ensureNetwork`:
 
 ```go
-func (d *DockerRuntime) ensureNamedNetwork(ctx, name string, internal bool) error
+func (d *DockerRuntime) ensureNamedNetwork(ctx, name string, noEgress bool) error
 ```
 
-- Shared instances → `challengeNetwork` ("osctf-challenges"), `internal=false` (v0.1).
-- Per-team instances → `spec.NetworkName` ("osctf-team-<short>"), `internal=spec.Internal`.
-- `NetworkCreate(..., network.CreateOptions{Driver:"bridge", Internal: internal,
+- Shared instances → `challengeNetwork` ("osctf-challenges"), `noEgress=false` (v0.1).
+- Per-team instances → `spec.NetworkName` ("osctf-team-<short>"), `noEgress=spec.NoEgress`.
+- `NetworkCreate(..., network.CreateOptions{Driver:"bridge", Options: opts,
   Labels: {managedLabel:"true", "osctf.team": short}})`. The `osctf.managed` +
   `osctf.team` labels let reconcile find and GC them.
+
+**Egress off is NOT `Internal: true`.** An `internal` bridge has no gateway, so Docker
+silently discards the container's published-port bindings: the host port is allocated and
+shown to players while nothing listens on it. v0.2.0 shipped this bug, which made every
+`egress: false` challenge — both per-team examples and `hardening-demo` — unreachable.
+Egress is instead disabled with the bridge driver option
+`com.docker.network.bridge.enable_ip_masquerade=false`: outbound packets leave
+unmasqueraded so replies cannot route back (no internet), while inbound DNAT to the
+published port still works.
+
+### What this is weaker at, measured
+
+| From inside an `egress: false` container | `Internal: true` | `enable_ip_masquerade=false` |
+|---|---|---|
+| Inbound: players reach the published port | **never (the bug)** | yes |
+| Another team's container, unpublished port | blocked | blocked |
+| A **published** port (platform API, other instances, host services) | blocked | **reachable** |
+| Internet, Linux host | blocked | blocked (no MASQUERADE rule installed) |
+| Internet, Docker Desktop | blocked | **reachable** — the VM re-NATs at its boundary |
+
+The per-team isolation guarantee below is unaffected — that is cross-bridge traffic to
+unpublished ports, which stays blocked. What opens up is reachability of anything already
+published on the host. Players can reach those endpoints from their own machines anyway,
+so this grants a challenge container little it did not already have; the exception is a
+host service bound to `0.0.0.0` that the event firewall does not expose. **Firewall the
+event host** rather than relying on the challenge bridge for that.
+
+The Docker Desktop row means `egress: false` is **not enforced when developing on macOS
+or Windows**. Production per [`08-deployment.md`](08-deployment.md) is a dedicated Linux
+VM, where it is. The integration test that asserts real egress blocking skips on Desktop
+and runs for real in CI.
+
+Severing published-port and host reachability as well means proxying instance traffic
+through the platform rather than publishing host ports — deferred, not done.
+
+`ensureNamedNetwork` also self-heals: a bridge left over from the `internal` scheme is
+removed and rebuilt the next time it is needed, provided nothing is attached to it.
 
 `Deploy` attaches the container to `spec.NetworkName` (falling back to `challengeNetwork`
 when empty) instead of the hardcoded `challengeNetwork`. Everything else in `Deploy`
 (pull-if-missing, port bindings, labels incl. `osctf.instance_id`, health) is unchanged.
 
-**Isolation guarantee:** because each team's containers sit on their own bridge, and the
-bridge is (optionally) `--internal`, a container on team A's network cannot reach a
-container on team B's network — the success-criterion isolation test
-([`09-testing-ci.md`](09-testing-ci.md)) asserts exactly this.
+**Isolation guarantee — and its one caveat (verified).** Each team's containers sit on
+their own bridge. On **native Linux Docker** (the supported production target) the
+`DOCKER-ISOLATION-STAGE` iptables chains block cross-bridge traffic, so a container on
+team A's network cannot reach one on team B's network — **even though every instance
+publishes a host port, and even with `enable_ip_masquerade=false`.** Confirmed on a real
+Linux daemon: cross-bridge probe refused, same-bridge probe allowed.
+
+On **Docker Desktop** (macOS/Windows), this does **not** hold once a host port is
+published — which every instance does, so players can connect. The Desktop VM's
+port-forwarding makes the published container reachable across bridges, so team A *can*
+reach team B's container. There is no fix inside the Docker runtime for this; it is a
+property of the Desktop VM. Therefore:
+
+- The platform runs a **startup isolation self-check** (`Manager.VerifyIsolation`, async,
+  best-effort) and logs a **loud `SECURITY` warning** when the daemon does not enforce
+  cross-network isolation. Operators running untrusted per-team challenges must use native
+  Linux Docker.
+- The dockerint isolation test is **strict** when `OSCTF_ISOLATION_ENFORCED=1` (CI, on
+  Linux) and an **informative skip** otherwise (developer machines on Desktop), so it is
+  never a spurious red locally while still guarding Linux in CI
+  ([`09-testing-ci.md`](09-testing-ci.md)).
 
 ### Per-team network GC (in `Reconcile`)
 
@@ -137,7 +191,7 @@ opts out. In `Deploy`'s `HostConfig`:
 | **ReadonlyRootfs** | ❌ | `hostCfg.ReadonlyRootfs = spec.ReadonlyRootfs` (default true) |
 | **tmpfs** | ❌ | `hostCfg.Tmpfs = {"/tmp":"rw,noexec,nosuid,size=64m", …writable_paths}` |
 | **per-team network** | ❌ (single net) | `spec.NetworkName` |
-| **egress off** | ❌ | per-team net `Internal: spec.Internal` |
+| **egress off** | ❌ | per-team net with `enable_ip_masquerade=false` |
 
 `writable_paths` (from the challenge) each mount as a small tmpfs (`rw,nosuid`, capped;
 default 64 MiB) so a read-only-rootfs challenge that needs a scratch dir (uploads, sqlite)
@@ -156,7 +210,7 @@ ones (networks, tmpfs, rootfs); it moves the row to `running` exactly as in v0.1
 carrying `team_id`/`flag`/`expires_at` through because those live on the row (written by
 the Manager before `rt.Deploy`). This keeps every scheduler/handler test container-free.
 Add a `Deployed []InstanceSpec` capture slice so tests can assert the hardening/network
-fields the Manager set (e.g. "per_team challenge → spec.TeamID non-nil, Internal reflects
+fields the Manager set (e.g. "per_team challenge → spec.TeamID non-nil, NoEgress reflects
 egress").
 
 ## Decision log

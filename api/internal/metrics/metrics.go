@@ -5,6 +5,7 @@ package metrics
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -96,15 +97,64 @@ var (
 		Name: "osctf_flag_sharing_signals_total",
 		Help: "Flag-sharing signals raised (another team's per-instance flag submitted).",
 	})
+
+	// UnadoptedContainers gauges managed containers whose osctf.instance_id label is
+	// missing/unparseable — reconcile cannot identify them, so they hold a port with
+	// nothing surfacing them. Set each reconcile pass.
+	UnadoptedContainers = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "osctf_unadopted_containers",
+		Help: "Managed containers with an unresolvable instance_id label (held ports, no row).",
+	})
+
+	// UnadoptedNetworks gauges per-team bridges with no resolvable team_id (never
+	// GC'd, surfaced for manual cleanup). Set each reconcile pass.
+	UnadoptedNetworks = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "osctf_unadopted_networks",
+		Help: "Per-team bridges with no resolvable team_id (never GC'd).",
+	})
+
+	// ReconcileActions gauges the actions a reconcile pass emitted; ReconcileGraceSkipped
+	// gauges rows it left alone for grace. A loop skipping 100% of rows (e.g. clock
+	// skew) shows grace-skipped high and actions zero. Gauges are last-value, so pair
+	// them with the counter + last-success timestamp below for liveness/history.
+	ReconcileActions      = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reconcile_actions", Help: "Actions emitted by the last reconcile pass."})
+	ReconcileGraceSkipped = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reconcile_grace_skipped", Help: "Rows the last reconcile pass skipped due to grace."})
+
+	// ReconcileActionsTotal counts actions by kind across passes, so history survives
+	// between scrapes (unlike the per-pass gauge above).
+	ReconcileActionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_reconcile_actions_total",
+		Help: "Reconcile actions applied, by kind.",
+	}, []string{"kind"})
+
+	// ReconcileFutureRows counts rows seen with updated_at ahead of the clock — a
+	// clock-skew anomaly that would otherwise make grace no-op silently.
+	ReconcileFutureRows = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_reconcile_future_rows_total",
+		Help: "Rows observed with updated_at ahead of the reconcile clock (skew anomaly).",
+	})
+
+	// *LastSuccess gauge the Unix time each periodic sweep last completed. A gauge
+	// holding its last value hides a dead/wedged goroutine; alert on staleness
+	// (time() - last_success) instead.
+	ReconcileLastSuccess = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reconcile_last_success_timestamp_seconds", Help: "Unix time the reconcile pass last completed."})
+	ExpiryLastSuccess    = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_expiry_last_success_timestamp_seconds", Help: "Unix time the TTL-expiry pass last completed."})
+	ReapLastSuccess      = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reap_last_success_timestamp_seconds", Help: "Unix time the stale-row reaper last completed."})
 )
+
+// MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
+// periodic pass).
+func MarkSuccess(g prometheus.Gauge) { g.Set(float64(time.Now().Unix())) }
 
 func init() {
 	Registry.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		HTTPRequests, HTTPDuration, Submissions,
-		WSConnections, Instances, RateLimitRejections,
+		WSConnections, WSRejections, WSReadPumpPanics, Instances, RateLimitRejections,
 		TeamInstances, InstanceSpawns, InstanceExpiries, InstanceCleanups, FlagSharingSignals,
+		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
+		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
 	)
 }
 

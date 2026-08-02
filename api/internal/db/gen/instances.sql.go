@@ -379,6 +379,52 @@ func (q *Queries) ListPerTeamInstances(ctx context.Context) ([]Instance, error) 
 	return items, nil
 }
 
+const listStaleInstances = `-- name: ListStaleInstances :many
+SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances
+WHERE state IN ('pending','error') AND updated_at < $1
+ORDER BY updated_at ASC
+`
+
+// Instances stuck in a non-terminal deploy state (a failed or interrupted
+// Deploy leaves allocateRow's row behind) whose row has not changed since the
+// cutoff. Their host_port is still counted by ListUsedPorts, so each leaks a port
+// until reaped. The cutoff must trail the Deploy timeout so a row that is
+// legitimately mid-deploy (recently touched) is never listed.
+func (q *Queries) ListStaleInstances(ctx context.Context, cutoff time.Time) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listStaleInstances, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChallengeID,
+			&i.State,
+			&i.ContainerID,
+			&i.HostPort,
+			&i.Error,
+			&i.StartedAt,
+			&i.LastHealthAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TeamID,
+			&i.Flag,
+			&i.ExpiresAt,
+			&i.Network,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeamInstances = `-- name: ListTeamInstances :many
 SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances WHERE team_id = $1 ORDER BY created_at ASC
 `
@@ -440,6 +486,24 @@ func (q *Queries) ListUsedPorts(ctx context.Context) ([]*int32, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const reconcileClock = `-- name: ReconcileClock :one
+SELECT clock_timestamp()::timestamptz
+`
+
+// The database clock reconcile evaluates row age (now - updated_at) against, so a
+// skewed app host cannot make every row read "fresh" and silently no-op the sweep
+// (updated_at is written by Postgres). clock_timestamp(), not now(): now() is the
+// transaction START time, so a row committed between the row read and a separate
+// clock read would read as future-dated. clock_timestamp() is the actual time at
+// call; read AFTER the row snapshot it is always >= every row's updated_at, so only
+// a genuine skew trips the future-row anomaly.
+func (q *Queries) ReconcileClock(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, reconcileClock)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setInstanceExpiry = `-- name: SetInstanceExpiry :one

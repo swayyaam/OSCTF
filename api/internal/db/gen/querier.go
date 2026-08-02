@@ -67,6 +67,12 @@ type Querier interface {
 	ListPublicTeams(ctx context.Context) ([]ListPublicTeamsRow, error)
 	// Every non-hidden team appears on the board from creation (zero-solve teams too).
 	ListScoreboardTeams(ctx context.Context) ([]ListScoreboardTeamsRow, error)
+	// Instances stuck in a non-terminal deploy state (a failed or interrupted
+	// Deploy leaves allocateRow's row behind) whose row has not changed since the
+	// cutoff. Their host_port is still counted by ListUsedPorts, so each leaks a port
+	// until reaped. The cutoff must trail the Deploy timeout so a row that is
+	// legitimately mid-deploy (recently touched) is never listed.
+	ListStaleInstances(ctx context.Context, cutoff time.Time) ([]Instance, error)
 	ListSubmissionsAdmin(ctx context.Context, arg ListSubmissionsAdminParams) ([]ListSubmissionsAdminRow, error)
 	ListTeamInstances(ctx context.Context, teamID *uuid.UUID) ([]Instance, error)
 	ListTeamMembers(ctx context.Context, teamID uuid.UUID) ([]ListTeamMembersRow, error)
@@ -81,6 +87,14 @@ type Querier interface {
 	// from solve counts but still displays them.
 	ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, error)
 	ListVisibleChallenges(ctx context.Context) ([]Challenge, error)
+	// The database clock reconcile evaluates row age (now - updated_at) against, so a
+	// skewed app host cannot make every row read "fresh" and silently no-op the sweep
+	// (updated_at is written by Postgres). clock_timestamp(), not now(): now() is the
+	// transaction START time, so a row committed between the row read and a separate
+	// clock read would read as future-dated. clock_timestamp() is the actual time at
+	// call; read AFTER the row snapshot it is always >= every row's updated_at, so only
+	// a genuine skew trips the future-row anomaly.
+	ReconcileClock(ctx context.Context) (time.Time, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) error
 	SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error)
 	UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error)

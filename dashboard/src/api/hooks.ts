@@ -181,7 +181,13 @@ export function useRegenInvite(id: string) {
       unwrap<Schemas["InviteCode"]>(
         api.POST("/teams/{id}/invite-code", { params: { path: { id } } }),
       ),
-    onSuccess: () => { invalidateMe(qc); },
+    // The team page reads the code from queryKeys.team(id), which invalidateMe
+    // does not cover. Without this the old — now dead — code stays on screen and
+    // the captain shares an invite that no longer works.
+    onSuccess: () => {
+      invalidateMe(qc);
+      void qc.invalidateQueries({ queryKey: queryKeys.team(id) });
+    },
   });
 }
 

@@ -215,6 +215,25 @@ func (m *Manager) CountTeamRunning(ctx context.Context, teamID uuid.UUID) (int, 
 	return int(n), nil
 }
 
+// ListStale returns instances stuck in pending/error for longer than olderThan.
+// allocateRow reserves a host_port before Deploy; a failed or interrupted Deploy
+// leaves that row behind, and ListUsedPorts counts its port whatever the state, so
+// a stuck row leaks a port until it is destroyed. The caller destroys them (freeing
+// the port). olderThan must comfortably exceed the Deploy timeout so a row that is
+// legitimately mid-deploy is never returned. Timestamps are DB wall-clock, so the
+// cutoff is computed from time.Now, not any injected scheduler clock.
+func (m *Manager) ListStale(ctx context.Context, olderThan time.Duration) ([]Instance, error) {
+	rows, err := m.q.ListStaleInstances(ctx, time.Now().Add(-olderThan))
+	if err != nil {
+		return nil, fmt.Errorf("runtime: listing stale instances: %w", err)
+	}
+	out := make([]Instance, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, rowToInstance(r))
+	}
+	return out, nil
+}
+
 // DestroyInstance removes a container by instance id and deletes its row.
 func (m *Manager) DestroyInstance(ctx context.Context, instanceID uuid.UUID) error {
 	if err := m.rt.Destroy(ctx, instanceID); err != nil {
@@ -230,6 +249,47 @@ func (m *Manager) DestroyInstance(ctx context.Context, instanceID uuid.UUID) err
 
 // Reconcile runs one reconciliation pass.
 func (m *Manager) Reconcile(ctx context.Context) error { return m.rt.Reconcile(ctx) }
+
+// isolationChecker is implemented by runtimes that can self-check cross-network
+// isolation (the Docker runtime). Kept off the ChallengeRuntime interface so that
+// stays minimal.
+type isolationChecker interface {
+	VerifyIsolation(ctx context.Context) (bool, error)
+}
+
+// VerifyIsolation runs the runtime's cross-network isolation self-check. Runtimes
+// that cannot check (e.g. the fake) report isolated=true — the warning is only
+// meaningful against a real container network.
+func (m *Manager) VerifyIsolation(ctx context.Context) (bool, error) {
+	if c, ok := m.rt.(isolationChecker); ok {
+		return c.VerifyIsolation(ctx)
+	}
+	return true, nil
+}
+
+// unadoptedLister is implemented by runtimes that can enumerate managed containers /
+// networks reconcile cannot resolve (the Docker runtime).
+type unadoptedLister interface {
+	ListUnadopted(ctx context.Context) ([]UnadoptedContainer, error)
+	ListUnadoptedNetworks(ctx context.Context) ([]UnadoptedNetwork, error)
+}
+
+// ListUnadopted returns managed containers reconcile could not resolve to a row.
+// Runtimes without containers (the fake) report none.
+func (m *Manager) ListUnadopted(ctx context.Context) ([]UnadoptedContainer, error) {
+	if u, ok := m.rt.(unadoptedLister); ok {
+		return u.ListUnadopted(ctx)
+	}
+	return nil, nil
+}
+
+// ListUnadoptedNetworks returns per-team bridges with no resolvable team_id.
+func (m *Manager) ListUnadoptedNetworks(ctx context.Context) ([]UnadoptedNetwork, error) {
+	if u, ok := m.rt.(unadoptedLister); ok {
+		return u.ListUnadoptedNetworks(ctx)
+	}
+	return nil, nil
+}
 
 // ConnectionInfo renders the participant connection string, or "" unless running.
 func (m *Manager) ConnectionInfo(ch gen.Challenge, inst Instance) string {
@@ -289,7 +349,7 @@ func (m *Manager) buildSpec(ch gen.Challenge, row gen.Instance, flag string) Ins
 		CPUMillis:      int(ch.CpuMillis),
 		Env:            decodeEnv(ch.ContainerEnv, flag),
 		TeamID:         row.TeamID,
-		Internal:       !ch.Egress,
+		NoEgress:       !ch.Egress,
 		ReadonlyRootfs: true,
 		Tmpfs:          append([]string{"/tmp"}, decodeWritablePaths(ch.WritablePaths)...),
 	}

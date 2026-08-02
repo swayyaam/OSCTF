@@ -1492,6 +1492,29 @@ export interface components {
         /** @description All instances (shared + per-team). */
         AdminInstanceList: {
             items: components["schemas"]["AdminInstance"][];
+            /** @description Managed containers with no resolvable instance (missing/unparseable osctf.instance_id label). Reconcile never removes these — it cannot identify them — so they are surfaced here for an organizer to inspect. */
+            unadopted?: components["schemas"]["UnadoptedContainer"][];
+            /** @description Per-team bridges with no resolvable team_id (e.g. from a pre-team_id-label release). Reconcile never GC's these — it cannot tell an in-flight deploy from an abandoned one — so they are surfaced for manual cleanup. */
+            unadopted_networks?: components["schemas"]["UnadoptedNetwork"][];
+        };
+        /** @description A managed container reconcile could not resolve to an instance. */
+        UnadoptedContainer: {
+            /** @description Docker container ID. */
+            container_id: string;
+            /** @description Image the container runs. */
+            image: string;
+            /**
+             * Format: date-time
+             * @description Container creation time.
+             */
+            created_at: string;
+        };
+        /** @description A per-team bridge reconcile could not resolve to a team. */
+        UnadoptedNetwork: {
+            /** @description Docker network ID. */
+            network_id: string;
+            /** @description Network name. */
+            name: string;
         };
         /** @description Recent container output. */
         InstanceLogs: {

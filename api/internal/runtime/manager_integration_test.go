@@ -1,3 +1,5 @@
+//go:build integration || dockerint
+
 package runtime_test
 
 import (
@@ -86,18 +88,18 @@ func TestManagerDeployForTeamHardenedSpecIntegration(t *testing.T) {
 		t.Fatalf("state = %q, want running", inst.State)
 	}
 
-	if len(fake.Deployed) != 1 {
-		t.Fatalf("captured %d specs, want 1", len(fake.Deployed))
+	if len(fake.DeployedSpecs()) != 1 {
+		t.Fatalf("captured %d specs, want 1", len(fake.DeployedSpecs()))
 	}
-	spec := fake.Deployed[0]
+	spec := fake.DeployedSpecs()[0]
 	if spec.TeamID == nil || *spec.TeamID != teamA {
 		t.Errorf("spec.TeamID = %v, want %v", spec.TeamID, teamA)
 	}
 	if !strings.HasPrefix(spec.NetworkName, "osctf-team-") || !strings.HasSuffix(spec.NetworkName, "-int") {
 		t.Errorf("spec.NetworkName = %q, want osctf-team-<id>-int (egress off)", spec.NetworkName)
 	}
-	if !spec.Internal {
-		t.Error("spec.Internal = false, want true for egress:false")
+	if !spec.NoEgress {
+		t.Error("spec.NoEgress = false, want true for egress:false")
 	}
 	if !spec.ReadonlyRootfs {
 		t.Error("spec.ReadonlyRootfs = false, want true")
@@ -125,8 +127,8 @@ func TestManagerDeployForTeamHardenedSpecIntegration(t *testing.T) {
 	if _, err := mgr.DeployForTeam(ctx, runtime.DeployReq{ChallengeID: chID, TeamID: teamA, Flag: "x"}); err != nil {
 		t.Fatalf("second DeployForTeam: %v", err)
 	}
-	if len(fake.Deployed) != 1 {
-		t.Errorf("idempotent Start re-deployed (%d specs)", len(fake.Deployed))
+	if len(fake.DeployedSpecs()) != 1 {
+		t.Errorf("idempotent Start re-deployed (%d specs)", len(fake.DeployedSpecs()))
 	}
 }
 
@@ -154,12 +156,12 @@ func TestManagerPerTeamIsolationAndQuotaIntegration(t *testing.T) {
 	if instA.HostPort == instB.HostPort {
 		t.Errorf("teams share host port %d", instA.HostPort)
 	}
-	if fake.Deployed[0].NetworkName == fake.Deployed[1].NetworkName {
-		t.Errorf("teams share network %q", fake.Deployed[0].NetworkName)
+	if fake.DeployedSpecs()[0].NetworkName == fake.DeployedSpecs()[1].NetworkName {
+		t.Errorf("teams share network %q", fake.DeployedSpecs()[0].NetworkName)
 	}
-	// egress:true static challenge -> non-internal, no stored flag.
-	if fake.Deployed[0].Internal {
-		t.Error("egress:true instance marked internal")
+	// egress:true static challenge -> egress left on, no stored flag.
+	if fake.DeployedSpecs()[0].NoEgress {
+		t.Error("egress:true instance marked NoEgress")
 	}
 	rowA, _ := q.GetTeamInstance(ctx, gen.GetTeamInstanceParams{ChallengeID: chID, TeamID: &teamA})
 	if rowA.Flag != nil {

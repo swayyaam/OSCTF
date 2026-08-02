@@ -44,7 +44,7 @@ type InstanceSpec struct {
 
 	TeamID         *uuid.UUID // nil = shared instance (v0.1); set = per-team
 	NetworkName    string     // docker network to attach; "" = shared 'osctf-challenges'
-	Internal       bool       // true -> per-team network created --internal (egress off)
+	NoEgress       bool       // true -> network created without outbound NAT (egress off)
 	ReadonlyRootfs bool       // true -> read-only container rootfs
 	Tmpfs          []string   // writable tmpfs mount targets, e.g. ["/tmp"]
 }

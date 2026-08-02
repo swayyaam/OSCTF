@@ -137,6 +137,12 @@ type AdminInstance struct {
 // AdminInstanceList All instances (shared + per-team).
 type AdminInstanceList struct {
 	Items []AdminInstance `json:"items"`
+
+	// Unadopted Managed containers with no resolvable instance (missing/unparseable osctf.instance_id label). Reconcile never removes these — it cannot identify them — so they are surfaced here for an organizer to inspect.
+	Unadopted *[]UnadoptedContainer `json:"unadopted,omitempty"`
+
+	// UnadoptedNetworks Per-team bridges with no resolvable team_id (e.g. from a pre-team_id-label release). Reconcile never GC's these — it cannot tell an in-flight deploy from an abandoned one — so they are surfaced for manual cleanup.
+	UnadoptedNetworks *[]UnadoptedNetwork `json:"unadopted_networks,omitempty"`
 }
 
 // AdminPasswordResetRequest Admin-driven password reset payload.
@@ -1070,6 +1076,27 @@ type TeamSummary struct {
 
 	// Rank Rank on the scoreboard; null for banned teams.
 	Rank *int `json:"rank"`
+}
+
+// UnadoptedContainer A managed container reconcile could not resolve to an instance.
+type UnadoptedContainer struct {
+	// ContainerId Docker container ID.
+	ContainerId string `json:"container_id"`
+
+	// CreatedAt Container creation time.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Image Image the container runs.
+	Image string `json:"image"`
+}
+
+// UnadoptedNetwork A per-team bridge reconcile could not resolve to a team.
+type UnadoptedNetwork struct {
+	// Name Network name.
+	Name string `json:"name"`
+
+	// NetworkId Docker network ID.
+	NetworkId string `json:"network_id"`
 }
 
 // UserAdmin User as seen in the admin panel.

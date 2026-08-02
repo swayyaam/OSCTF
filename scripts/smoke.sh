@@ -91,8 +91,11 @@ done
 
 step "per-team instance: admin creates a per_team challenge (public image)"
 PT_SLUG="pt-smoke-$SUFFIX"
+# egress:false on purpose — that path builds the container's network differently
+# and used to void the published host port, so the reachability check below is
+# only a real guard when the challenge is created this way.
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" $ORIGIN -X POST "$BASE_URL/api/v0/admin/challenges" \
-  -H 'Content-Type: application/json' -d "{\"slug\":\"$PT_SLUG\",\"title\":\"PT Smoke\",\"category\":\"web\",\"kind\":\"container\",\"flag\":\"OSCTF{pt_smoke}\",\"scoring\":\"static\",\"points_initial\":100,\"visible\":true,\"image\":\"traefik/whoami:latest\",\"internal_port\":80,\"instancing\":\"per_team\"}")
+  -H 'Content-Type: application/json' -d "{\"slug\":\"$PT_SLUG\",\"title\":\"PT Smoke\",\"category\":\"web\",\"kind\":\"container\",\"flag\":\"OSCTF{pt_smoke}\",\"scoring\":\"static\",\"points_initial\":100,\"visible\":true,\"image\":\"traefik/whoami:latest\",\"internal_port\":80,\"instancing\":\"per_team\",\"egress\":false}")
 [ "$code" = 201 ] || fail "create per_team challenge got $code"; ok
 
 step "per-team instance: team A starts an instance"
@@ -105,6 +108,18 @@ elif [ "$start_code" = 201 ] || [ "$start_code" = 200 ]; then
   port=$(printf '%s' "$start_json" | jget "['host_port']")
   [ -n "$port" ] && [ "$port" != "None" ] || fail "instance has no host_port"
   ok
+
+  # An allocated port is not a reachable one: the runtime can hand out a port and
+  # advertise it to players while nothing is bound to it. Connect for real.
+  step "per-team instance: the advertised port actually serves traffic"
+  host=$(printf '%s' "$BASE_URL" | sed -E 's#^https?://##; s#[:/].*$##')
+  reached=0
+  for _ in $(seq 1 10); do
+    if curl -s -o /dev/null -m 3 "http://${host}:${port}/"; then reached=1; break; fi
+    sleep 1
+  done
+  [ "$reached" = 1 ] || fail "nothing listening on ${host}:${port} (port published but unreachable)"; ok
+
   step "per-team instance: team A stops the instance -> 204"
   code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_A" $ORIGIN -X DELETE "$BASE_URL/api/v0/challenges/$PT_SLUG/instance")
   [ "$code" = 204 ] || fail "stop instance got $code"; ok

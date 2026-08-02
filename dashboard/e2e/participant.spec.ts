@@ -1,14 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { apiAdmin, createChallenge, rid, setEventWindow } from "./helpers";
+import { createChallenge, rid, setEventWindow } from "./helpers";
 
 // Flow 1 — participant golden path: register -> create team -> open challenges ->
 // open a standard challenge -> submit wrong flag -> submit correct flag ->
 // scoreboard shows the team with points.
-test("participant golden path", async ({ page, request }) => {
+test("participant golden path", async ({ page }) => {
   const id = rid();
-  await apiAdmin(request);
-  await setEventWindow(request);
-  const slug = await createChallenge(request, {
+  await setEventWindow();
+  const slug = await createChallenge({
     title: `E2E Sanity ${id}`,
     flag: `OSCTF{e2e_${id}}`,
   });

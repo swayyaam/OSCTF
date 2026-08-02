@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { apiAdmin, createPerTeamWeb, rid, setEventWindow, BASE } from "./helpers";
+import { createPerTeamWeb, rid, setEventWindow, BASE } from "./helpers";
 
 interface ChallengeDetail {
   instance: { state: string; connection_info: string | null } | null;
@@ -8,14 +8,13 @@ interface ChallengeDetail {
 // Flow 4 — per-team instances golden path: register -> team -> open a per_team,
 // per_instance challenge -> Start -> read the team's unique flag from its own
 // instance -> submit -> solved -> Extend -> Stop.
-test("per-team instance golden path", async ({ page, request }) => {
+test("per-team instance golden path", async ({ page }) => {
   // Deploying a container (pull + start + health) can take a while on a cold CI
   // runner; allow well over the default 30s so the running poll can complete.
   test.setTimeout(150_000);
   const id = rid();
-  await apiAdmin(request);
-  await setEventWindow(request);
-  const slug = await createPerTeamWeb(request, `E2E Instance ${id}`);
+  await setEventWindow();
+  const slug = await createPerTeamWeb(`E2E Instance ${id}`);
 
   // Register and create a team through the UI.
   await page.goto("/register");

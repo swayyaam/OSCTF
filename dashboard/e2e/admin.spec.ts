@@ -1,16 +1,16 @@
 import { test, expect } from "@playwright/test";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, rid, setEventWindow, apiAdmin } from "./helpers";
+import { rid, runAdminCreds, setEventWindow } from "./helpers";
 
 // Flow 2 — admin challenge lifecycle: log in as admin -> create a visible standard
 // challenge -> it appears on the participant board -> edit points -> delete.
-test("admin challenge lifecycle", async ({ page, request }) => {
+test("admin challenge lifecycle", async ({ page }) => {
   const id = rid();
-  await apiAdmin(request);
-  await setEventWindow(request);
+  await setEventWindow();
 
+  const admin = runAdminCreds();
   await page.goto("/login");
-  await page.getByLabel("Email").fill(ADMIN_EMAIL);
-  await page.getByLabel("Password").fill(ADMIN_PASSWORD);
+  await page.getByLabel("Email").fill(admin.email);
+  await page.getByLabel("Password").fill(admin.password);
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(/\/challenges/);
 

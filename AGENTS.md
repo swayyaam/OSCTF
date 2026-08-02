@@ -96,6 +96,14 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
   — without it, browser mutations from the Vite dev origin get a 403 origin-check failure.
 - Integration tests need Docker (testcontainers) and skip under `-short`. The
   container-runtime tests are build-tagged: `go test -tags dockerint ./internal/runtime/...`.
+- **Known coverage gap — `FakeRuntime` models containers but NOT networks.** Reconcile's
+  network decisions (team-network GC, `team_id` protection, the v0.2 missing-label
+  flag) are therefore covered by the pure `Reconcile` table tests
+  (`internal/runtime/reconcile_test.go`) plus the real-daemon `dockerint` tests, but not
+  through the fake the way container decisions are. This is deliberate: per-team bridges
+  are a Docker-only concept, so a fake network model would exercise trivial fake code,
+  not the real `NetworkRemove`/inspect path — that path is what `dockerint` covers. To
+  strengthen network coverage, add `dockerint` tests (real bridges), not fake modelling.
 - **Playwright e2e runs with `workers: 1`** — the flows mutate one shared global event
   (window/freeze) and must not run concurrently.
 - Registration is rate-limited to **5/hour per IP**; re-running smoke/e2e within an hour

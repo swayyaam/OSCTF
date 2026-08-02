@@ -4,6 +4,12 @@ version: "2"
 
 run:
   timeout: 5m
+  # Analyze the tagged test tiers too. Without this golangci-lint only sees the
+  # default build context, so //go:build integration / dockerint files (13 of
+  # them) would silently drop out of lint the moment they were tagged.
+  build-tags:
+    - integration
+    - dockerint
 
 linters:
   default: none

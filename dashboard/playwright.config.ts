@@ -4,6 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 // The 3 golden flows live in e2e/ (docs/v0.1/11-testing-ci.md).
 export default defineConfig({
   testDir: "./e2e",
+  // Provision a unique admin per run (see e2e/global-setup.ts) so the suite does
+  // not share the one seeded admin against the 5-per-5-min login limit.
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 30_000,
   fullyParallel: false,
   // The flows mutate one shared global event (window, freeze), so they must not

@@ -1,13 +1,14 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
-import { BASE, apiAdmin, createChallenge, rid } from "./helpers";
+import { BASE, adminRequest, createChallenge, rid } from "./helpers";
 
 const ORIGIN = { Origin: BASE };
 
-async function setFreezeInPast(request: APIRequestContext) {
+async function setFreezeInPast() {
+  const admin = await adminRequest();
   const now = Date.now();
   const iso = (ms: number) => new Date(now + ms).toISOString();
   // Window started 2h ago, ends in 1h, froze 1h ago.
-  const res = await request.patch(`${BASE}/api/v0/admin/event`, {
+  const res = await admin.patch(`${BASE}/api/v0/admin/event`, {
     headers: ORIGIN,
     data: { starts_at: iso(-7200_000), ends_at: iso(3600_000), freeze_at: iso(-3600_000) },
   });
@@ -18,9 +19,8 @@ async function setFreezeInPast(request: APIRequestContext) {
 // scoreboard shows the frozen banner and stops moving while a new solve lands.
 test("freeze behavior", async ({ page, request }) => {
   const id = rid();
-  await apiAdmin(request);
-  await setFreezeInPast(request);
-  const slug = await createChallenge(request, { title: `Freeze ${id}`, flag: `OSCTF{frz_${id}}` });
+  await setFreezeInPast();
+  const slug = await createChallenge({ title: `Freeze ${id}`, flag: `OSCTF{frz_${id}}` });
 
   // Wait for the freeze to actually propagate to the public API before loading
   // the page (the banner is driven by the /scoreboard `frozen` flag; asserting on

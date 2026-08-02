@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/osctf/platform/internal/flags"
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
+	"github.com/osctf/platform/internal/httpx"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scheduler"
@@ -228,9 +230,44 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
+	// bgWG joins the long-lived background workers so shutdown waits for any
+	// in-flight pass (notably a DestroyInstance mid-Docker-call) to finish rather
+	// than the process exiting out from under it. Each worker also runs its passes
+	// under Background-derived timeouts (not the signal ctx), so the current pass
+	// completes even as the loop is told to stop.
+	var bgWG sync.WaitGroup
+
 	hub := ws.NewHub(log)
-	go hub.Run(ctx)
-	scoreboardSvc.SetBroadcaster(hub.BroadcastScoreboard)
+	// A live WS connection is a socket fd; a global cap above RLIMIT_NOFILE would hit
+	// "accept: too many open files" — taking down HTTP, Postgres, and Docker together —
+	// before admission control sheds WS load. Clamp the cap to the fd budget and warn.
+	wsMaxConns := cfg.WSMaxConns
+	var rlim syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim); err != nil {
+		log.Warn("could not read RLIMIT_NOFILE; leaving the WebSocket connection cap unchecked", "error", err.Error())
+	} else if eff, clamped := ws.SafeGlobalCap(cfg.WSMaxConns, uint64(rlim.Cur)); clamped {
+		log.Warn("OSCTF_WS_MAX_CONNS exceeds the file-descriptor headroom — clamping to avoid fd exhaustion. Raise the process ulimit (RLIMIT_NOFILE) for large events; see docs/v0.1/10-deployment.md.",
+			"configured", cfg.WSMaxConns, "effective", eff, "rlimit_nofile_soft", rlim.Cur)
+		wsMaxConns = eff
+	}
+	hub.SetLimits(ws.Limits{
+		MaxConns:        wsMaxConns,
+		MaxConnsPerKey:  cfg.WSMaxConnsPerConn,
+		HandshakeBurst:  cfg.WSHandshakeBurst,
+		HandshakeWindow: cfg.WSHandshakeWindow,
+	})
+	// Key admission on the authenticated user where a session exists (so a shared NAT of
+	// logged-in players is not squeezed through one IP budget), falling back to the
+	// proxy-aware client IP for anonymous connections.
+	hub.SetKeyResolver(func(r *http.Request) string {
+		if id, ok := auth.IdentityFrom(r.Context()); ok {
+			return "u:" + id.UserID.String()
+		}
+		return "ip:" + httpx.ClientIP(r, cfg.TrustProxy)
+	})
+	bgWG.Add(1)
+	go func() { defer bgWG.Done(); hub.Run(ctx) }()
+	scoreboardSvc.SetBroadcaster(func(s scoreboard.Snapshot) { hub.BroadcastScoreboard(handlers.ToScoreboard(s)) })
 
 	dockerRT, err := runtime.NewDockerRuntime(q, log, cfg.DockerHost)
 	if err != nil {
@@ -242,8 +279,26 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else {
 		log.Info("runtime reconciled")
 	}
+	// Self-check cross-network isolation (async, best-effort). Native Linux Docker
+	// isolates per-team instances; Docker Desktop's VM does not once a host port is
+	// published (which every instance does), so warn loudly there.
+	go func() {
+		isolated, ierr := rtMgr.VerifyIsolation(ctx)
+		switch {
+		case ierr != nil:
+			log.Debug("network isolation self-check skipped", "error", ierr.Error())
+		case !isolated:
+			log.Warn("SECURITY: this Docker daemon does NOT enforce network isolation between " +
+				"per-team challenge instances — one team can reach another team's container. This is " +
+				"expected on Docker Desktop; run per-team challenges on native Linux Docker for real " +
+				"isolation (docs/v0.2/03-runtime.md).")
+		default:
+			log.Info("network isolation self-check passed: per-team instances are isolated")
+		}
+	}()
 	sched := scheduler.New(rtMgr, q, eventsSvc, flags.NewGenerator(cfg.FlagPrefix), auditLog, clk, log, scheduler.Config{
 		TTL: cfg.InstanceTTL, Extend: cfg.InstanceExtend, MaxTTL: cfg.InstanceMaxTTL, Quota: cfg.TeamInstanceQuota,
+		ReapAfter: cfg.InstanceReapAfter,
 	})
 	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
 		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
@@ -270,6 +325,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Sessions:        sessions,
 		Limiter:         limiter,
 		Audit:           auditLog,
+		Log:             log,
 		SecureCookies:   cfg.IsHTTPS(),
 		TrustProxy:      cfg.TrustProxy,
 		SessionTTL:      cfg.SessionTTL,
@@ -288,6 +344,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		BaseOrigin:    cfg.BaseOrigin(),
 		CORSDevOrigin: cfg.CORSDevOrigin,
 		WSHandler:     hub.Handler(),
+		TrustProxy:    cfg.TrustProxy,
 	})
 
 	srv := &http.Server{
@@ -296,9 +353,10 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	go runTickers(ctx, log, eventsSvc, scoreboardSvc, hub, sched)
-	go runReconcile(ctx, log, rtMgr)
-	go sched.RunExpiry(ctx)
+	bgWG.Add(3)
+	go func() { defer bgWG.Done(); runTickers(ctx, log, eventsSvc, scoreboardSvc, hub, sched) }()
+	go func() { defer bgWG.Done(); runReconcile(ctx, log, rtMgr) }()
+	go func() { defer bgWG.Done(); sched.RunExpiry(ctx) }()
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -318,8 +376,30 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("graceful shutdown: %w", err)
 		}
+		// Wait for the background workers (ws hub, tickers, reconcile, expiry/reap) to
+		// return. They observe ctx and stop after finishing any in-flight pass; because
+		// those passes run under Background-derived timeouts, a DestroyInstance already
+		// underway completes instead of being cut off mid-Docker-call. Bounded so a
+		// wedged worker cannot hang shutdown indefinitely.
+		if !waitBounded(&bgWG, 10*time.Second) {
+			log.Warn("background workers did not drain within 10s; exiting anyway")
+		}
 		log.Info("shutdown complete")
 		return nil
+	}
+}
+
+// waitBounded waits for wg, returning true if it finished within d and false on
+// timeout. The spawned waiter goroutine outlives a timeout return but ends when wg
+// eventually completes; it never leaks past process exit.
+func waitBounded(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
 	}
 }
 
@@ -330,12 +410,19 @@ func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *s
 	defer ticker.Stop()
 
 	lastPhase := ""
+	endCleanupDone := false // latched true once the event-end sweep fully converges
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if ctx.Err() != nil {
+				return // shutting down: don't start a new pass
+			}
+			// Background-derived, not ctx-derived: an in-flight pass (esp. the
+			// event-end CleanupEnded below, which destroys containers) finishes even
+			// once shutdown is signalled; the loop stops via the ctx.Err check above.
+			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			if err := sb.MaybeSnapshotFreeze(tctx); err != nil {
 				log.Warn("freeze snapshot failed", "error", err.Error())
 			}
@@ -346,14 +433,32 @@ func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *s
 					if rerr := sb.Recompute(tctx); rerr != nil {
 						log.Warn("recompute on phase change failed", "error", rerr.Error())
 					}
-					// Event just ended: tear down every per-team instance.
-					if phase == string(events.PhaseEnded) {
-						if cerr := sched.CleanupEnded(tctx); cerr != nil {
-							log.Warn("event-end instance cleanup failed", "error", cerr.Error())
-						}
-					}
 				}
 				lastPhase = phase
+
+				// Event-end teardown runs every tick while ended until it converges,
+				// not only on the transition edge: each CleanupEnded destroy waits
+				// (bounded) for that team's lock, so an instance still mid-deploy is
+				// torn down cleanly once the deploy finishes. If a pass leaves some team
+				// still busy past its budget, the latch stays false and the next tick
+				// retries until no per-team instances remain.
+				if phase == string(events.PhaseEnded) {
+					if !endCleanupDone {
+						cctx, ccancel := context.WithTimeout(context.Background(), 5*time.Minute)
+						remaining, cerr := sched.CleanupEnded(cctx)
+						ccancel()
+						switch {
+						case cerr != nil:
+							log.Warn("event-end instance cleanup failed", "error", cerr.Error())
+						case remaining == 0:
+							endCleanupDone = true
+						default:
+							log.Warn("event-end instance cleanup incomplete; retrying next tick", "remaining", remaining)
+						}
+					}
+				} else {
+					endCleanupDone = false // event no longer ended (e.g. re-opened): re-arm
+				}
 			}
 			cancel()
 		}
@@ -370,7 +475,12 @@ func runReconcile(ctx context.Context, log *slog.Logger, rt *runtime.Manager) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if ctx.Err() != nil {
+				return // shutting down: don't start a new pass
+			}
+			// Background-derived so an in-flight reconcile (which may be removing a
+			// container/network) is not cut off at shutdown; the loop stops above.
+			rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			if err := rt.Reconcile(rctx); err != nil {
 				log.Warn("runtime reconcile failed", "error", err.Error())
 			}

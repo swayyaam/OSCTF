@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -144,7 +145,10 @@ func (s *Server) Login(ctx context.Context, request apigen.LoginRequestObject) (
 
 	userID, err := s.d.Auth.Authenticate(ctx, email, request.Body.Password)
 	if err != nil {
-		// Any failure is the same generic 401.
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return nil, err // hashing gate shed this login: 503 + Retry-After, not a misleading 401
+		}
+		// Any other failure is the same generic 401.
 		return nil, apperr.ErrUnauthenticated
 	}
 	u, err := s.d.Users.Get(ctx, userID)

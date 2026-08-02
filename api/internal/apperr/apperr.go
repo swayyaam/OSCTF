@@ -33,7 +33,12 @@ func (e *NotImplemented) Error() string   { return "not implemented: " + e.Detai
 func (e *NotImplemented) Is(t error) bool { return t == ErrNotImplemented }
 
 // Unavailable carries a specific detail; renders 503 (e.g. runtime unreachable).
-type Unavailable struct{ Detail string }
+// RetryAfter, when > 0, is surfaced as a Retry-After header — used for
+// load-shed backpressure (e.g. the argon2id hashing gate).
+type Unavailable struct {
+	Detail     string
+	RetryAfter time.Duration
+}
 
 func (e *Unavailable) Error() string   { return "unavailable: " + e.Detail }
 func (e *Unavailable) Is(t error) bool { return t == ErrUnavailable }

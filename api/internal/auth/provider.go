@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/osctf/platform/internal/apperr"
 	"github.com/osctf/platform/internal/db/gen"
 )
 
@@ -47,12 +48,20 @@ func (p *EmailPasswordProvider) Authenticate(ctx context.Context, email, passwor
 	u, err := p.q.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			BurnHash(password)
+			// Burn a hash for timing uniformity. If the gate sheds it, return the
+			// same 503 the known-email path would, so overload doesn't turn into a
+			// known/unknown-email status oracle.
+			if berr := BurnHash(ctx, password); errors.Is(berr, apperr.ErrUnavailable) {
+				return uuid.Nil, berr
+			}
 			return uuid.Nil, ErrInvalidCredentials
 		}
 		return uuid.Nil, fmt.Errorf("auth: looking up user: %w", err)
 	}
-	ok, err := VerifyPassword(password, u.PasswordHash)
+	ok, err := VerifyPassword(ctx, password, u.PasswordHash)
+	if errors.Is(err, apperr.ErrUnavailable) {
+		return uuid.Nil, err // shed under load: propagate the 503, not a generic 401
+	}
 	if err != nil || !ok {
 		return uuid.Nil, ErrInvalidCredentials
 	}
@@ -61,7 +70,7 @@ func (p *EmailPasswordProvider) Authenticate(ctx context.Context, email, passwor
 		return uuid.Nil, ErrInvalidCredentials
 	}
 	if p.rehash != nil && NeedsRehash(u.PasswordHash) {
-		if newHash, herr := HashPassword(password); herr == nil {
+		if newHash, herr := HashPassword(ctx, password); herr == nil {
 			p.rehash(ctx, u.ID, newHash)
 		}
 	}

@@ -65,8 +65,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (gen.User, err
 		return gen.User{}, err
 	}
 
-	hash, err := auth.HashPassword(in.Password)
+	hash, err := auth.HashPassword(ctx, in.Password)
 	if err != nil {
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return gen.User{}, err // hashing gate shed this request: 503, not 500
+		}
 		return gen.User{}, fmt.Errorf("users: hashing password: %w", err)
 	}
 	id, err := uuid.NewV7()
@@ -132,7 +135,10 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, current,
 	if err != nil {
 		return err
 	}
-	ok, err := auth.VerifyPassword(current, u.PasswordHash)
+	ok, err := auth.VerifyPassword(ctx, current, u.PasswordHash)
+	if errors.Is(err, apperr.ErrUnavailable) {
+		return err // hashing gate shed this request: 503, not a misleading 403
+	}
 	if err != nil || !ok {
 		return apperr.Forbiddenf("current password is incorrect")
 	}
@@ -145,8 +151,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, current,
 	if err := v.OrNil(); err != nil {
 		return err
 	}
-	hash, err := auth.HashPassword(newPassword)
+	hash, err := auth.HashPassword(ctx, newPassword)
 	if err != nil {
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return err // hashing gate shed this request: 503, not 500
+		}
 		return fmt.Errorf("users: hashing password: %w", err)
 	}
 	if err := s.q.UpdateUserPassword(ctx, gen.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {

@@ -38,6 +38,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RegisterIPWindow != 10*time.Minute {
 		t.Errorf("RegisterIPWindow = %v, want 10m", cfg.RegisterIPWindow)
 	}
+	if cfg.PasswordHashConcurrency != 0 {
+		t.Errorf("PasswordHashConcurrency = %d, want 0 (derive from host memory)", cfg.PasswordHashConcurrency)
+	}
+	if cfg.PasswordHashMaxWait != 5*time.Second {
+		t.Errorf("PasswordHashMaxWait = %v, want 5s", cfg.PasswordHashMaxWait)
+	}
 	if cfg.PublicHost != "localhost" {
 		t.Errorf("PublicHost = %q, want localhost (derived)", cfg.PublicHost)
 	}

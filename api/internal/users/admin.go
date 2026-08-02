@@ -90,8 +90,11 @@ func (s *Service) AdminResetPassword(ctx context.Context, targetID uuid.UUID, ne
 	if err := v.OrNil(); err != nil {
 		return err
 	}
-	hash, err := auth.HashPassword(newPassword)
+	hash, err := auth.HashPassword(ctx, newPassword)
 	if err != nil {
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return err // hashing gate shed this request: 503, not 500
+		}
 		return fmt.Errorf("users: hashing password: %w", err)
 	}
 	if err := s.q.UpdateUserPassword(ctx, gen.UpdateUserPasswordParams{ID: targetID, PasswordHash: hash}); err != nil {

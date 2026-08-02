@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/osctf/platform/internal/apperr"
 )
@@ -88,6 +89,13 @@ func RenderError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err e
 		if e.status == http.StatusInternalServerError {
 			log.Error("unhandled error", "error", err.Error(), "request_id", RequestID(r.Context()))
 		}
+		if e.retryAfter > 0 {
+			secs := int(e.retryAfter.Seconds())
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+		}
 		WriteProblem(w, r, Problem{
 			Type: problemBase + e.typ, Title: e.title,
 			Status: e.status, Detail: e.detail,
@@ -96,10 +104,11 @@ func RenderError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err e
 }
 
 type classified struct {
-	typ    string
-	title  string
-	status int
-	detail string
+	typ        string
+	title      string
+	status     int
+	detail     string
+	retryAfter time.Duration
 }
 
 func classify(err error) classified {
@@ -132,10 +141,12 @@ func classify(err error) classified {
 	case errors.Is(err, apperr.ErrUnavailable):
 		var ua *apperr.Unavailable
 		detail := "A dependency is temporarily unavailable."
+		var ra time.Duration
 		if errors.As(err, &ua) {
 			detail = ua.Detail
+			ra = ua.RetryAfter
 		}
-		return classified{typ: "unavailable", title: "Service unavailable", status: http.StatusServiceUnavailable, detail: detail}
+		return classified{typ: "unavailable", title: "Service unavailable", status: http.StatusServiceUnavailable, detail: detail, retryAfter: ra}
 	case errors.Is(err, apperr.ErrNotImplemented):
 		var ni *apperr.NotImplemented
 		detail := "This endpoint is not implemented yet."

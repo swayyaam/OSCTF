@@ -43,8 +43,16 @@ type Config struct {
 	// OSCTF_REGISTRATION_OPEN=false to close registration for an invite-only event).
 	RegisterIPBurst  int           `env:"OSCTF_REGISTER_IP_BURST" envDefault:"500"` // registrations per window per IP (0 = disabled)
 	RegisterIPWindow time.Duration `env:"OSCTF_REGISTER_IP_WINDOW" envDefault:"600s"`
-	TeamMaxSize      int           `env:"OSCTF_TEAM_MAX_SIZE" envDefault:"4"`
-	MaxAttachmentMB  int           `env:"OSCTF_MAX_ATTACHMENT_MB" envDefault:"100"`
+	// PasswordHashConcurrency bounds concurrent argon2id derivations (registration
+	// hashing + login verification + the unknown-email timing burn). Each costs
+	// ~64 MiB, so an unbounded burst can OOM a small host; the gate queues excess
+	// requests, then sheds them with 503 + Retry-After. 0 = derive from the host
+	// memory limit at startup (a quarter of memory / 64 MiB, clamped to [2,64]).
+	// Peak hashing memory ≈ value × 64 MiB (issue #3).
+	PasswordHashConcurrency int           `env:"OSCTF_PASSWORD_HASH_CONCURRENCY" envDefault:"0"`
+	PasswordHashMaxWait     time.Duration `env:"OSCTF_PASSWORD_HASH_MAX_WAIT" envDefault:"5s"`
+	TeamMaxSize             int           `env:"OSCTF_TEAM_MAX_SIZE" envDefault:"4"`
+	MaxAttachmentMB         int           `env:"OSCTF_MAX_ATTACHMENT_MB" envDefault:"100"`
 
 	PortRangeStart int `env:"OSCTF_PORT_RANGE_START" envDefault:"30000"`
 	PortRangeEnd   int `env:"OSCTF_PORT_RANGE_END" envDefault:"32767"`
@@ -147,6 +155,12 @@ func (c *Config) finalize() error {
 	}
 	if c.RegisterIPBurst > 0 && c.RegisterIPWindow <= 0 {
 		problems = append(problems, "OSCTF_REGISTER_IP_WINDOW must be > 0 when OSCTF_REGISTER_IP_BURST is set")
+	}
+	if c.PasswordHashConcurrency < 0 {
+		problems = append(problems, "OSCTF_PASSWORD_HASH_CONCURRENCY must be >= 0 (0 derives from the host memory limit)")
+	}
+	if c.PasswordHashMaxWait <= 0 {
+		problems = append(problems, "OSCTF_PASSWORD_HASH_MAX_WAIT must be > 0")
 	}
 	switch c.LogFormat {
 	case "json", "text":

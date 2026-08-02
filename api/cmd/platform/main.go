@@ -217,6 +217,16 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	// Composition root: concrete implementations wired to interfaces here only.
+	// Bound concurrent argon2id hashing before anything can hash (seeding included)
+	// so a registration/login burst can't OOM the host (issue #3).
+	hashConc := cfg.PasswordHashConcurrency
+	if hashConc <= 0 {
+		hashConc = auth.DefaultHashConcurrency()
+	}
+	auth.ConfigureHashGate(hashConc, cfg.PasswordHashMaxWait)
+	log.Info("argon2id hashing gate configured",
+		"concurrency", hashConc, "max_wait", cfg.PasswordHashMaxWait, "peak_mem_mb", hashConc*64)
+
 	sessions := auth.NewSessionStore(rdb, cfg.SessionTTL)
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
 	teamsSvc := teams.New(pool, cfg.TeamMaxSize)

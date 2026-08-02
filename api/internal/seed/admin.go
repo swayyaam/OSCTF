@@ -40,7 +40,7 @@ func EnsureAdmin(ctx context.Context, q *gen.Queries, cfg *config.Config, log *s
 		return fmt.Errorf("seed: checking admin: %w", err)
 	}
 
-	hash, err := auth.HashPassword(cfg.AdminPassword)
+	hash, err := auth.HashPassword(ctx, cfg.AdminPassword)
 	if err != nil {
 		return fmt.Errorf("seed: hashing admin password: %w", err)
 	}

@@ -64,9 +64,23 @@ required on upgrade.
   for an invite-only event. *Impact:* availability -- legitimate players unable to sign up
   (GitHub issue #1). *Operator action:* none for the default; tune `OSCTF_REGISTER_IP_*`
   for a public-internet deployment.
+- **A sign-in burst could OOM the host (argon2id).** argon2id is memory-hard (measured
+  ~64 MiB per hash); once the register-IP limit above permits a hundred-plus sign-ins from
+  one NAT, unbounded concurrent hashing could allocate **~6.5 GB at once** and OOM a stack
+  sized to the recommended 2 vCPU / 4 GB — turning the issue-#1 fix's clear failure (event
+  dead on arrival) into a harder-to-diagnose one (OOM under load). A semaphore now bounds
+  concurrent argon2id derivations across registration hashing, login verification, and the
+  unknown-email timing burn; the default cap is derived from the host memory limit (¼ RAM ÷
+  64 MiB, clamped 2–64 — e.g. 16 on a 4 GB box, bounding peak hashing memory to ~1 GiB).
+  Requests past the cap queue for up to `OSCTF_PASSWORD_HASH_MAX_WAIT` (5s), then are shed
+  with **503 + Retry-After** rather than allocating. *Impact:* availability -- OOM at event
+  start under a registration/login burst (GitHub issue #3). *Operator action:* none for the
+  default; set `OSCTF_PASSWORD_HASH_CONCURRENCY` explicitly on hosts with an unusual
+  RAM-to-core ratio.
 
 **Minimum security backport set (for a v0.2 deployment).** The freeze, WebSocket, extend,
-session, registration-limit, and per-instance-flag fixes apply cleanly on their own. The
+session, registration-limit, hashing-gate, and per-instance-flag fixes apply cleanly on
+their own. The
 network-GC fix and
 the reconcile clock-skew fix ship inside the reconcile-rewrite commit
 (`fix(runtime): reconcile against the DB clock…`) and cannot be separated from it, so
@@ -110,6 +124,9 @@ backporting either requires that commit (and its fleet-view companion).
   per cell), enumeration-safety probes (hidden ≡ nonexistent in status/body/timing), a
   reusable flag-containment scanner (REST/WS/logs/metrics/audit), scoreboard and ws
   white-box unit tests, and reconcile fault injection over a fake runtime.
+- Hashing-gate concurrency proof: a 12-way registration thundering-herd is bounded to the
+  gate size (peak concurrency ≤ k, memory ≤ k × 64 MiB) while all requests still succeed,
+  plus deterministic shed-when-full (503 + Retry-After) and context-cancel coverage.
 
 ### Upgrade notes
 

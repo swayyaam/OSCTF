@@ -37,8 +37,15 @@ type Snapshot struct {
 	Standings   []Entry   `json:"standings"`
 }
 
+// scoreStore is the read surface compute needs. *gen.Queries satisfies it; a fake
+// satisfies it in unit tests so the standings algorithm is exercised without a DB.
+type scoreStore interface {
+	ListScoreboardTeams(ctx context.Context) ([]gen.ListScoreboardTeamsRow, error)
+	ListValidSolves(ctx context.Context) ([]gen.ListValidSolvesRow, error)
+}
+
 // compute runs the one true standings algorithm against the current DB state.
-func compute(ctx context.Context, q *gen.Queries, now time.Time) (Snapshot, error) {
+func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, error) {
 	teamRows, err := q.ListScoreboardTeams(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("scoreboard: listing teams: %w", err)

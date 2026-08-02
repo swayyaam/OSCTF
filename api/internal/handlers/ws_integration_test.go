@@ -1,3 +1,5 @@
+//go:build integration
+
 package handlers_test
 
 import (
@@ -50,7 +52,7 @@ func TestWebSocketScoreboardIntegration(t *testing.T) {
 	defer hubCancel()
 	hub := ws.NewHub(discardLog())
 	go hub.Run(hubCtx)
-	sb.SetBroadcaster(hub.BroadcastScoreboard)
+	sb.SetBroadcaster(func(s scoreboard.Snapshot) { hub.BroadcastScoreboard(handlers.ToScoreboard(s)) })
 	if err := sb.Recompute(context.Background()); err != nil {
 		t.Fatalf("warm scoreboard: %v", err)
 	}
@@ -131,6 +133,63 @@ func TestWebSocketScoreboardIntegration(t *testing.T) {
 	// Disconnect → the gauge decrements.
 	_ = conn.Close(websocket.StatusNormalClosure, "done")
 	waitGauge(t, 0)
+}
+
+// TestWebSocketAbruptClientDropReaped covers the teardown path a clean close does
+// NOT exercise: a client that vanishes with no close frame (wifi drop mid-event).
+// The hub must still detect the dead connection — on the next read, write, or ping —
+// and reap it so a 100-player fanout does not accumulate zombie connections.
+func TestWebSocketAbruptClientDropReaped(t *testing.T) {
+	pool, _ := testsupport.Postgres(t)
+	rdb := testsupport.Redis(t)
+	q := gen.New(pool)
+	now := time.Now().UTC()
+	if _, err := q.CreateEvent(context.Background(), gen.CreateEventParams{
+		ID: uuid.Must(uuid.NewV7()), Name: "CTF", Description: "d",
+		StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	sessions := auth.NewSessionStore(rdb, time.Hour)
+	ev := events.New(q, clock.System())
+	sb := scoreboard.New(q, rdb, ev, clock.System())
+	hubCtx, hubCancel := context.WithCancel(context.Background())
+	defer hubCancel()
+	hub := ws.NewHub(discardLog())
+	go hub.Run(hubCtx)
+	sb.SetBroadcaster(func(s scoreboard.Snapshot) { hub.BroadcastScoreboard(handlers.ToScoreboard(s)) })
+	if err := sb.Recompute(context.Background()); err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+	mux := httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: handlers.New(handlers.Deps{
+		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4), Events: ev,
+		Challenges: challenges.New(q, newMemStore()), Scoreboard: sb,
+		Submissions: submissions.New(pool, ev, clock.System(), audit.New(q, discardLog())),
+		Recompute:   func(rctx context.Context) { _ = sb.Recompute(rctx) },
+		Auth:        auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
+	}), Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler()})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v0/ws"
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer dialCancel()
+	conn, _, err := websocket.Dial(dialCtx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	if typ := readType(t, conn); typ != "hello" {
+		t.Fatalf("first frame = %q, want hello", typ)
+	}
+	waitGauge(t, 1)
+
+	// Vanish with no close handshake, then push a broadcast at the dead socket.
+	_ = conn.CloseNow()
+	if err := sb.Recompute(context.Background()); err != nil {
+		t.Fatalf("recompute after drop: %v", err)
+	}
+	waitGauge(t, 0) // reaped
 }
 
 func readType(t *testing.T, c *websocket.Conn) string {

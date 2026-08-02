@@ -1,9 +1,12 @@
+//go:build integration
+
 package scheduler_test
 
 import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,11 +31,16 @@ type harness struct {
 	pool  *pgxpool.Pool
 	q     *gen.Queries
 	sched *scheduler.Scheduler
+	fake  *runtime.FakeRuntime
 	now   *time.Time // mutable; advance to drive expiry
 	t0    time.Time
 }
 
 func newHarness(t *testing.T, cfg scheduler.Config) *harness {
+	return newHarnessPorts(t, cfg, 30000, 30999)
+}
+
+func newHarnessPorts(t *testing.T, cfg scheduler.Config, portLo, portHi int) *harness {
 	t.Helper()
 	pool, _ := testsupport.Postgres(t)
 	q := gen.New(pool)
@@ -46,10 +54,11 @@ func newHarness(t *testing.T, cfg scheduler.Config) *harness {
 	}); err != nil {
 		t.Fatalf("create event: %v", err)
 	}
-	mgr := runtime.NewManager(runtime.NewFakeRuntimeWithClock(q, clk), q, "127.0.0.1", 30000, 30999)
+	fake := runtime.NewFakeRuntimeWithClock(q, clk)
+	mgr := runtime.NewManager(fake, q, "127.0.0.1", portLo, portHi)
 	s := scheduler.New(mgr, q, events.New(q, clk), flags.NewGenerator("osctf"),
 		audit.New(q, testsupport.DiscardLogger()), clk, testsupport.DiscardLogger(), cfg)
-	return &harness{pool: pool, q: q, sched: s, now: &cur, t0: t0}
+	return &harness{pool: pool, q: q, sched: s, fake: fake, now: &cur, t0: t0}
 }
 
 func (h *harness) challenge(t *testing.T, instancing, flagMode string, ttlSeconds *int) uuid.UUID {
@@ -210,8 +219,10 @@ func TestSchedulerCleanupEndedIntegration(t *testing.T) {
 		t.Fatalf("deploy shared: %v", err)
 	}
 
-	if err := h.sched.CleanupEnded(ctx); err != nil {
+	if remaining, err := h.sched.CleanupEnded(ctx); err != nil {
 		t.Fatalf("cleanup: %v", err)
+	} else if remaining != 0 {
+		t.Errorf("CleanupEnded left %d per-team instances, want 0", remaining)
 	}
 	if _, ok, _ := h.mgrInstance(ctx, chA, team); ok {
 		t.Error("per-team instance survived event-end cleanup")
@@ -250,6 +261,405 @@ func TestSchedulerTTLOverrideIntegration(t *testing.T) {
 	if instOv.ExpiresAt.Sub(want).Abs() > time.Second {
 		t.Errorf("override expiry = %v, want ~%v", *instOv.ExpiresAt, want)
 	}
+}
+
+// TestSchedulerSlowDeployDoesNotBlockOthersIntegration proves the scheduler does
+// not serialize every instance operation behind one slow (image-pull-length)
+// deploy. While team A's deploy is blocked, team B's Start and a TTL-expiry pass
+// must still make progress.
+func TestSchedulerSlowDeployDoesNotBlockOthersIntegration(t *testing.T) {
+	h := newHarness(t, scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5})
+	ctx := context.Background()
+	teamA, teamB := h.team(t), h.team(t)
+	chA, chB := h.challenge(t, "per_team", "static", nil), h.challenge(t, "per_team", "static", nil)
+
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	var blockOnce, relOnce sync.Once
+	doRelease := func() { relOnce.Do(func() { close(release) }) }
+	h.fake.BeforeDeploy = func(_ context.Context, spec runtime.InstanceSpec) {
+		if spec.TeamID != nil && *spec.TeamID == teamA {
+			blockOnce.Do(func() { close(blocked) })
+			<-release // hold team A's deploy until the test releases it
+		}
+	}
+
+	aDone := make(chan error, 1)
+	go func() { _, _, err := h.sched.Start(ctx, uuid.Nil, teamA, chA); aDone <- err }()
+	<-blocked // team A is now mid-deploy (holding s.mu on the current version)
+
+	// Team B's Start must complete while team A is blocked.
+	bDone := make(chan error, 1)
+	go func() { _, _, err := h.sched.Start(ctx, uuid.Nil, teamB, chB); bDone <- err }()
+	select {
+	case err := <-bDone:
+		if err != nil {
+			doRelease()
+			t.Fatalf("team B Start errored: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		doRelease()
+		t.Fatal("team B's Start blocked while team A's deploy was in progress — the scheduler lock serializes all instance ops (too coarse)")
+	}
+
+	// A TTL-expiry pass must also run while team A is blocked.
+	expDone := make(chan error, 1)
+	go func() { expDone <- h.sched.ExpireOnce(ctx) }()
+	select {
+	case err := <-expDone:
+		if err != nil {
+			doRelease()
+			t.Fatalf("ExpireOnce errored: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		doRelease()
+		t.Fatal("ExpireOnce blocked while team A's deploy was in progress")
+	}
+
+	doRelease() // let team A finish
+	if err := <-aDone; err != nil {
+		t.Fatalf("team A Start errored: %v", err)
+	}
+}
+
+// TestSchedulerReapStaleReclaimsPortsIntegration exhausts a tiny host-port range
+// with injected deploy failures (each leaves a stuck error row still holding its
+// port), then proves the reaper reclaims the range — but only for rows older than
+// the threshold, so a mid-deploy row is never swept.
+func TestSchedulerReapStaleReclaimsPortsIntegration(t *testing.T) {
+	const ports = 3
+	h := newHarnessPorts(t, scheduler.Config{
+		TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 10,
+		ReapAfter: 15 * time.Minute,
+	}, 30950, 30950+ports-1)
+	ctx := context.Background()
+	ch := h.challenge(t, "per_team", "static", nil)
+
+	// Injected deploy failures: each Start reserves a port then errors, leaving a
+	// stuck error row that still counts in ListUsedPorts.
+	h.fake.FailDeploy = true
+	for i := 0; i < ports; i++ {
+		if _, _, err := h.sched.Start(ctx, uuid.Nil, h.team(t), ch); err != nil {
+			t.Fatalf("seed failed-deploy %d: %v", i, err)
+		}
+	}
+
+	// Range is exhausted: the next team cannot get a port.
+	extra := h.team(t)
+	_, _, err := h.sched.Start(ctx, uuid.Nil, extra, ch)
+	if err == nil {
+		t.Fatal("expected port exhaustion before reaping, but Start succeeded")
+	}
+	if !strings.Contains(err.Error(), "no free challenge ports") {
+		t.Fatalf("expected port-exhaustion error, got: %v", err)
+	}
+
+	// Fresh rows (younger than ReapAfter) must NOT be reaped — this is what stops
+	// the reaper from killing a deploy that is still in flight.
+	if n, rerr := h.sched.ReapStaleOnce(ctx); rerr != nil || n != 0 {
+		t.Fatalf("premature reap: n=%d err=%v, want 0 rows reaped", n, rerr)
+	}
+
+	// Age the stuck rows past the threshold (updated_at is DB wall-clock).
+	if _, aerr := h.pool.Exec(ctx,
+		`UPDATE instances SET updated_at = now() - interval '1 hour' WHERE state IN ('pending','error')`); aerr != nil {
+		t.Fatalf("age rows: %v", aerr)
+	}
+
+	n, rerr := h.sched.ReapStaleOnce(ctx)
+	if rerr != nil {
+		t.Fatalf("ReapStaleOnce: %v", rerr)
+	}
+	if n != ports {
+		t.Fatalf("reaped %d rows, want %d", n, ports)
+	}
+
+	// Ports reclaimed: the Start that could not allocate now succeeds.
+	h.fake.FailDeploy = false
+	inst, created, serr := h.sched.Start(ctx, uuid.Nil, extra, ch)
+	if serr != nil {
+		t.Fatalf("Start after reap: %v", serr)
+	}
+	if !created || inst.State != runtime.StateRunning {
+		t.Fatalf("post-reap Start: created=%v state=%q, want created running", created, inst.State)
+	}
+}
+
+// TestSchedulerConcurrentStartsFillPortRangeIntegration starts N different teams
+// concurrently against a port range of exactly N. Per-team locks no longer
+// serialize the (global) host_port allocation, so two teams can race for the same
+// port; every Start must still succeed, each on a distinct port.
+func TestSchedulerConcurrentStartsFillPortRangeIntegration(t *testing.T) {
+	const n = 8
+	h := newHarnessPorts(t, scheduler.Config{
+		TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5,
+	}, 31000, 31000+n-1)
+	ctx := context.Background()
+	ch := h.challenge(t, "per_team", "static", nil)
+
+	teams := make([]uuid.UUID, n)
+	for i := range teams {
+		teams[i] = h.team(t)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	ports := make([]int, n)
+	start := make(chan struct{})
+	for i := range teams {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // release together to maximize allocation contention
+			inst, _, err := h.sched.Start(ctx, uuid.Nil, teams[i], ch)
+			errs[i], ports[i] = err, inst.HostPort
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	seen := map[int]bool{}
+	for i := range teams {
+		if errs[i] != nil {
+			t.Errorf("team %d Start failed: %v", i, errs[i])
+			continue
+		}
+		if seen[ports[i]] {
+			t.Errorf("team %d got duplicate host port %d", i, ports[i])
+		}
+		seen[ports[i]] = true
+	}
+	if len(seen) != n {
+		t.Fatalf("got %d distinct ports, want %d (range fully and uniquely allocated)", len(seen), n)
+	}
+}
+
+// TestSchedulerCleanupWaitsForInflightDeployIntegration proves CleanupEnded no
+// longer deletes a row out from under an in-flight deploy (which would orphan the
+// container the deploy is about to create). With the per-team lock it must wait for
+// the deploy to finish, then tear the completed instance down cleanly.
+func TestSchedulerCleanupWaitsForInflightDeployIntegration(t *testing.T) {
+	h := newHarness(t, scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5})
+	ctx := context.Background()
+	team := h.team(t)
+	ch := h.challenge(t, "per_team", "static", nil)
+
+	idCh := make(chan uuid.UUID, 1)
+	release := make(chan struct{})
+	h.fake.BeforeDeploy = func(_ context.Context, spec runtime.InstanceSpec) {
+		if spec.TeamID != nil && *spec.TeamID == team {
+			idCh <- spec.InstanceID
+			<-release // hold the deploy (and the team lock) open
+		}
+	}
+
+	startDone := make(chan error, 1)
+	go func() { _, _, err := h.sched.Start(ctx, uuid.Nil, team, ch); startDone <- err }()
+	instID := <-idCh // Start is now holding the team lock inside Deploy
+
+	cleanupDone := make(chan error, 1)
+	go func() { _, err := h.sched.CleanupEnded(ctx); cleanupDone <- err }()
+	select {
+	case <-cleanupDone:
+		close(release)
+		t.Fatal("CleanupEnded destroyed a row mid-deploy without waiting for the team lock — would orphan the container")
+	case <-time.After(500 * time.Millisecond):
+		// good: CleanupEnded is blocked on the team lock
+	}
+
+	close(release) // let the deploy complete
+	if err := <-startDone; err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := <-cleanupDone; err != nil {
+		t.Fatalf("CleanupEnded: %v", err)
+	}
+
+	// Clean teardown: the container was created (deployed) and then destroyed, and
+	// the row is gone — no orphan.
+	if !containsID(h.fake.DestroyedIDs(), instID) {
+		t.Errorf("instance %s was never destroyed (container orphaned)", instID)
+	}
+	if _, gerr := h.q.GetInstanceByID(ctx, instID); gerr == nil {
+		t.Errorf("instance row %s still present after CleanupEnded", instID)
+	}
+}
+
+// TestSchedulerExpireDoesNotDestroyExtendedInstanceIntegration proves the BEHAVIOUR
+// that matters: an Extend that commits while an expiry pass is in flight leaves the
+// instance alive with the extended expiry. It asserts nothing about the locking
+// implementation — the race window is created with a post-list hook, so the test
+// survives a future switch to per-(team,challenge) locking.
+func TestSchedulerExpireDoesNotDestroyExtendedInstanceIntegration(t *testing.T) {
+	const ttl = 60
+	h := newHarness(t, scheduler.Config{TTL: ttl * time.Second, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5})
+	ctx := context.Background()
+	team := h.team(t)
+	ch := h.challenge(t, "per_team", "static", intp(ttl))
+	inst, _, err := h.sched.Start(ctx, uuid.Nil, team, ch)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if inst.ExpiresAt == nil {
+		t.Fatal("started instance has no expiry to test against")
+	}
+
+	// Advance the clock so the instance is expired and will be listed.
+	*h.now = h.t0.Add((ttl + 10) * time.Second)
+
+	// Right after ExpireOnce lists the expired instance (and before it destroys any),
+	// a real Extend commits — the exact interleaving the split sweep lock opened.
+	var once sync.Once
+	h.sched.SetExpireAfterListHookForTest(func() {
+		once.Do(func() {
+			if _, eerr := h.sched.Extend(ctx, team, ch); eerr != nil {
+				t.Errorf("racing Extend failed: %v", eerr)
+			}
+		})
+	})
+
+	if e := h.sched.ExpireOnce(ctx); e != nil {
+		t.Fatalf("ExpireOnce: %v", e)
+	}
+
+	// The extended instance must survive, with its expiry now in the future.
+	row, gerr := h.q.GetInstanceByID(ctx, inst.ID)
+	if gerr != nil {
+		t.Fatalf("extended instance %s was destroyed by ExpireOnce: %v", inst.ID, gerr)
+	}
+	if row.ExpiresAt == nil || !row.ExpiresAt.After(*h.now) {
+		t.Errorf("expiry not extended into the future: got %v, now %v", row.ExpiresAt, *h.now)
+	}
+	if containsID(h.fake.DestroyedIDs(), inst.ID) {
+		t.Fatalf("ExpireOnce destroyed extended instance %s", inst.ID)
+	}
+}
+
+// TestSchedulerCleanupEndedConvergesDespiteTimeoutIntegration proves event-end
+// teardown is eventually complete even when a pass times out: with 8 teams all mid-
+// deploy, a short-budget pass tears down nothing (reports 8 remaining), and once the
+// deploys finish a later pass converges to 0. This is what stops instances from
+// surviving past the event when several teams are deploying at the bell.
+func TestSchedulerCleanupEndedConvergesDespiteTimeoutIntegration(t *testing.T) {
+	const n = 8
+	h := newHarness(t, scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 10})
+	ctx := context.Background()
+	ch := h.challenge(t, "per_team", "static", nil)
+
+	entered := make(chan struct{}, n)
+	release := make(chan struct{})
+	h.fake.BeforeDeploy = func(_ context.Context, spec runtime.InstanceSpec) {
+		if spec.TeamID != nil {
+			entered <- struct{}{}
+			<-release // hold every team's deploy (and its lock) open
+		}
+	}
+
+	var startWG sync.WaitGroup
+	for i := 0; i < n; i++ {
+		team := h.team(t)
+		startWG.Add(1)
+		go func() { defer startWG.Done(); _, _, _ = h.sched.Start(ctx, uuid.Nil, team, ch) }()
+	}
+	for i := 0; i < n; i++ {
+		<-entered // all n deploys are in flight, each holding its team lock
+	}
+
+	// A pass that cannot finish in time: every team is mid-deploy, so a short budget
+	// tears down nothing and reports all n still present.
+	shortCtx, cancelShort := context.WithTimeout(ctx, 200*time.Millisecond)
+	remaining, err := h.sched.CleanupEnded(shortCtx)
+	cancelShort()
+	if err != nil {
+		t.Fatalf("cleanup pass 1: %v", err)
+	}
+	if remaining != n {
+		t.Fatalf("pass 1 remaining = %d, want %d (all mid-deploy, nothing torn down)", remaining, n)
+	}
+
+	// Let the deploys finish; a converged pass then tears everything down cleanly.
+	close(release)
+	startWG.Wait()
+	remaining, err = h.sched.CleanupEnded(ctx)
+	if err != nil {
+		t.Fatalf("cleanup pass 2: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("pass 2 remaining = %d, want 0 (eventual convergence)", remaining)
+	}
+	if rows, _ := h.q.ListPerTeamInstances(ctx); len(rows) != 0 {
+		t.Fatalf("%d per-team instances survived cleanup", len(rows))
+	}
+}
+
+// TestSchedulerExpireSkipsBusyTeamAndRetriesIntegration proves a mid-deploy team does
+// not stall expiry for other teams (its expired instance is skipped, not blocked on),
+// and that the skipped expiry is picked up on a later pass rather than dropped.
+func TestSchedulerExpireSkipsBusyTeamAndRetriesIntegration(t *testing.T) {
+	h := newHarness(t, scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5})
+	ctx := context.Background()
+	teamA, teamB := h.team(t), h.team(t)
+	chShort := h.challenge(t, "per_team", "static", intp(30))   // will expire
+	chLong := h.challenge(t, "per_team", "static", intp(36000)) // won't expire in-test
+
+	instA, _, err := h.sched.Start(ctx, uuid.Nil, teamA, chShort)
+	if err != nil {
+		t.Fatalf("start A short: %v", err)
+	}
+	instB, _, err := h.sched.Start(ctx, uuid.Nil, teamB, chShort)
+	if err != nil {
+		t.Fatalf("start B short: %v", err)
+	}
+
+	// teamA starts a long-TTL instance whose deploy blocks — holding teamA's lock.
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	h.fake.BeforeDeploy = func(_ context.Context, spec runtime.InstanceSpec) {
+		if spec.TeamID != nil && *spec.TeamID == teamA && spec.ChallengeID == chLong {
+			once.Do(func() { close(blocked) })
+			<-release
+		}
+	}
+	aDone := make(chan error, 1)
+	go func() { _, _, e := h.sched.Start(ctx, uuid.Nil, teamA, chLong); aDone <- e }()
+	<-blocked // teamA's lock is now held by the in-flight long deploy
+
+	// Now chShort (30s) instances are expired; chLong (36000s) is not.
+	*h.now = h.t0.Add(120 * time.Second)
+
+	// Pass 1: teamA busy → its expired instance skipped (not blocked on); teamB free →
+	// destroyed. (A blocking sweep would deadlock here on teamA's held lock.)
+	if e := h.sched.ExpireOnce(ctx); e != nil {
+		t.Fatalf("expire pass 1: %v", e)
+	}
+	if _, gerr := h.q.GetInstanceByID(ctx, instB.ID); gerr == nil {
+		t.Error("teamB's expired instance not destroyed — a busy teamA must not stall other teams")
+	}
+	if _, gerr := h.q.GetInstanceByID(ctx, instA.ID); gerr != nil {
+		t.Error("teamA's instance destroyed while teamA was mid-deploy — should have been skipped")
+	}
+
+	// Let teamA's deploy finish; a later pass picks up the skipped expiry.
+	close(release)
+	if e := <-aDone; e != nil {
+		t.Fatalf("teamA long start: %v", e)
+	}
+	if e := h.sched.ExpireOnce(ctx); e != nil {
+		t.Fatalf("expire pass 2: %v", e)
+	}
+	if _, gerr := h.q.GetInstanceByID(ctx, instA.ID); gerr == nil {
+		t.Error("teamA's expired instance not picked up on a later pass")
+	}
+}
+
+func containsID(ids []uuid.UUID, want uuid.UUID) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *harness) mgrInstance(ctx context.Context, challengeID, teamID uuid.UUID) (gen.Instance, bool, error) {

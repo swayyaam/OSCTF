@@ -141,7 +141,24 @@ func (s *Server) AdminListInstances(ctx context.Context, _ apigen.AdminListInsta
 	for _, inst := range insts {
 		items = append(items, s.toAdminInstance(ctx, inst))
 	}
-	return apigen.AdminListInstances200JSONResponse(apigen.AdminInstanceList{Items: items}), nil
+	list := apigen.AdminInstanceList{Items: items}
+	// Surface managed containers reconcile could not resolve to a row (best-effort;
+	// a runtime error here must not fail the whole fleet view).
+	if unadopted, uerr := s.d.Runtime.ListUnadopted(ctx); uerr == nil && len(unadopted) > 0 {
+		us := make([]apigen.UnadoptedContainer, 0, len(unadopted))
+		for _, u := range unadopted {
+			us = append(us, apigen.UnadoptedContainer{ContainerId: u.ContainerID, Image: u.Image, CreatedAt: u.CreatedAt})
+		}
+		list.Unadopted = &us
+	}
+	if nets, nerr := s.d.Runtime.ListUnadoptedNetworks(ctx); nerr == nil && len(nets) > 0 {
+		ns := make([]apigen.UnadoptedNetwork, 0, len(nets))
+		for _, n := range nets {
+			ns = append(ns, apigen.UnadoptedNetwork{NetworkId: n.NetworkID, Name: n.Name})
+		}
+		list.UnadoptedNetworks = &ns
+	}
+	return apigen.AdminListInstances200JSONResponse(list), nil
 }
 
 // AdminDestroyInstanceById destroys any instance by id.

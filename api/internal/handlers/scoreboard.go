@@ -18,10 +18,13 @@ func (s *Server) GetScoreboard(ctx context.Context, _ apigen.GetScoreboardReques
 	if err != nil {
 		return nil, err
 	}
-	return apigen.GetScoreboard200JSONResponse(toScoreboard(snap)), nil
+	return apigen.GetScoreboard200JSONResponse(ToScoreboard(snap)), nil
 }
 
-func toScoreboard(snap scoreboard.Snapshot) apigen.Scoreboard {
+// ToScoreboard maps the internal snapshot to the wire type. Exported so the WS hub
+// broadcasts the SAME apigen.Scoreboard the REST endpoint returns — one wire type,
+// so WS and REST cannot diverge (they no longer serialize two parallel structs).
+func ToScoreboard(snap scoreboard.Snapshot) apigen.Scoreboard {
 	standings := make([]apigen.ScoreboardEntry, 0, len(snap.Standings))
 	for _, e := range snap.Standings {
 		standings = append(standings, apigen.ScoreboardEntry{

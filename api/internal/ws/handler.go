@@ -97,15 +97,19 @@ func (h *Hub) writePump(ctx context.Context, c *client) {
 		select {
 		case <-ctx.Done():
 			return
-		case msg, ok := <-c.send:
-			if !ok {
+		case <-c.wake:
+			frames, overflow := c.drain()
+			if overflow {
+				// Shed the slow client, but exempt its reconnect from the handshake rate
+				// limit — the server chose to disconnect it, so it must not be locked out.
+				h.admit.forgiveHandshake(c.key)
+				_ = c.conn.Close(websocket.StatusPolicyViolation, "slow consumer")
 				return
 			}
-			wctx, cancel := context.WithTimeout(ctx, writeTimeout)
-			err := c.conn.Write(wctx, websocket.MessageText, msg)
-			cancel()
-			if err != nil {
-				return
+			for _, f := range frames {
+				if !h.writeFrame(ctx, c, f) {
+					return
+				}
 			}
 		case <-ping.C:
 			pctx, cancel := context.WithTimeout(ctx, writeTimeout)
@@ -116,4 +120,12 @@ func (h *Hub) writePump(ctx context.Context, c *client) {
 			}
 		}
 	}
+}
+
+// writeFrame writes one message under the write timeout, reporting success.
+func (h *Hub) writeFrame(ctx context.Context, c *client, msg []byte) bool {
+	wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	err := c.conn.Write(wctx, websocket.MessageText, msg)
+	cancel()
+	return err == nil
 }

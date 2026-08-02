@@ -1,18 +1,22 @@
 // Package ws is the WebSocket hub for live scoreboard updates: a connection
 // registry, throttled latest-wins broadcast, ping/pong keepalive, and graceful
-// drain on shutdown. It imports scoreboard for the snapshot type only.
+// drain on shutdown. It broadcasts apigen.Scoreboard — the SAME wire type the REST
+// endpoint returns — so a client that reconciles WS pushes against a REST fetch sees
+// byte-identical payloads by construction.
 package ws
 
 import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/osctf/platform/internal/apigen"
 	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/scoreboard"
 )
 
 // message is the envelope sent to clients: {"type": ..., "data": ...}.
@@ -22,15 +26,79 @@ type message struct {
 }
 
 const (
-	sendBuffer      = 8
 	broadcastMinGap = time.Second
 	pingInterval    = 30 * time.Second
 	writeTimeout    = 10 * time.Second
+	// clientQueueCap bounds a slow client's ordered backlog. Snapshots coalesce, so the
+	// backlog only grows with non-coalescable frames (hello, event.phase) a client cannot
+	// keep up with; past the cap the client is disconnected (it reconnects with a fresh
+	// greeting) rather than have frames silently dropped.
+	clientQueueCap = 64
 )
 
+// client holds a connection's single ORDERED outbound queue. Frames are delivered in the
+// order enqueued — hello before any snapshot, and a phase frame and the snapshot for that
+// phase never reordered — so a client can't render a post-freeze board as live. Snapshots
+// are still coalesced, but only against the TAIL: a new snapshot replaces the pending one
+// ONLY when no ordered frame (hello/phase) was enqueued after it, so a slow client on a
+// large board holds one snapshot per phase interval, not a backlog of stale boards.
+//
+// CORRECTNESS DEPENDENCY: event.phase frames are never dropped or coalesced, so a client
+// always converges on the true phase — BUT that guarantee holds only while the queue does
+// not overflow. Past clientQueueCap the recovery path is to DISCONNECT the client
+// (writePump, StatusPolicyViolation) so it reconnects and is re-greeted with the current
+// state; the reconnect handshake is exempted (admissions.forgiveHandshake) so a shed
+// client is never locked out. If you ever make phase delivery depend on something other
+// than "stays queued or reconnects", revisit this.
+//
+// The serialized snapshot []byte is shared across all clients (marshaled once per
+// broadcast; the queue stores the slice header, not a copy), so the memory here is a
+// slice header per pending frame, not a payload per client.
 type client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn     *websocket.Conn
+	key      string // admission key, for forgiving the reconnect on an overflow disconnect
+	mu       sync.Mutex
+	queue    [][]byte // ordered pending frames; a shared []byte per entry
+	tailSnap bool     // whether queue's last entry is a coalescable snapshot
+	overflow bool     // backlog exceeded clientQueueCap → writePump disconnects
+	wake     chan struct{}
+}
+
+func newClient(conn *websocket.Conn, key string) *client {
+	return &client{conn: conn, key: key, wake: make(chan struct{}, 1)}
+}
+
+func (c *client) signal() {
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+}
+
+// enqueue appends a frame in arrival order. A coalescable snapshot replaces the tail ONLY
+// when the tail is itself a snapshot (never across an intervening hello/phase), preserving
+// order. A backlog past clientQueueCap marks the client for disconnect instead of dropping.
+func (c *client) enqueue(msg []byte, isSnapshot bool) {
+	c.mu.Lock()
+	switch {
+	case isSnapshot && c.tailSnap && len(c.queue) > 0:
+		c.queue[len(c.queue)-1] = msg // coalesce with the tail snapshot (latest-wins)
+	case len(c.queue) >= clientQueueCap:
+		c.overflow = true
+	default:
+		c.queue = append(c.queue, msg)
+		c.tailSnap = isSnapshot
+	}
+	c.mu.Unlock()
+	c.signal()
+}
+
+// drain removes and returns all pending frames plus the overflow flag.
+func (c *client) drain() (frames [][]byte, overflow bool) {
+	c.mu.Lock()
+	frames, c.queue, c.tailSnap, overflow = c.queue, nil, false, c.overflow
+	c.mu.Unlock()
+	return frames, overflow
 }
 
 // outbound is a message queued for broadcast. isScoreboard marks snapshots so the
@@ -96,7 +164,7 @@ func (h *Hub) Run(ctx context.Context) {
 		if !havePend {
 			return
 		}
-		h.fanout(pending)
+		h.fanout(pending, true) // pending only ever holds a snapshot
 		pending = nil
 		havePend = false
 		lastSend = time.Now()
@@ -114,16 +182,16 @@ func (h *Hub) Run(ctx context.Context) {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			metrics.WSConnections.Set(float64(len(h.clients)))
-			// Greet with the frozen flag and the last known scoreboard.
-			c.enqueue(encode("hello", map[string]bool{"frozen": h.lastFrozen}))
+			// Greet with the frozen flag, THEN the last known scoreboard — the ordered
+			// queue guarantees hello reaches the client before any board.
+			c.enqueue(encode("hello", map[string]bool{"frozen": h.lastFrozen}), false)
 			if h.lastScoreboard != nil {
-				c.enqueue(h.lastScoreboard)
+				c.enqueue(h.lastScoreboard, true)
 			}
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
-				close(c.send)
 				metrics.WSConnections.Set(float64(len(h.clients)))
 			}
 
@@ -131,13 +199,20 @@ func (h *Hub) Run(ctx context.Context) {
 			if msg.isScoreboard {
 				h.lastScoreboard = msg.data
 				h.lastFrozen = msg.frozen
-			}
-			pending = msg.data
-			havePend = true
-			if since := time.Since(lastSend); since >= broadcastMinGap {
-				flush()
+				pending = msg.data
+				havePend = true
+				if since := time.Since(lastSend); since >= broadcastMinGap {
+					flush()
+				} else {
+					timer.Reset(broadcastMinGap - since)
+				}
 			} else {
-				timer.Reset(broadcastMinGap - since)
+				// event.phase: deliver promptly and in order. Flush any pending (older)
+				// snapshot first so the phase never jumps ahead of an earlier board, and
+				// never coalesce or drop it — a missed phase transition is permanent until
+				// the client reconnects.
+				flush()
+				h.fanout(msg.data, false)
 			}
 
 		case <-timer.C:
@@ -146,20 +221,18 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-// fanout writes msg to every client's send queue, dropping messages for clients
-// whose queue is full (a slow consumer must not stall the hub).
-func (h *Hub) fanout(msg []byte) {
+// fanout delivers msg to every client's ordered queue: snapshots coalesce against the
+// tail (latest-wins), other frames append in order. A slow consumer never stalls the hub;
+// one that falls too far behind is marked for disconnect by its own write pump.
+func (h *Hub) fanout(msg []byte, isSnapshot bool) {
 	for c := range h.clients {
-		select {
-		case c.send <- msg:
-		default:
-			// Queue full: drop this update for the slow client; the next one wins.
-		}
+		c.enqueue(msg, isSnapshot)
 	}
 }
 
-// BroadcastScoreboard queues a scoreboard snapshot for delivery (throttled).
-func (h *Hub) BroadcastScoreboard(snap scoreboard.Snapshot) {
+// BroadcastScoreboard queues a scoreboard snapshot for delivery (throttled). It
+// takes apigen.Scoreboard so the "data" it emits is byte-identical to the REST body.
+func (h *Hub) BroadcastScoreboard(snap apigen.Scoreboard) {
 	b, err := json.Marshal(message{Type: "scoreboard", Data: snap})
 	if err != nil {
 		h.log.Error("ws: marshaling scoreboard", "error", err.Error())
@@ -188,11 +261,4 @@ func (h *Hub) BroadcastPhase(phase string) {
 func encode(typ string, data any) []byte {
 	b, _ := json.Marshal(message{Type: typ, Data: data})
 	return b
-}
-
-func (c *client) enqueue(msg []byte) {
-	select {
-	case c.send <- msg:
-	default:
-	}
 }

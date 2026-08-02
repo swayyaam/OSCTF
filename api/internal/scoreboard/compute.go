@@ -16,15 +16,18 @@ import (
 	"github.com/osctf/platform/internal/scoring"
 )
 
-// Entry is one standings row.
+// Entry is one standings row. This is the internal/cache shape; the wire shape is
+// apigen.ScoreboardEntry, which BOTH the REST endpoint and the WS hub now serialize
+// (via handlers.ToScoreboard), so WS↔REST byte-identity no longer depends on this
+// struct's field order. The order is left matching apigen for tidiness only.
 type Entry struct {
-	Rank        *int       `json:"rank"`
-	TeamID      uuid.UUID  `json:"team_id"`
+	Banned      bool       `json:"banned"`
+	LastSolveAt *time.Time `json:"last_solve_at"`
 	Name        string     `json:"name"`
 	Points      int        `json:"points"`
-	LastSolveAt *time.Time `json:"last_solve_at"`
+	Rank        *int       `json:"rank"`
 	Solves      int        `json:"solves"`
-	Banned      bool       `json:"banned"`
+	TeamID      uuid.UUID  `json:"team_id"`
 }
 
 // Snapshot is a full standings snapshot (serialized to Redis and the API).

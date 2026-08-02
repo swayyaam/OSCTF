@@ -59,6 +59,12 @@ type Deps struct {
 	TrustProxy      bool
 	SessionTTL      time.Duration
 	MaxAttachmentMB int
+
+	// RegisterIPBurst / RegisterIPWindow bound anonymous sign-ups per client IP. The
+	// default is generous because a venue registers many players from one NAT at once;
+	// a zero burst disables the limit. See internal/config.
+	RegisterIPBurst  int
+	RegisterIPWindow time.Duration
 }
 
 // Server implements apigen.StrictServerInterface.

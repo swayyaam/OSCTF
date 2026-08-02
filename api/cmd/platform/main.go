@@ -321,15 +321,17 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				log.Warn("scoreboard recompute failed", "error", err.Error())
 			}
 		},
-		Auth:            provider,
-		Sessions:        sessions,
-		Limiter:         limiter,
-		Audit:           auditLog,
-		Log:             log,
-		SecureCookies:   cfg.IsHTTPS(),
-		TrustProxy:      cfg.TrustProxy,
-		SessionTTL:      cfg.SessionTTL,
-		MaxAttachmentMB: cfg.MaxAttachmentMB,
+		Auth:             provider,
+		Sessions:         sessions,
+		Limiter:          limiter,
+		Audit:            auditLog,
+		Log:              log,
+		RegisterIPBurst:  cfg.RegisterIPBurst,
+		RegisterIPWindow: cfg.RegisterIPWindow,
+		SecureCookies:    cfg.IsHTTPS(),
+		TrustProxy:       cfg.TrustProxy,
+		SessionTTL:       cfg.SessionTTL,
+		MaxAttachmentMB:  cfg.MaxAttachmentMB,
 	})
 
 	if err := scoreboardSvc.Recompute(ctx); err != nil {

@@ -30,6 +30,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TeamMaxSize != 4 {
 		t.Errorf("TeamMaxSize = %d, want 4", cfg.TeamMaxSize)
 	}
+	// Registration limit must default generous enough for a venue on one NAT (issue #1);
+	// TestRegisterRateLimitAllowsVenueBurst asserts 100 succeed under this default.
+	if cfg.RegisterIPBurst != 500 {
+		t.Errorf("RegisterIPBurst = %d, want 500", cfg.RegisterIPBurst)
+	}
+	if cfg.RegisterIPWindow != 10*time.Minute {
+		t.Errorf("RegisterIPWindow = %v, want 10m", cfg.RegisterIPWindow)
+	}
 	if cfg.PublicHost != "localhost" {
 		t.Errorf("PublicHost = %q, want localhost (derived)", cfg.PublicHost)
 	}

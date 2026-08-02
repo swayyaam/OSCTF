@@ -100,8 +100,10 @@ func (s *Server) Register(ctx context.Context, request apigen.RegisterRequestObj
 		return nil, apperr.ErrBadRequest
 	}
 	ip := s.clientIP(ctx)
-	if err := s.limit(ctx, "register-ip", ip, 5, time.Hour); err != nil {
-		return nil, err
+	if s.d.RegisterIPBurst > 0 {
+		if err := s.limit(ctx, "register-ip", ip, s.d.RegisterIPBurst, s.d.RegisterIPWindow); err != nil {
+			return nil, err
+		}
 	}
 	u, err := s.d.Users.Register(ctx, users.RegisterInput{
 		Username: request.Body.Username,

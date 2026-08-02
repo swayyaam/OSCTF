@@ -35,6 +35,14 @@ type Config struct {
 
 	SessionTTL       time.Duration `env:"OSCTF_SESSION_TTL" envDefault:"168h"`
 	RegistrationOpen bool          `env:"OSCTF_REGISTRATION_OPEN" envDefault:"true"`
+
+	// Registration is unauthenticated, so its abuse limit can only key on the client IP
+	// -- and a venue is a hundred-plus players on one NAT registering in the first couple
+	// of minutes. The default is therefore generous per IP; tighten it for a public-
+	// internet deployment, or set the burst to 0 to disable the limit (and use
+	// OSCTF_REGISTRATION_OPEN=false to close registration for an invite-only event).
+	RegisterIPBurst  int           `env:"OSCTF_REGISTER_IP_BURST" envDefault:"500"` // registrations per window per IP (0 = disabled)
+	RegisterIPWindow time.Duration `env:"OSCTF_REGISTER_IP_WINDOW" envDefault:"600s"`
 	TeamMaxSize      int           `env:"OSCTF_TEAM_MAX_SIZE" envDefault:"4"`
 	MaxAttachmentMB  int           `env:"OSCTF_MAX_ATTACHMENT_MB" envDefault:"100"`
 
@@ -133,6 +141,12 @@ func (c *Config) finalize() error {
 	}
 	if c.WSHandshakeBurst > 0 && c.WSHandshakeWindow <= 0 {
 		problems = append(problems, "OSCTF_WS_HANDSHAKE_WINDOW must be > 0 when OSCTF_WS_HANDSHAKE_BURST is set")
+	}
+	if c.RegisterIPBurst < 0 {
+		problems = append(problems, "OSCTF_REGISTER_IP_BURST must be >= 0 (0 disables the limit)")
+	}
+	if c.RegisterIPBurst > 0 && c.RegisterIPWindow <= 0 {
+		problems = append(problems, "OSCTF_REGISTER_IP_WINDOW must be > 0 when OSCTF_REGISTER_IP_BURST is set")
 	}
 	switch c.LogFormat {
 	case "json", "text":

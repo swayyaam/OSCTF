@@ -26,6 +26,10 @@ import (
 	"github.com/osctf/platform/internal/scoring"
 )
 
+// redactedFlag replaces a real per-instance flag in the stored `provided` value so a
+// per-team instance secret is never persisted or echoed back through the admin views.
+const redactedFlag = "[redacted per-instance flag]"
+
 // Service implements the submission flow.
 type Service struct {
 	pool   *pgxpool.Pool
@@ -130,9 +134,18 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		if lerr != nil {
 			return fmt.Errorf("submissions: generating id: %w", lerr)
 		}
+		// A per-instance flag is a per-team secret. When the submitted value IS a real
+		// per-instance flag — the team's own (correct) or, via sharing, another team's —
+		// do not persist it verbatim: the admin submissions view would otherwise echo one
+		// team's instance flag to whoever reads it, the very value the sharing signal above
+		// deliberately refuses to record. Genuinely wrong guesses are kept for triage.
+		provided := in.Flag
+		if locked.FlagMode == "per_instance" && (correct || sharingOwner != nil) {
+			provided = redactedFlag
+		}
 		_, lerr = qtx.CreateSubmission(ctx, gen.CreateSubmissionParams{
 			ID: id, ChallengeID: ch.ID, TeamID: in.TeamID, UserID: in.UserID,
-			Provided: in.Flag, Correct: correct, Ip: parseIP(in.IP),
+			Provided: provided, Correct: correct, Ip: parseIP(in.IP),
 		})
 		if lerr != nil {
 			// The partial unique index makes a concurrent double-solve a 23505.

@@ -146,6 +146,16 @@ func (s *Scheduler) Extend(ctx context.Context, teamID, challengeID uuid.UUID) (
 	if !ok {
 		return runtime.Instance{}, apperr.ErrNotFound
 	}
+	// Extend is a running-phase operation (3a-ix). Instance TTL is NOT capped at the
+	// event end — CleanupEnded reclaims per-team instances when the event ends — so
+	// without this gate a participant could push a still-live instance's expiry past the
+	// end during the cleanup window; if the one-shot cleanup already swept their team, the
+	// instance would then outlive the event, reclaimed only by the (now later) TTL reaper.
+	// Gating here keeps phases:[running] enforced rather than emergent. Placed AFTER the
+	// existence check so a missing instance stays 404, not 409.
+	if err := s.requireRunning(ctx); err != nil {
+		return runtime.Instance{}, err
+	}
 	if inst.ExpiresAt == nil {
 		return inst, nil // no TTL to extend
 	}

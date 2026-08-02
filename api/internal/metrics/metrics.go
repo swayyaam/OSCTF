@@ -171,3 +171,12 @@ func GaugeValue(g prometheus.Gauge) float64 {
 	}
 	return m.GetGauge().GetValue()
 }
+
+// CounterValue reads the current value of a counter.
+func CounterValue(c prometheus.Counter) float64 {
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		return 0
+	}
+	return m.GetCounter().GetValue()
+}

@@ -20,6 +20,13 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ### Fixed (reliability)
 
+- **Event-end teardown was not phase-gated.** `CleanupEnded` destroys every per-team
+  instance; it relied entirely on its caller to invoke it only in the `ended` phase,
+  so a mis-timed call (a ticker bug, a future caller) would wipe every live instance
+  mid-competition without objecting. It now checks the phase itself and is a no-op
+  before the event ends — a sweep this destructive must not depend on the caller
+  getting the timing right. Surfaced by the Phase 7 soak (whose loop was calling it
+  every tick).
 - **Host-port leak via `lost` instances.** When a running per-team instance's
   container vanished (crash, OOM-kill, daemon restart, manual `docker rm`),
   reconcile marked the row `lost` but did not free its `host_port`, and the

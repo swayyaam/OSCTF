@@ -402,6 +402,17 @@ func rotate[T any](items []T, offset uint64) []T {
 // present after the pass: 0 means converged; a positive count means some teams were
 // still busy and the caller should run another pass (idempotent) until it reaches 0.
 func (s *Scheduler) CleanupEnded(ctx context.Context) (int, error) {
+	// This destroys EVERY per-team instance, so it must run only in the ended phase.
+	// The caller is expected to gate on the phase, but a sweep this destructive must
+	// not depend on that — a mis-timed call (a ticker bug, a future caller) must be a
+	// no-op mid-event, not wipe a live competition. Belt and braces.
+	e, err := s.ev.Get(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if s.ev.Phase(e) != events.PhaseEnded {
+		return 0, nil
+	}
 	rows, err := s.q.ListPerTeamInstances(ctx)
 	if err != nil {
 		return 0, err

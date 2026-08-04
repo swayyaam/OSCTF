@@ -219,6 +219,8 @@ func TestSchedulerCleanupEndedIntegration(t *testing.T) {
 		t.Fatalf("deploy shared: %v", err)
 	}
 
+	// CleanupEnded is phase-gated: advance past the event end so it actually runs.
+	*h.now = h.t0.Add(25 * time.Hour)
 	if remaining, err := h.sched.CleanupEnded(ctx); err != nil {
 		t.Fatalf("cleanup: %v", err)
 	} else if remaining != 0 {
@@ -229,6 +231,47 @@ func TestSchedulerCleanupEndedIntegration(t *testing.T) {
 	}
 	if _, err := h.q.GetSharedInstance(ctx, chShared); err != nil {
 		t.Errorf("shared instance was destroyed by event-end cleanup: %v", err)
+	}
+}
+
+// TestSchedulerCleanupEndedPhaseGatedIntegration (7-3c): the event-end teardown
+// destroys every per-team instance, so it must be a no-op in any phase but ended —
+// a mis-timed call must not wipe a live competition, regardless of the caller.
+func TestSchedulerCleanupEndedPhaseGatedIntegration(t *testing.T) {
+	h := newHarness(t, scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 5})
+	ctx := context.Background()
+	team := h.team(t)
+	ch := h.challenge(t, "per_team", "static", nil)
+	if _, _, err := h.sched.Start(ctx, uuid.Nil, team, ch); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	alive := func(phase string) {
+		t.Helper()
+		if _, ok, _ := h.mgrInstance(ctx, ch, team); !ok {
+			t.Fatalf("per-team instance destroyed during the %s phase — CleanupEnded is not phase-gated", phase)
+		}
+	}
+
+	// Running (the default t0 window): no-op, instance survives.
+	if n, err := h.sched.CleanupEnded(ctx); err != nil || n != 0 {
+		t.Fatalf("running-phase CleanupEnded: n=%d err=%v, want 0-noop", n, err)
+	}
+	alive("running")
+
+	// Pre (clock before start): no-op.
+	*h.now = h.t0.Add(-2 * time.Hour)
+	if _, err := h.sched.CleanupEnded(ctx); err != nil {
+		t.Fatalf("pre-phase CleanupEnded: %v", err)
+	}
+	alive("pre")
+
+	// Ended (clock past end): now it tears the instance down.
+	*h.now = h.t0.Add(25 * time.Hour)
+	if remaining, err := h.sched.CleanupEnded(ctx); err != nil || remaining != 0 {
+		t.Fatalf("ended-phase CleanupEnded: remaining=%d err=%v, want 0", remaining, err)
+	}
+	if _, ok, _ := h.mgrInstance(ctx, ch, team); ok {
+		t.Error("per-team instance survived event-end cleanup in the ended phase")
 	}
 }
 
@@ -509,7 +552,8 @@ func TestSchedulerCleanupWaitsForInflightDeployIntegration(t *testing.T) {
 
 	startDone := make(chan error, 1)
 	go func() { _, _, err := h.sched.Start(ctx, uuid.Nil, team, ch); startDone <- err }()
-	instID := <-idCh // Start is now holding the team lock inside Deploy
+	instID := <-idCh                  // Start is now holding the team lock inside Deploy
+	*h.now = h.t0.Add(25 * time.Hour) // event ended: CleanupEnded is phase-gated
 
 	cleanupDone := make(chan error, 1)
 	go func() { _, err := h.sched.CleanupEnded(ctx); cleanupDone <- err }()
@@ -618,6 +662,7 @@ func TestSchedulerCleanupEndedConvergesDespiteTimeoutIntegration(t *testing.T) {
 	for i := 0; i < n; i++ {
 		<-entered // all n deploys are in flight, each holding its team lock
 	}
+	*h.now = h.t0.Add(25 * time.Hour) // event ended: CleanupEnded is phase-gated
 
 	// A pass that cannot finish in time: every team is mid-deploy, so a short budget
 	// tears down nothing and reports all n still present.

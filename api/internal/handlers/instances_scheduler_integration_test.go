@@ -131,6 +131,11 @@ func TestPerTeamInstanceEndpointsIntegration(t *testing.T) {
 	if !strings.Contains(fleet.Body.String(), `"team_name":"Players"`) {
 		t.Errorf("admin fleet missing owner name: %s", fleet.Body)
 	}
+	// With no unadopted resources, the optional list fields must be OMITTED
+	// (not [] and not null) through the handler — the 4a-i structural guard.
+	if strings.Contains(fleet.Body.String(), `"unadopted"`) || strings.Contains(fleet.Body.String(), `"unadopted_networks"`) {
+		t.Errorf("unadopted/unadopted_networks must be omitted at zero, got: %s", fleet.Body)
+	}
 
 	// Stop -> 204, then detail no longer has a running instance.
 	if rec := do(t, srv, player, http.MethodDelete, base, ""); rec.Code != http.StatusNoContent {

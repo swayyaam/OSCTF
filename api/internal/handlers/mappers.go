@@ -6,6 +6,19 @@ import (
 	"github.com/osctf/platform/internal/teams"
 )
 
+// omitEmptySlice returns nil for an empty slice, else a pointer to it. Optional
+// list fields (*[]T with `omitempty`, e.g. AdminInstanceList.Unadopted) must be
+// OMITTED when empty, not emitted as [] — the dashboard types them as optional,
+// not nullable. Routing every such assignment through this helper makes emitting
+// [] at zero structurally impossible, rather than a convention each call site
+// must remember (see 4a-i).
+func omitEmptySlice[T any](s []T) *[]T {
+	if len(s) == 0 {
+		return nil
+	}
+	return &s
+}
+
 func toMembers(rows []gen.ListTeamMembersRow) []apigen.Member {
 	out := make([]apigen.Member, 0, len(rows))
 	for _, r := range rows {

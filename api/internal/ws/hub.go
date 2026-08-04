@@ -184,7 +184,7 @@ func (h *Hub) Run(ctx context.Context) {
 			metrics.WSConnections.Set(float64(len(h.clients)))
 			// Greet with the frozen flag, THEN the last known scoreboard — the ordered
 			// queue guarantees hello reaches the client before any board.
-			c.enqueue(encode("hello", map[string]bool{"frozen": h.lastFrozen}), false)
+			c.enqueue(encode(FrameHello, map[string]bool{"frozen": h.lastFrozen}), false)
 			if h.lastScoreboard != nil {
 				c.enqueue(h.lastScoreboard, true)
 			}
@@ -233,7 +233,7 @@ func (h *Hub) fanout(msg []byte, isSnapshot bool) {
 // BroadcastScoreboard queues a scoreboard snapshot for delivery (throttled). It
 // takes apigen.Scoreboard so the "data" it emits is byte-identical to the REST body.
 func (h *Hub) BroadcastScoreboard(snap apigen.Scoreboard) {
-	b, err := json.Marshal(message{Type: "scoreboard", Data: snap})
+	b, err := json.Marshal(message{Type: FrameScoreboard, Data: snap})
 	if err != nil {
 		h.log.Error("ws: marshaling scoreboard", "error", err.Error())
 		return
@@ -248,7 +248,7 @@ func (h *Hub) BroadcastScoreboard(snap apigen.Scoreboard) {
 // BroadcastPhase notifies clients of an event phase transition (not throttled;
 // phase changes are rare and must arrive promptly).
 func (h *Hub) BroadcastPhase(phase string) {
-	b, err := json.Marshal(message{Type: "event.phase", Data: map[string]string{"phase": phase}})
+	b, err := json.Marshal(message{Type: FrameEventPhase, Data: map[string]string{"phase": phase}})
 	if err != nil {
 		return
 	}

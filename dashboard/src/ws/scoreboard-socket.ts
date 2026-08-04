@@ -1,8 +1,20 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../api/client";
 
+/**
+ * The WebSocket frame types the backend emits. Single source of truth is
+ * api/internal/ws/frames.go, mirrored to api/internal/ws/frame_types.json; a
+ * contract test (frame-types.contract.test.ts) asserts this list equals that
+ * file. The socket must know every frame type — one not listed here is parsed
+ * and silently dropped, so a new backend frame trips the contract test until it
+ * is added here and given a branch below (4a-ii).
+ */
+export const KNOWN_FRAME_TYPES = ["event.phase", "hello", "scoreboard"] as const;
+
+type FrameType = (typeof KNOWN_FRAME_TYPES)[number];
+
 interface WsMessage {
-  type: "hello" | "scoreboard" | "event.phase";
+  type: FrameType;
   data: unknown;
 }
 

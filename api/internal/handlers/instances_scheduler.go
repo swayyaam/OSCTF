@@ -144,19 +144,19 @@ func (s *Server) AdminListInstances(ctx context.Context, _ apigen.AdminListInsta
 	list := apigen.AdminInstanceList{Items: items}
 	// Surface managed containers reconcile could not resolve to a row (best-effort;
 	// a runtime error here must not fail the whole fleet view).
-	if unadopted, uerr := s.d.Runtime.ListUnadopted(ctx); uerr == nil && len(unadopted) > 0 {
+	if unadopted, uerr := s.d.Runtime.ListUnadopted(ctx); uerr == nil {
 		us := make([]apigen.UnadoptedContainer, 0, len(unadopted))
 		for _, u := range unadopted {
 			us = append(us, apigen.UnadoptedContainer{ContainerId: u.ContainerID, Image: u.Image, CreatedAt: u.CreatedAt})
 		}
-		list.Unadopted = &us
+		list.Unadopted = omitEmptySlice(us) // nil (omitted) at zero, never []
 	}
-	if nets, nerr := s.d.Runtime.ListUnadoptedNetworks(ctx); nerr == nil && len(nets) > 0 {
+	if nets, nerr := s.d.Runtime.ListUnadoptedNetworks(ctx); nerr == nil {
 		ns := make([]apigen.UnadoptedNetwork, 0, len(nets))
 		for _, n := range nets {
 			ns = append(ns, apigen.UnadoptedNetwork{NetworkId: n.NetworkID, Name: n.Name})
 		}
-		list.UnadoptedNetworks = &ns
+		list.UnadoptedNetworks = omitEmptySlice(ns) // nil (omitted) at zero, never []
 	}
 	return apigen.AdminListInstances200JSONResponse(list), nil
 }

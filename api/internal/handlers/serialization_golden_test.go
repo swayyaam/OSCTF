@@ -145,12 +145,13 @@ func TestGoldenEmpty(t *testing.T) {
 		{"user_admin_page.empty", apigen.UserAdminPage{Items: []apigen.UserAdmin{}, Total: 0, Page: 1, PerPage: 20}},
 		{"submission_admin_page.empty", apigen.SubmissionAdminPage{Items: []apigen.SubmissionAdmin{}, Total: 0, Page: 1, PerPage: 20}},
 
-		// List-inside-optional-object: unadopted absent (omitted) vs present-empty ([]).
-		{"admin_instance_list.empty_no_unadopted", apigen.AdminInstanceList{Items: []apigen.AdminInstance{}}},
-		{"admin_instance_list.empty_present_unadopted", apigen.AdminInstanceList{
+		// List-inside-optional-object: routed through omitEmptySlice (as the
+		// handler does), an empty unadopted list must OMIT the field, never emit
+		// []. This exercises the structural guard from 4a-i.
+		{"admin_instance_list.empty_no_unadopted", apigen.AdminInstanceList{
 			Items:             []apigen.AdminInstance{},
-			Unadopted:         &[]apigen.UnadoptedContainer{},
-			UnadoptedNetworks: &[]apigen.UnadoptedNetwork{},
+			Unadopted:         omitEmptySlice([]apigen.UnadoptedContainer{}),
+			UnadoptedNetworks: omitEmptySlice([]apigen.UnadoptedNetwork{}),
 		}},
 
 		// Bare top-level arrays.
@@ -258,5 +259,33 @@ func TestGoldenFull(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			goldenJSON(t, c.name, c.v)
 		})
+	}
+}
+
+// TestOmitEmptySlice pins the structural guard for optional list fields (4a-i):
+// an empty slice becomes nil (so an omitempty pointer field is OMITTED, matching
+// the dashboard's optional-not-nullable typing), a non-empty slice is preserved.
+func TestOmitEmptySlice(t *testing.T) {
+	if got := omitEmptySlice([]apigen.UnadoptedContainer{}); got != nil {
+		t.Errorf("omitEmptySlice(empty) = %v, want nil (so the field omits, not [])", got)
+	}
+	if got := omitEmptySlice([]int(nil)); got != nil {
+		t.Errorf("omitEmptySlice(nil) = %v, want nil", got)
+	}
+	got := omitEmptySlice([]int{1, 2})
+	if got == nil || len(*got) != 2 {
+		t.Fatalf("omitEmptySlice([1,2]) = %v, want &[1 2]", got)
+	}
+
+	// End-to-end at the type level: a list built through the helper omits at zero.
+	raw, err := json.Marshal(apigen.AdminInstanceList{
+		Items:     []apigen.AdminInstance{},
+		Unadopted: omitEmptySlice([]apigen.UnadoptedContainer{}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("unadopted")) {
+		t.Errorf("empty unadopted must be omitted, got: %s", raw)
 	}
 }

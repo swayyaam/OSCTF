@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -62,16 +63,16 @@ func TestWSFrameGolden(t *testing.T) {
 
 	// hello: {"type":"hello","data":{"frozen":false}} — the exact greeting the hub
 	// enqueues before any board.
-	wsGolden(t, "frame_hello", encode("hello", map[string]bool{"frozen": false}))
+	wsGolden(t, "frame_hello", encode(FrameHello, map[string]bool{"frozen": false}))
 
 	// event.phase: never coalesced/dropped; carries the current phase string.
-	wsGolden(t, "frame_event_phase", encode("event.phase", map[string]string{"phase": "running"}))
+	wsGolden(t, "frame_event_phase", encode(FrameEventPhase, map[string]string{"phase": "running"}))
 
 	// scoreboard frames: empty board's standings must be [] (a nil slice → null
 	// would throw at render in the dashboard, which reads standings.length/.map
 	// unguarded), and the full shape is pinned.
-	wsGolden(t, "frame_scoreboard_empty", encode("scoreboard", emptyBoard))
-	wsGolden(t, "frame_scoreboard_full", encode("scoreboard", fullBoard))
+	wsGolden(t, "frame_scoreboard_empty", encode(FrameScoreboard, emptyBoard))
+	wsGolden(t, "frame_scoreboard_full", encode(FrameScoreboard, fullBoard))
 }
 
 // TestWSScoreboardMatchesREST is the 3a-xiii guarantee: the scoreboard frame's
@@ -83,7 +84,7 @@ func TestWSScoreboardMatchesREST(t *testing.T) {
 		{Frozen: true, GeneratedAt: time.Unix(0, 0).UTC(), Standings: []apigen.ScoreboardEntry{}},
 		{Frozen: false, GeneratedAt: time.Unix(0, 0).UTC(), Standings: []apigen.ScoreboardEntry{{Rank: intp(1), TeamId: fixedUUID(2), Name: "A", Points: 1, Solves: 1}}},
 	} {
-		frame := encode("scoreboard", board)
+		frame := encode(FrameScoreboard, board)
 		var env struct {
 			Type string          `json:"type"`
 			Data json.RawMessage `json:"data"`
@@ -101,6 +102,34 @@ func TestWSScoreboardMatchesREST(t *testing.T) {
 		if !bytes.Equal(env.Data, restBytes) {
 			t.Errorf("WS scoreboard data diverges from REST serialization:\n WS:   %s\n REST: %s", env.Data, restBytes)
 		}
+	}
+}
+
+// TestFrameTypesContract keeps frame_types.json (the cross-language contract the
+// dashboard also asserts against) in sync with the hub's FrameTypes constants.
+// A new backend frame must land here, which then trips the dashboard's contract
+// test until the client is taught about it (4a-ii). Regenerate with UPDATE_GOLDEN=1.
+func TestFrameTypesContract(t *testing.T) {
+	sorted := append([]string(nil), FrameTypes...)
+	sort.Strings(sorted)
+	got, err := json.MarshalIndent(sorted, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	const path = "frame_types.json"
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s (UPDATE_GOLDEN=1 to create): %v", path, err)
+	}
+	if !bytes.Equal(bytes.TrimRight(want, "\n"), bytes.TrimRight(got, "\n")) {
+		t.Errorf("frame_types.json out of sync with FrameTypes (UPDATE_GOLDEN=1 to accept, then update the dashboard's KNOWN_FRAME_TYPES):\n want %s\n got  %s", want, got)
 	}
 }
 

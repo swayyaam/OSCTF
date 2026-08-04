@@ -1,0 +1,14 @@
+{
+  "category": "web",
+  "connection_info": "nc host 30000",
+  "difficulty": "medium",
+  "has_instance": true,
+  "id": "03030303-0303-0303-0303-030303030303",
+  "instancing": "per_team",
+  "kind": "container",
+  "points": 420,
+  "slug": "sqli",
+  "solved_by_me": true,
+  "solves": 7,
+  "title": "SQL Injection"
+}

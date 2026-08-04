@@ -1,0 +1,24 @@
+{
+  "id": "05050505-0505-0505-0505-050505050505",
+  "invite_code": "INV123",
+  "members": [
+    {
+      "id": "06060606-0606-0606-0606-060606060606",
+      "username": "cap"
+    }
+  ],
+  "name": "Alpha",
+  "points": 300,
+  "rank": 2,
+  "solves": [
+    {
+      "category": "web",
+      "challenge_id": "03030303-0303-0303-0303-030303030303",
+      "points": 100,
+      "slug": "sqli",
+      "solved_at": "2026-01-02T03:04:05Z",
+      "title": "SQL Injection",
+      "username": "cap"
+    }
+  ]
+}

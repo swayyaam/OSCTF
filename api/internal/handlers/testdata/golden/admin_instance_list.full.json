@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "challenge_id": "03030303-0303-0303-0303-030303030303",
+      "challenge_slug": "sqli",
+      "error": null,
+      "expires_at": "2026-01-02T03:04:05Z",
+      "host_port": 30000,
+      "id": "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a",
+      "last_health_at": "2026-01-02T03:04:05Z",
+      "network": "osctf-team-5",
+      "started_at": "2026-01-02T03:04:05Z",
+      "state": "running",
+      "team_id": "05050505-0505-0505-0505-050505050505",
+      "team_name": "Alpha"
+    }
+  ],
+  "unadopted": [
+    {
+      "container_id": "abc123",
+      "created_at": "2026-01-02T03:04:05Z",
+      "image": "img:1"
+    }
+  ],
+  "unadopted_networks": [
+    {
+      "name": "osctf-team-orphan",
+      "network_id": "net123"
+    }
+  ]
+}

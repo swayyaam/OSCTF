@@ -1,0 +1,46 @@
+{
+  "attachments": [
+    {
+      "content_type": "application/zip",
+      "created_at": "2026-01-02T03:04:05Z",
+      "filename": "f.zip",
+      "id": "04040404-0404-0404-0404-040404040404",
+      "size_bytes": 10
+    }
+  ],
+  "category": "web",
+  "connection_template": "nc {host} {port}",
+  "container_env": {
+    "K": "V"
+  },
+  "cpu_millis": 500,
+  "created_at": "2026-01-02T03:04:05Z",
+  "current_points": 420,
+  "decay": 50,
+  "description": "desc",
+  "difficulty": "medium",
+  "egress": false,
+  "flag": "osctf{x}",
+  "flag_case_insensitive": false,
+  "flag_mode": "per_instance",
+  "id": "03030303-0303-0303-0303-030303030303",
+  "image": "img:1",
+  "instance": null,
+  "instance_ttl_seconds": 3600,
+  "instancing": "per_team",
+  "internal_port": 80,
+  "kind": "container",
+  "max_attempts": 10,
+  "mem_limit_mb": 256,
+  "points_initial": 500,
+  "points_min": 100,
+  "scoring": "dynamic",
+  "slug": "sqli",
+  "solves": 7,
+  "title": "SQL Injection",
+  "updated_at": "2026-01-02T03:04:05Z",
+  "visible": true,
+  "writable_paths": [
+    "/tmp"
+  ]
+}

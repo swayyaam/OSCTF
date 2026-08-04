@@ -1,0 +1,15 @@
+{
+  "frozen": true,
+  "generated_at": "2026-01-02T03:04:05Z",
+  "standings": [
+    {
+      "banned": false,
+      "last_solve_at": "2026-01-02T03:04:05Z",
+      "name": "Team Alpha",
+      "points": 500,
+      "rank": 1,
+      "solves": 3,
+      "team_id": "02020202-0202-0202-0202-020202020202"
+    }
+  ]
+}

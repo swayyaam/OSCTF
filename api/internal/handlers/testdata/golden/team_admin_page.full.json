@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "banned": false,
+      "created_at": "2026-01-02T03:04:05Z",
+      "hidden": false,
+      "id": "05050505-0505-0505-0505-050505050505",
+      "member_count": 3,
+      "name": "Alpha"
+    }
+  ],
+  "page": 1,
+  "per_page": 20,
+  "total": 1
+}

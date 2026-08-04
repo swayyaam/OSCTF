@@ -1,0 +1,26 @@
+{
+  "attachments": [
+    {
+      "filename": "f.zip",
+      "id": "04040404-0404-0404-0404-040404040404",
+      "size_bytes": 10
+    }
+  ],
+  "attempts_used": 2,
+  "category": "web",
+  "connection_info": null,
+  "description": "desc",
+  "difficulty": "medium",
+  "flag_mode": "per_instance",
+  "has_instance": true,
+  "id": "03030303-0303-0303-0303-030303030303",
+  "instance": null,
+  "instancing": "per_team",
+  "kind": "container",
+  "max_attempts": 10,
+  "points": 420,
+  "slug": "sqli",
+  "solved_by_me": true,
+  "solves": 7,
+  "title": "SQL Injection"
+}

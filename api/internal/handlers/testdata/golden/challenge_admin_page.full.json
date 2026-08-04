@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "attachments": [],
+      "category": "web",
+      "connection_template": null,
+      "container_env": {},
+      "cpu_millis": 0,
+      "created_at": "2026-01-02T03:04:05Z",
+      "current_points": 100,
+      "decay": null,
+      "description": "d",
+      "difficulty": null,
+      "egress": false,
+      "flag": "f",
+      "flag_case_insensitive": false,
+      "flag_mode": "static",
+      "id": "03030303-0303-0303-0303-030303030303",
+      "image": null,
+      "instance": null,
+      "instance_ttl_seconds": null,
+      "instancing": "none",
+      "internal_port": null,
+      "kind": "static",
+      "max_attempts": null,
+      "mem_limit_mb": 0,
+      "points_initial": 100,
+      "points_min": null,
+      "scoring": "static",
+      "slug": "sqli",
+      "solves": 0,
+      "title": "T",
+      "updated_at": "2026-01-02T03:04:05Z",
+      "visible": false,
+      "writable_paths": []
+    }
+  ],
+  "page": 1,
+  "per_page": 20,
+  "total": 1
+}

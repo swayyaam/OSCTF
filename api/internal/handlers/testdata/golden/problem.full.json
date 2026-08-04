@@ -1,0 +1,12 @@
+{
+  "detail": "One or more fields are invalid.",
+  "errors": {
+    "email": [
+      "must be a valid email address"
+    ]
+  },
+  "request_id": "req-1",
+  "status": 422,
+  "title": "Validation failed",
+  "type": "https://osctf.dev/errors/validation"
+}

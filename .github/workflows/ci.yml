@@ -53,7 +53,9 @@ jobs:
       # Unit tier only. Integration/dockerint tests are behind build tags
       # (integration, dockerint) and are excluded here — so membership is by tag,
       # never by test-name matching (which silently dropped five tests before).
-      - run: cd api && go test ./... -race
+      # -shuffle=on randomizes test order to surface inter-test state leakage
+      # (it looks like flakiness — a failure here is real, not a flake).
+      - run: cd api && go test ./... -race -shuffle=on
 
   api-integration:
     name: api integration
@@ -65,11 +67,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: integration tests (testcontainers)
         # Tag-selected, no -run name filter: every //go:build integration test runs.
-        run: cd api && go test ./... -race -tags integration
+        run: cd api && go test ./... -race -shuffle=on -tags integration
       - name: docker runtime tests (real daemon)
         # Native-Linux runner: cross-network isolation MUST hold, so make the
         # isolation assertions strict (they skip informatively on Docker Desktop).
-        run: cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race ./internal/runtime/...
+        run: cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
       - name: migration up-down-up
         run: |
           docker run -d --name pg -e POSTGRES_PASSWORD=osctf -e POSTGRES_USER=osctf -e POSTGRES_DB=osctf -p 5432:5432 postgres:17-alpine

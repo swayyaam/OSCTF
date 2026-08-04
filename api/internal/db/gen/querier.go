@@ -67,11 +67,17 @@ type Querier interface {
 	ListPublicTeams(ctx context.Context) ([]ListPublicTeamsRow, error)
 	// Every non-hidden team appears on the board from creation (zero-solve teams too).
 	ListScoreboardTeams(ctx context.Context) ([]ListScoreboardTeamsRow, error)
-	// Instances stuck in a non-terminal deploy state (a failed or interrupted
-	// Deploy leaves allocateRow's row behind) whose row has not changed since the
-	// cutoff. Their host_port is still counted by ListUsedPorts, so each leaks a port
-	// until reaped. The cutoff must trail the Deploy timeout so a row that is
-	// legitimately mid-deploy (recently touched) is never listed.
+	// Rows that still hold a host_port ListUsedPorts counts but that nothing else
+	// reclaims, so each leaks a port until the reaper clears it:
+	//   pending/error — a failed or interrupted Deploy left allocateRow's row behind.
+	//   lost          — reconcile marked a running instance 'lost' because its
+	//                   container vanished; MarkLost does not free the port and the
+	//                   reaper (pending/error only) never saw it, so an abandoned lost
+	//                   instance leaked its port for the rest of the event. Reaping
+	//                   'lost' closes that leak (a team that restarts reuses its row
+	//                   first; the reaper's re-verify skips a row that went running).
+	// The cutoff must trail the Deploy timeout so a row legitimately mid-deploy
+	// (recently touched) is never listed.
 	ListStaleInstances(ctx context.Context, cutoff time.Time) ([]Instance, error)
 	ListSubmissionsAdmin(ctx context.Context, arg ListSubmissionsAdminParams) ([]ListSubmissionsAdminRow, error)
 	ListTeamInstances(ctx context.Context, teamID *uuid.UUID) ([]Instance, error)

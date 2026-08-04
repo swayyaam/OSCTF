@@ -381,15 +381,23 @@ func (q *Queries) ListPerTeamInstances(ctx context.Context) ([]Instance, error) 
 
 const listStaleInstances = `-- name: ListStaleInstances :many
 SELECT id, challenge_id, state, container_id, host_port, error, started_at, last_health_at, created_at, updated_at, team_id, flag, expires_at, network FROM instances
-WHERE state IN ('pending','error') AND updated_at < $1
+WHERE state IN ('pending','error','lost') AND updated_at < $1
 ORDER BY updated_at ASC
 `
 
-// Instances stuck in a non-terminal deploy state (a failed or interrupted
-// Deploy leaves allocateRow's row behind) whose row has not changed since the
-// cutoff. Their host_port is still counted by ListUsedPorts, so each leaks a port
-// until reaped. The cutoff must trail the Deploy timeout so a row that is
-// legitimately mid-deploy (recently touched) is never listed.
+// Rows that still hold a host_port ListUsedPorts counts but that nothing else
+// reclaims, so each leaks a port until the reaper clears it:
+//
+//	pending/error — a failed or interrupted Deploy left allocateRow's row behind.
+//	lost          — reconcile marked a running instance 'lost' because its
+//	                container vanished; MarkLost does not free the port and the
+//	                reaper (pending/error only) never saw it, so an abandoned lost
+//	                instance leaked its port for the rest of the event. Reaping
+//	                'lost' closes that leak (a team that restarts reuses its row
+//	                first; the reaper's re-verify skips a row that went running).
+//
+// The cutoff must trail the Deploy timeout so a row legitimately mid-deploy
+// (recently touched) is never listed.
 func (q *Queries) ListStaleInstances(ctx context.Context, cutoff time.Time) ([]Instance, error) {
 	rows, err := q.db.Query(ctx, listStaleInstances, cutoff)
 	if err != nil {

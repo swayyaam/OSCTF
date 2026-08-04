@@ -3,6 +3,19 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
+## Unreleased
+
+### Fixed (reliability)
+
+- **Host-port leak via `lost` instances.** When a running per-team instance's
+  container vanished (crash, OOM-kill, daemon restart, manual `docker rm`),
+  reconcile marked the row `lost` but did not free its `host_port`, and the
+  stale-row reaper only swept `pending`/`error` — so an abandoned lost instance
+  held its port for the rest of the event, shrinking the challenge port range
+  until it could exhaust. The reaper now reclaims `lost` rows too (a team that
+  restarts the challenge reuses its row first; the reaper's re-verify skips a row
+  that went back to running). Surfaced by the Phase 7 soak investigation.
+
 ## v0.2.1 — Security and reliability hardening
 
 A patch release: security fixes, reliability fixes, and a large test-coverage

@@ -435,14 +435,18 @@ func (s *Scheduler) CleanupEnded(ctx context.Context) (int, error) {
 	return len(after), nil
 }
 
-// ReapStaleOnce destroys instances stuck in pending/error past the configured
-// ReapAfter threshold, reclaiming the host_port each still holds. allocateRow
-// reserves a port before Deploy; a failed or interrupted Deploy leaves that row —
-// and its port — behind, and nothing else sweeps pending/error rows (ExpireOnce
-// skips them, being TTL-driven). Returns the number reaped. Exported so tests can
-// drive one pass deterministically; a ReapAfter of 0 disables reaping. A busy team
-// is skipped without blocking (retried next pass) and each destroy re-checks the row
-// is still stale, so it never races a concurrent Start/Stop for that team.
+// ReapStaleOnce destroys instances stuck holding a port that nothing else will
+// reclaim, past the configured ReapAfter threshold, freeing the host_port each
+// still holds: pending/error rows (allocateRow reserved a port before a Deploy
+// that then failed or was interrupted) and lost rows (reconcile marked a running
+// instance lost when its container vanished; MarkLost does not free the port, so
+// an abandoned lost instance would otherwise leak its port for the rest of the
+// event). Nothing else sweeps these — ExpireOnce is TTL-driven and skips them.
+// Returns the number reaped. Exported so tests can drive one pass deterministically;
+// a ReapAfter of 0 disables reaping. A busy team is skipped without blocking (retried
+// next pass) and each destroy re-checks the row is still stale, so it never races a
+// concurrent Start/Stop for that team (a team that restarts a lost challenge reuses
+// its row first, and the re-verify below then skips it).
 func (s *Scheduler) ReapStaleOnce(ctx context.Context) (int, error) {
 	if s.cfg.ReapAfter <= 0 {
 		return 0, nil
@@ -454,7 +458,9 @@ func (s *Scheduler) ReapStaleOnce(ctx context.Context) (int, error) {
 	reaped := 0
 	for _, row := range rows {
 		destroyed, _ := s.destroyLocked(ctx, row.TeamID, row.ID, false, func(cur gen.Instance) bool {
-			return cur.State == string(runtime.StatePending) || cur.State == string(runtime.StateError)
+			return cur.State == string(runtime.StatePending) ||
+				cur.State == string(runtime.StateError) ||
+				cur.State == string(runtime.StateLost)
 		})
 		if !destroyed {
 			continue

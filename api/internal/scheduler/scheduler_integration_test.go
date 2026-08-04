@@ -385,6 +385,60 @@ func TestSchedulerReapStaleReclaimsPortsIntegration(t *testing.T) {
 	}
 }
 
+// TestSchedulerReapReclaimsLostInstancePortIntegration closes the lost-row port
+// leak: when a running instance's container vanishes, reconcile marks the row
+// 'lost' but MarkLost keeps its host_port, ListUsedPorts still counts it, and the
+// reaper used to skip 'lost' — so an abandoned lost instance leaked its port for
+// the rest of the event. The reaper now reclaims 'lost' rows too.
+func TestSchedulerReapReclaimsLostInstancePortIntegration(t *testing.T) {
+	h := newHarnessPorts(t, scheduler.Config{
+		TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 10,
+		ReapAfter: 15 * time.Minute,
+	}, 30960, 30960) // exactly one port
+	ctx := context.Background()
+	ch := h.challenge(t, "per_team", "static", nil)
+
+	// Team A takes the only port; its container vanishes; reconcile (after the row
+	// ages past the grace) marks the row lost — still holding the port.
+	teamA := h.team(t)
+	inst, _, err := h.sched.Start(ctx, uuid.Nil, teamA, ch)
+	if err != nil {
+		t.Fatalf("start A: %v", err)
+	}
+	h.fake.VanishContainer(inst.ID)
+	ageRow(t, h, inst.ID)
+	if err := h.fake.Reconcile(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if row, _ := h.q.GetInstanceByID(ctx, inst.ID); row.State != string(runtime.StateLost) || row.HostPort == nil {
+		t.Fatalf("want a lost row still holding its port; got state=%q host_port=%v", row.State, row.HostPort)
+	}
+
+	// The leak: the lost row still holds the only port, so team B cannot start.
+	teamB := h.team(t)
+	if _, _, err := h.sched.Start(ctx, uuid.Nil, teamB, ch); err == nil || !strings.Contains(err.Error(), "no free challenge ports") {
+		t.Fatalf("expected port exhaustion while the lost row holds the port, got: %v", err)
+	}
+
+	// A freshly-marked lost row must not be reaped yet (grace against a flicker).
+	if n, rerr := h.sched.ReapStaleOnce(ctx); rerr != nil || n != 0 {
+		t.Fatalf("premature reap of a fresh lost row: n=%d err=%v", n, rerr)
+	}
+
+	// Age the lost row past the threshold → the reaper reclaims it and its port.
+	if _, aerr := h.pool.Exec(ctx, `UPDATE instances SET updated_at = now() - interval '1 hour' WHERE state = 'lost'`); aerr != nil {
+		t.Fatalf("age lost row: %v", aerr)
+	}
+	if n, rerr := h.sched.ReapStaleOnce(ctx); rerr != nil || n != 1 {
+		t.Fatalf("reap lost row: n=%d err=%v, want 1", n, rerr)
+	}
+
+	// Port reclaimed: team B can now start on the freed port.
+	if _, _, err := h.sched.Start(ctx, uuid.Nil, teamB, ch); err != nil {
+		t.Fatalf("start B after reap: %v", err)
+	}
+}
+
 // TestSchedulerConcurrentStartsFillPortRangeIntegration starts N different teams
 // concurrently against a port range of exactly N. Per-team locks no longer
 // serialize the (global) host_port allocation, so two teams can race for the same

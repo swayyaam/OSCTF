@@ -64,13 +64,19 @@ SELECT * FROM instances WHERE challenge_id = $1 AND flag = $2 AND team_id IS NOT
 SELECT host_port FROM instances WHERE host_port IS NOT NULL ORDER BY host_port ASC;
 
 -- name: ListStaleInstances :many
--- Instances stuck in a non-terminal deploy state (a failed or interrupted
--- Deploy leaves allocateRow's row behind) whose row has not changed since the
--- cutoff. Their host_port is still counted by ListUsedPorts, so each leaks a port
--- until reaped. The cutoff must trail the Deploy timeout so a row that is
--- legitimately mid-deploy (recently touched) is never listed.
+-- Rows that still hold a host_port ListUsedPorts counts but that nothing else
+-- reclaims, so each leaks a port until the reaper clears it:
+--   pending/error — a failed or interrupted Deploy left allocateRow's row behind.
+--   lost          — reconcile marked a running instance 'lost' because its
+--                   container vanished; MarkLost does not free the port and the
+--                   reaper (pending/error only) never saw it, so an abandoned lost
+--                   instance leaked its port for the rest of the event. Reaping
+--                   'lost' closes that leak (a team that restarts reuses its row
+--                   first; the reaper's re-verify skips a row that went running).
+-- The cutoff must trail the Deploy timeout so a row legitimately mid-deploy
+-- (recently touched) is never listed.
 SELECT * FROM instances
-WHERE state IN ('pending','error') AND updated_at < sqlc.arg('cutoff')
+WHERE state IN ('pending','error','lost') AND updated_at < sqlc.arg('cutoff')
 ORDER BY updated_at ASC;
 
 -- name: CountInstancesByState :many

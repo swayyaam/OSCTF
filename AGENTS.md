@@ -128,6 +128,21 @@ Known coverage gaps (accepted and tracked — don't mistake green for covered):
 
 - `FakeRuntime` models containers but **not networks** (see Gotchas): network decisions are
   covered by the pure Reconcile table + `dockerint`, not through the fake.
+- **Reconcile's grace timing does not track the injected clock — by design, so the soak
+  cannot reach it by accelerating time.** Grace is `clock_timestamp() - updated_at >=
+  reconcileGrace`, and `updated_at` is written by Postgres `now()` (DB wall clock, from many
+  paths incl. SQL defaults), so both operands are DB-wall time — the fix from 2b-2 that
+  stopped app-vs-DB skew from making every row read "fresh." The consequence: the soak's
+  120× injected clock cannot compress the ~150 s grace (real DB seconds don't accelerate), so
+  the vanish→lost→reap path is unreachable within a 2 m run unless a row's `updated_at` is
+  aged via SQL (`soak -age-lost-rows`, on by default; the same technique as the `2d`
+  reconcile integration tests). Measured: aging on `reaped=16` vs off `reaped=10` at seed 1 —
+  the ~6 delta *is* that path. The grace *arithmetic* is covered by the pure `Reconcile`
+  table tests (future-dated row, boundary) and by `dockerint`; the soak covers everything
+  *around* the mark-lost (reconcile executing it, the reaper reclaiming the port, invariants
+  holding) but not the wall-time passage itself. Do not "fix" this by wiring the fake's grace
+  to the injected clock — that reintroduces the 2b-2 skew and diverges the fake from the real
+  runtime, which reads the identical `ReconcileClock` query.
 - **Docker Desktop does not enforce the isolation `dockerint` probes** — the probe reports
   "not enforced" and `VerifyIsolation=false` there (GitHub issue #2, targeted v0.3/v0.4);
   real enforcement is validated only against a Linux daemon.

@@ -83,6 +83,7 @@ var (
 	fFaults   = flag.Bool("faults", true, "inject seeded deploy/destroy/reconcile faults + container vanish/exit")
 	fWSC      = flag.Int("wsclients", 8, "scoreboard WebSocket clients that must converge to the REST snapshot")
 	fBreakSB  = flag.Bool("break-scoreboard", false, "DEBUG: stop recomputing the scoreboard so REST goes stale — proves the from-scratch invariant bites")
+	fAgeLost  = flag.Bool("age-lost-rows", true, "age a vanished row's updated_at past reconcile's DB-wall grace so lost→reap fires in-run; -age-lost-rows=false measures the vanish→lost→reap path going dark under an accelerated clock")
 )
 
 const (
@@ -900,8 +901,14 @@ func runFaults(ctx context.Context, pool *pgxpool.Pool, fake *runtimepkg.FakeRun
 			// Age the row past reconcile's grace (which trails the ~150s-wall deploy
 			// timeout) so the vanished container is marked lost this run and then
 			// reclaimed by the reaper — the fault path we want to exercise; a 2m run
-			// would otherwise never reach the grace.
-			_, _ = pool.Exec(ctx, `UPDATE instances SET updated_at = now() - interval '3 minutes' WHERE id=$1 AND state='running'`, id)
+			// would otherwise never reach the grace. This manufactures the DB-clock
+			// elapsed-time PRECONDITION only; the grace comparison itself
+			// (clock_timestamp() - updated_at >= reconcileGrace) then runs unchanged.
+			// Grace is anchored to updated_at, written by Postgres now() (DB clock),
+			// so the accelerated app clock cannot reach it — see AGENTS.md.
+			if *fAgeLost {
+				_, _ = pool.Exec(ctx, `UPDATE instances SET updated_at = now() - interval '3 minutes' WHERE id=$1 AND state='running'`, id)
+			}
 			m.faultsInjected.Add(1)
 		}
 	}

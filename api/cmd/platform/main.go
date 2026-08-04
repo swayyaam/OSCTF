@@ -338,6 +338,8 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Log:              log,
 		RegisterIPBurst:  cfg.RegisterIPBurst,
 		RegisterIPWindow: cfg.RegisterIPWindow,
+		LoginIPBurst:     cfg.LoginIPBurst,
+		LoginIPWindow:    cfg.LoginIPWindow,
 		SecureCookies:    cfg.IsHTTPS(),
 		TrustProxy:       cfg.TrustProxy,
 		SessionTTL:       cfg.SessionTTL,

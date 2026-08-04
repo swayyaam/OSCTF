@@ -134,9 +134,13 @@ func (s *Server) Login(ctx context.Context, request apigen.LoginRequestObject) (
 	email := strings.ToLower(string(request.Body.Email))
 	ip := s.clientIP(ctx)
 
-	// Rate limits run before any DB work (docs/v0.1/06-auth.md).
-	if err := s.limit(ctx, "login-ip", ip, 10, 5*time.Minute); err != nil {
-		return nil, err
+	// Rate limits run before any DB work (docs/v0.1/06-auth.md). The per-IP limit is
+	// generous and configurable so a shared-NAT venue is not throttled at event
+	// start (issue #4); the per-account limit is the credential-stuffing guard.
+	if s.d.LoginIPBurst > 0 {
+		if err := s.limit(ctx, "login-ip", ip, s.d.LoginIPBurst, s.d.LoginIPWindow); err != nil {
+			return nil, err
+		}
 	}
 	acctHash := sha256.Sum256([]byte(email))
 	if err := s.limit(ctx, "login-acct", hex.EncodeToString(acctHash[:]), 5, 5*time.Minute); err != nil {

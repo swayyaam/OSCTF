@@ -5,6 +5,19 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+### Security
+
+- **Login blocked for a shared-NAT venue.** The login endpoint was rate-limited at
+  a hard-coded 10 attempts per 5 minutes per client IP, so a classroom/venue behind
+  one NAT could only get ~10 people logged in per 5 minutes — a venue that could now
+  register (issue #1) still couldn't all log in at event start. The per-IP login
+  limit is now generous by default and configurable (`OSCTF_LOGIN_IP_BURST=500` per
+  `OSCTF_LOGIN_IP_WINDOW=600s`, 0 disables); the per-account limit (5/5min) is
+  unchanged and remains the credential-stuffing guard. *Impact:* availability —
+  legitimate players unable to sign in (GitHub issue #4, the login sibling of #1).
+  *Operator action:* none for the default; tune `OSCTF_LOGIN_IP_*` for a
+  public-internet deployment. Surfaced by the Phase 7 soak.
+
 ### Fixed (reliability)
 
 - **Host-port leak via `lost` instances.** When a running per-team instance's

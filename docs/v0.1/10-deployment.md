@@ -59,6 +59,8 @@ Named volumes: `pgdata`, `miniodata`.
 | `OSCTF_WS_HANDSHAKE_WINDOW` | `60s` | — | Sliding window for the handshake rate limit |
 | `OSCTF_REGISTER_IP_BURST` | `500` | — | Registrations allowed per IP per window (0 = disabled). Generous by default for shared-IP venues ([issue #1](https://github.com/swayam-mishra/OSCTF/issues/1)); tighten for public-internet deployments |
 | `OSCTF_REGISTER_IP_WINDOW` | `10m` | — | Sliding window for the register-IP limit |
+| `OSCTF_LOGIN_IP_BURST` | `500` | — | Login attempts allowed per IP per window (0 = disabled). Generous by default so a shared-NAT venue can log in at event start ([issue #4](https://github.com/swayam-mishra/OSCTF/issues/4)); tighten for public-internet deployments. The per-account limit (5/5min) is the credential-stuffing guard |
+| `OSCTF_LOGIN_IP_WINDOW` | `10m` | — | Sliding window for the login-IP limit |
 | `OSCTF_PASSWORD_HASH_CONCURRENCY` | `0` (derive) | — | Max concurrent argon2id hashes (register + login + timing burn). `0` derives from the host memory limit (¼ mem ÷ 64 MiB, clamped 2–64). Peak hashing memory ≈ value × 64 MiB ([issue #3](https://github.com/swayam-mishra/OSCTF/issues/3)) |
 | `OSCTF_PASSWORD_HASH_MAX_WAIT` | `5s` | — | Max time a request queues for a hash slot before it is shed with 503 + Retry-After |
 | `OSCTF_CORS_DEV_ORIGIN` | *(empty)* | — | Dev only: allow the Vite origin |

@@ -43,6 +43,12 @@ type Config struct {
 	// OSCTF_REGISTRATION_OPEN=false to close registration for an invite-only event).
 	RegisterIPBurst  int           `env:"OSCTF_REGISTER_IP_BURST" envDefault:"500"` // registrations per window per IP (0 = disabled)
 	RegisterIPWindow time.Duration `env:"OSCTF_REGISTER_IP_WINDOW" envDefault:"600s"`
+	// Login is per-IP rate-limited too, so a shared-NAT venue logging in at event
+	// start is not throttled to a handful (GitHub issue #4, the login sibling of
+	// #1). Generous by default; the per-account login limit (5/5min) is the real
+	// credential-stuffing guard. 0 disables the per-IP login limit.
+	LoginIPBurst  int           `env:"OSCTF_LOGIN_IP_BURST" envDefault:"500"` // logins per window per IP (0 = disabled)
+	LoginIPWindow time.Duration `env:"OSCTF_LOGIN_IP_WINDOW" envDefault:"600s"`
 	// PasswordHashConcurrency bounds concurrent argon2id derivations (registration
 	// hashing + login verification + the unknown-email timing burn). Each costs
 	// ~64 MiB, so an unbounded burst can OOM a small host; the gate queues excess
@@ -155,6 +161,12 @@ func (c *Config) finalize() error {
 	}
 	if c.RegisterIPBurst > 0 && c.RegisterIPWindow <= 0 {
 		problems = append(problems, "OSCTF_REGISTER_IP_WINDOW must be > 0 when OSCTF_REGISTER_IP_BURST is set")
+	}
+	if c.LoginIPBurst < 0 {
+		problems = append(problems, "OSCTF_LOGIN_IP_BURST must be >= 0 (0 disables the limit)")
+	}
+	if c.LoginIPBurst > 0 && c.LoginIPWindow <= 0 {
+		problems = append(problems, "OSCTF_LOGIN_IP_WINDOW must be > 0 when OSCTF_LOGIN_IP_BURST is set")
 	}
 	if c.PasswordHashConcurrency < 0 {
 		problems = append(problems, "OSCTF_PASSWORD_HASH_CONCURRENCY must be >= 0 (0 derives from the host memory limit)")

@@ -65,6 +65,12 @@ type Deps struct {
 	// a zero burst disables the limit. See internal/config.
 	RegisterIPBurst  int
 	RegisterIPWindow time.Duration
+
+	// LoginIPBurst / LoginIPWindow bound login attempts per client IP. Generous by
+	// default so a shared-NAT venue is not throttled at event start (issue #4); the
+	// per-account limit is the credential-stuffing guard. A zero burst disables it.
+	LoginIPBurst  int
+	LoginIPWindow time.Duration
 }
 
 // Server implements apigen.StrictServerInterface.

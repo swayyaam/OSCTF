@@ -102,6 +102,8 @@ linked doc, in the same change.
 | Lists serialize as `[]`/`{}` never `null` at every level; response shapes pinned; WS data ≡ REST data | `handlers.TestGoldenEmpty`/`TestGoldenFull`, `TestSerializationZeroRowListsIntegration`, `ws.TestWSFrameGolden`/`TestWSScoreboardMatchesREST` |
 | The WS frame-type set is identical on both sides of the wire | `ws.TestFrameTypesContract` + `dashboard/src/ws/frame-types.contract.test.ts` |
 | argon2id hashing is concurrency-bounded (no OOM) and sheds with 503 | `auth.TestHashGate*` |
+| Package boundaries hold (no service↔service except foundational auth/events; Docker/MinIO/Redis confined) | `depguard` in `.golangci.yml` |
+| No goroutine outlives the tests; no Docker container/bridge/volume residue survives reconcile | `goleak.VerifyTestMain` (ws, scheduler, handlers, runtime) + the dockerint `assertNoResidue` guard |
 
 Rules that keep the surface from eroding:
 
@@ -111,7 +113,16 @@ Rules that keep the surface from eroding:
 - **A new WS frame** goes in `internal/ws/frames.go` (+ regenerate `frame_types.json` with
   `UPDATE_GOLDEN=1`) **and** the dashboard's `KNOWN_FRAME_TYPES`, or both contract tests fail.
 - **A new list-returning endpoint** gets empty + full serialization goldens.
+- **A new domain service does not import another** (depguard) — depend on foundational `auth`/`events`, or invert the dependency. `auth` and `events` are foundational *because* they are identity and event-phase authority; that list does not grow by analogy.
+- **All Go CI jobs run `-shuffle=on`** — a failure there is inter-test state leakage, not a flake; fix the leakage, don't re-order or `-count=1` around it.
 - Regenerate goldens deliberately (`UPDATE_GOLDEN=1`) and eyeball the diff — never to silence a failure you don't understand.
+
+A meaningful negative result worth keeping: after the v0.2 → v0.2.1 rewrite of the
+concurrency surface — per-team scheduler locks, the ordered WS client queue, the WS
+admission gate, the stale-row reaper, and the graceful-shutdown background join — both
+`-shuffle=on` (all tiers) and `goleak` (ws/scheduler/handlers/runtime) came back **clean**.
+That is evidence the surface is sound, not an absence of testing. Keep both instruments in
+place so the next change to that surface is held to the same bar.
 
 Known coverage gaps (accepted and tracked — don't mistake green for covered):
 
@@ -127,6 +138,12 @@ Known coverage gaps (accepted and tracked — don't mistake green for covered):
   unit serialization goldens, not end-to-end.
 - The integration tier needs `DOCKER_HOST` pointed at the daemon on Docker Desktop
   (`unix://$HOME/.docker/run/docker.sock`) — testcontainers can't autodetect it there.
+- **`cmd/platform` is deliberately NOT goleak-wired.** `TestWaitBoundedTimesOutOnWedgedWorker`
+  leaves a goroutine wedged on purpose to exercise the shutdown-timeout path, so
+  `goleak.VerifyTestMain` there would always fail. Do not "fix" the missing TestMain — the
+  fix is a false one that ends in weakening that test to make it pass. The real background
+  join (`bgWG` + `waitBounded`) is validated by that test's design and by the goleak-clean
+  `handlers`/`scheduler` integration flows that drive the same workers.
 
 ## Gotchas
 

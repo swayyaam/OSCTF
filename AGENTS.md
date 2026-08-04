@@ -82,6 +82,52 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
   CI fails on drift. Regenerate with `make generate`.
 - Conventional Commits; no `TODO`/`FIXME` comments (lint enforces).
 
+## Testing contract
+
+A handful of invariants carry the platform's security and correctness; each is pinned by a
+named test. **These tests are never weakened, `t.Skip`'d, build-tagged off, or deleted to
+make a build go green.** If one fails, either the code is wrong (fix the code) or the
+invariant changed on purpose — in which case update the test and say why, here or in the
+linked doc, in the same change.
+
+| Invariant | Pinned by |
+|---|---|
+| Every route has an authorization-policy entry; the matrix holds across identity × phase | `handlers.TestPolicyTableCoversEveryRoute`, `TestPolicyMatrixIntegration`, `TestPolicyMatrixWebSocketIntegration` |
+| Freeze fails closed — a failed events read never serves a live board | `handlers.TestFreezeFailsClosedWithoutEvents` + `scoreboard_freeze_integration_test.go` |
+| A hidden/unreleased resource is indistinguishable from a nonexistent one (status, body, ~timing) | `handlers/enumeration_integration_test.go` |
+| No flag reaches any participant surface (REST/WS/logs/metrics/audit) | `handlers/flag_containment_integration_test.go` |
+| The Docker adopt/GC label keys are exactly as specified | `runtime.TestLabelContract` |
+| Reconcile's decisions are correct and conservative (pure table) | `runtime.TestReconcileDecisions` (+ action-order, future-row) |
+| WS frames arrive in order — hello before any board, phase never reordered past its snapshot | `handlers.TestWSFrameOrderingIntegration`, `ws/hub_test.go` |
+| Lists serialize as `[]`/`{}` never `null` at every level; response shapes pinned; WS data ≡ REST data | `handlers.TestGoldenEmpty`/`TestGoldenFull`, `TestSerializationZeroRowListsIntegration`, `ws.TestWSFrameGolden`/`TestWSScoreboardMatchesREST` |
+| The WS frame-type set is identical on both sides of the wire | `ws.TestFrameTypesContract` + `dashboard/src/ws/frame-types.contract.test.ts` |
+| argon2id hashing is concurrency-bounded (no OOM) and sheds with 503 | `auth.TestHashGate*` |
+
+Rules that keep the surface from eroding:
+
+- **A bug fix ships with a failing-test-first reproduction** — add the test, watch it fail, then fix.
+- **A new route requires a policy-table entry**, or `TestPolicyTableCoversEveryRoute` fails CI.
+- **A new participant-facing endpoint is added to the flag-containment scanner's probe list.**
+- **A new WS frame** goes in `internal/ws/frames.go` (+ regenerate `frame_types.json` with
+  `UPDATE_GOLDEN=1`) **and** the dashboard's `KNOWN_FRAME_TYPES`, or both contract tests fail.
+- **A new list-returning endpoint** gets empty + full serialization goldens.
+- Regenerate goldens deliberately (`UPDATE_GOLDEN=1`) and eyeball the diff — never to silence a failure you don't understand.
+
+Known coverage gaps (accepted and tracked — don't mistake green for covered):
+
+- `FakeRuntime` models containers but **not networks** (see Gotchas): network decisions are
+  covered by the pure Reconcile table + `dockerint`, not through the fake.
+- **Docker Desktop does not enforce the isolation `dockerint` probes** — the probe reports
+  "not enforced" and `VerifyIsolation=false` there (GitHub issue #2, targeted v0.3/v0.4);
+  real enforcement is validated only against a Linux daemon.
+- The scheduler **executor's partial-failure policy is continue-on-error** — a failed step
+  does not roll back earlier ones; there is no all-or-nothing test because that is not the contract.
+- Four list endpoints (`admin/instances`, `teams/mine`, `teams/{id}`, `challenges/{slug}`)
+  are outside the integration zero-row layer; their shape and `[]`-not-null are pinned by the
+  unit serialization goldens, not end-to-end.
+- The integration tier needs `DOCKER_HOST` pointed at the daemon on Docker Desktop
+  (`unix://$HOME/.docker/run/docker.sock`) — testcontainers can't autodetect it there.
+
 ## Gotchas
 
 - **Regenerate after editing `openapi.yaml` or the SQL schema**, or the build breaks
@@ -96,6 +142,8 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
   — without it, browser mutations from the Vite dev origin get a 403 origin-check failure.
 - Integration tests need Docker (testcontainers) and skip under `-short`. The
   container-runtime tests are build-tagged: `go test -tags dockerint ./internal/runtime/...`.
+  On Docker Desktop, testcontainers can't autodetect the socket — export
+  `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock` first.
 - **Known coverage gap — `FakeRuntime` models containers but NOT networks.** Reconcile's
   network decisions (team-network GC, `team_id` protection, the v0.2 missing-label
   flag) are therefore covered by the pure `Reconcile` table tests
@@ -106,8 +154,10 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
   strengthen network coverage, add `dockerint` tests (real bridges), not fake modelling.
 - **Playwright e2e runs with `workers: 1`** — the flows mutate one shared global event
   (window/freeze) and must not run concurrently.
-- Registration is rate-limited to **5/hour per IP**; re-running smoke/e2e within an hour
-  trips it. `docker compose exec redis redis-cli FLUSHALL` clears the counters locally.
+- Registration is rate-limited per IP (`OSCTF_REGISTER_IP_BURST`, default **500** per
+  `OSCTF_REGISTER_IP_WINDOW`=600s — raised from the original 5/hour, GitHub issue #1). A
+  deliberate flood or a stale counter can still trip it; `docker compose exec redis
+  redis-cli FLUSHALL` clears the counters locally.
 - If `make setup` fails building sqlc (a macOS cgo `strchrnul` conflict), install the
   prebuilt binary — see Setup above.
 - The platform mounts the Docker socket in production — **root-equivalent on the host**.

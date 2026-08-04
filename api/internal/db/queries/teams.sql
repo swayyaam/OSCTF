@@ -9,6 +9,12 @@ SELECT * FROM teams WHERE id = $1;
 -- name: GetTeamByInviteCode :one
 SELECT * FROM teams WHERE invite_code = $1;
 
+-- name: LockTeam :one
+-- Row-lock a team so a concurrent join to the same team serializes on it: the
+-- capacity check (CountTeamMembers) and the insert (AddTeamMember) are otherwise a
+-- check-then-act race that lets simultaneous joins overrun max team size.
+SELECT * FROM teams WHERE id = $1 FOR UPDATE;
+
 -- name: AddTeamMember :exec
 INSERT INTO team_members (team_id, user_id) VALUES ($1, $2);
 

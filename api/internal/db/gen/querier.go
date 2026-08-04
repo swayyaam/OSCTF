@@ -93,6 +93,10 @@ type Querier interface {
 	// from solve counts but still displays them.
 	ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, error)
 	ListVisibleChallenges(ctx context.Context) ([]Challenge, error)
+	// Row-lock a team so a concurrent join to the same team serializes on it: the
+	// capacity check (CountTeamMembers) and the insert (AddTeamMember) are otherwise a
+	// check-then-act race that lets simultaneous joins overrun max team size.
+	LockTeam(ctx context.Context, id uuid.UUID) (Team, error)
 	// The database clock reconcile evaluates row age (now - updated_at) against, so a
 	// skewed app host cannot make every row read "fresh" and silently no-op the sweep
 	// (updated_at is written by Postgres). clock_timestamp(), not now(): now() is the

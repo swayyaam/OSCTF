@@ -320,6 +320,29 @@ func (q *Queries) ListTeamsAdmin(ctx context.Context, arg ListTeamsAdminParams) 
 	return items, nil
 }
 
+const lockTeam = `-- name: LockTeam :one
+SELECT id, name, invite_code, captain_id, banned, hidden, created_at, updated_at FROM teams WHERE id = $1 FOR UPDATE
+`
+
+// Row-lock a team so a concurrent join to the same team serializes on it: the
+// capacity check (CountTeamMembers) and the insert (AddTeamMember) are otherwise a
+// check-then-act race that lets simultaneous joins overrun max team size.
+func (q *Queries) LockTeam(ctx context.Context, id uuid.UUID) (Team, error) {
+	row := q.db.QueryRow(ctx, lockTeam, id)
+	var i Team
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.InviteCode,
+		&i.CaptainID,
+		&i.Banned,
+		&i.Hidden,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const removeTeamMember = `-- name: RemoveTeamMember :exec
 DELETE FROM team_members WHERE team_id = $1 AND user_id = $2
 `

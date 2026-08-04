@@ -92,16 +92,38 @@ func (s *Service) Join(ctx context.Context, userID uuid.UUID, code string) (Team
 	if t.Banned {
 		return Team{}, apperr.Conflictf("that team is banned")
 	}
-	count, err := s.q.CountTeamMembers(ctx, t.ID)
-	if err != nil {
-		return Team{}, fmt.Errorf("teams: counting members: %w", err)
-	}
-	if int(count) >= s.maxSize {
-		return Team{}, apperr.Conflictf("that team is full")
-	}
-	if err := s.q.AddTeamMember(ctx, gen.AddTeamMemberParams{TeamID: t.ID, UserID: userID}); err != nil {
-		// uq_team_members_user → already on a team.
-		return Team{}, s.mapConflict(err, "membership")
+	// Capacity check and insert must be atomic: CountTeamMembers-then-AddTeamMember
+	// is a check-then-act race, so simultaneous joins to the same team each read a
+	// stale count and all insert, overrunning max team size. Lock the team row
+	// (FOR UPDATE) as the serialization anchor — concurrent joins to THIS team block
+	// until the prior one commits and then see the updated count. Mirrors the
+	// GetChallengeForUpdate anchor in submissions.Submit.
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		locked, lerr := qtx.LockTeam(ctx, t.ID)
+		if lerr != nil {
+			if errors.Is(lerr, pgx.ErrNoRows) {
+				return &apperr.NotFound{Detail: "no team with that invite code"}
+			}
+			return fmt.Errorf("teams: locking team: %w", lerr)
+		}
+		if locked.Banned {
+			return apperr.Conflictf("that team is banned")
+		}
+		count, lerr := qtx.CountTeamMembers(ctx, t.ID)
+		if lerr != nil {
+			return fmt.Errorf("teams: counting members: %w", lerr)
+		}
+		if int(count) >= s.maxSize {
+			return apperr.Conflictf("that team is full")
+		}
+		if lerr := qtx.AddTeamMember(ctx, gen.AddTeamMemberParams{TeamID: t.ID, UserID: userID}); lerr != nil {
+			// uq_team_members_user → already on a team.
+			return s.mapConflict(lerr, "membership")
+		}
+		return nil
+	}); err != nil {
+		return Team{}, err
 	}
 	return s.load(ctx, t)
 }
@@ -120,6 +142,20 @@ func (s *Service) Leave(ctx context.Context, userID uuid.UUID) error {
 
 	return db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
+		// Lock the team and re-read it INSIDE the tx: row.Team above is read outside
+		// the transaction, so its captain_id is stale. Two members leaving at once
+		// would otherwise each decide captaincy from that stale value — the second
+		// leave, seeing the pre-transfer captain, removes the member the first leave
+		// just promoted without re-transferring, stranding the team with a captain who
+		// is no longer a member. The lock also serializes Leave against Join on the
+		// same team.
+		locked, err := qtx.LockTeam(ctx, team.ID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // team already gone (a concurrent leave emptied+deleted it)
+			}
+			return fmt.Errorf("teams: locking team: %w", err)
+		}
 		if err := qtx.RemoveTeamMember(ctx, gen.RemoveTeamMemberParams{TeamID: team.ID, UserID: userID}); err != nil {
 			return err
 		}
@@ -138,7 +174,7 @@ func (s *Service) Leave(ctx context.Context, userID uuid.UUID) error {
 			}
 			return nil // keep as historical record
 		}
-		if team.CaptainID == userID {
+		if locked.CaptainID == userID {
 			// Transfer captaincy to the earliest joiner.
 			return qtx.UpdateTeamCaptain(ctx, gen.UpdateTeamCaptainParams{ID: team.ID, CaptainID: members[0].ID})
 		}

@@ -20,6 +20,22 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ### Fixed (reliability)
 
+- **Max team size bypassable under concurrent joins.** `Join` counted members and
+  then inserted in two separate statements with nothing serializing them, so several
+  users submitting the same invite code at once each read a stale under-limit count
+  and all joined — a team could exceed its configured maximum. Join now locks the
+  team row (`FOR UPDATE`) and does the capacity check and insert in one transaction,
+  the same anchor `submissions.Submit` uses. *Impact:* fairness — oversized teams.
+  *Reachable via the HTTP join endpoint.* Surfaced by the Phase 5 property tests.
+- **Team stranded with a non-member captain under concurrent leaves.** `Leave` read
+  the team (and its `captain_id`) outside its transaction, so two members leaving at
+  once each decided captaincy from a stale value: the second leave, still seeing the
+  pre-transfer captain, removed the member the first leave had just promoted without
+  re-transferring, leaving the team with a `captain_id` pointing to someone no longer
+  on it — no member could then perform captain-only actions. Leave now locks and
+  re-reads the team inside the transaction. *Impact:* availability — a team with no
+  functional captain. *Reachable via the HTTP leave endpoint.* Surfaced by the
+  Phase 5 property tests.
 - **Event-end teardown was not phase-gated.** `CleanupEnded` destroys every per-team
   instance; it relied entirely on its caller to invoke it only in the `ended` phase,
   so a mis-timed call (a ticker bug, a future caller) would wipe every live instance

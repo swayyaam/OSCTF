@@ -61,6 +61,7 @@ func TestDockerHardeningIntegration(t *testing.T) {
 	}
 	mgr := runtime.NewManager(rt, q, "127.0.0.1", 31000, 31099)
 	cli := dockerClient(t)
+	assertNoResidue(t, mgr, cli) // Phase 6: no Docker resource residue survives this test
 
 	chID := seedContainerChallenge(t, pool, q, "per_team", "static", false, `["/data"]`)
 	if _, err := pool.Exec(context.Background(), `UPDATE challenges SET image='traefik/whoami:latest', internal_port=80 WHERE id=$1`, chID); err != nil {
@@ -140,6 +141,7 @@ func TestDockerPerTeamIsolationIntegration(t *testing.T) {
 	}
 	mgr := runtime.NewManager(rt, q, "127.0.0.1", 31100, 31199)
 	cli := dockerClient(t)
+	assertNoResidue(t, mgr, cli) // Phase 6: no Docker resource residue survives this test
 	ctx := context.Background()
 
 	// Per-team instances sit on their own bridges AND publish a host port. Native
@@ -246,6 +248,7 @@ func TestDockerEgressBlockedIntegration(t *testing.T) {
 		t.Fatalf("docker runtime: %v", err)
 	}
 	mgr := runtime.NewManager(rt, q, "127.0.0.1", 31300, 31399)
+	assertNoResidue(t, mgr, cli) // Phase 6: no Docker resource residue survives this test
 
 	// egress:false challenge.
 	chIDOff := seedContainerChallenge(t, pool, q, "per_team", "static", false, "")
@@ -297,6 +300,7 @@ func TestDockerTeamNetworkGCIntegration(t *testing.T) {
 	}
 	mgr := runtime.NewManager(rt, q, "127.0.0.1", 31200, 31299)
 	cli := dockerClient(t)
+	assertNoResidue(t, mgr, cli) // Phase 6: no Docker resource residue survives this test
 	ctx := context.Background()
 
 	chID := seedContainerChallenge(t, pool, q, "per_team", "static", true, "")

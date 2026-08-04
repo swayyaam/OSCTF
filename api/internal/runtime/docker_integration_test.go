@@ -27,6 +27,7 @@ func TestDockerRuntimeIntegration(t *testing.T) {
 		t.Fatalf("docker runtime: %v", err)
 	}
 	mgr := runtime.NewManager(rt, q, "127.0.0.1", 30500, 30599)
+	assertNoResidue(t, mgr, dockerClient(t)) // Phase 6: no Docker resource residue survives this test
 
 	// Seed a container challenge backed by a tiny public image that listens on 80.
 	chID := uuid.Must(uuid.NewV7())

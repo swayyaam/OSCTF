@@ -29,6 +29,7 @@ linters:
     - gosec
     - forbidigo
     - godox
+    - depguard
   settings:
     forbidigo:
       forbid:
@@ -43,6 +44,104 @@ linters:
       rules:
         - name: package-comments
           disabled: true
+    # depguard encodes the package boundaries from docs/v0.1/01-architecture.md as
+    # enforced rules (not convention). Rules apply to non-test production code
+    # (`!$test`); the composition root delegates client creation to the factory
+    # packages, so it needs no exemption. See AGENTS.md "Conventions".
+    depguard:
+      rules:
+        # Only internal/runtime may talk to the Docker daemon.
+        docker-client:
+          files: ["!$test", "!**/internal/runtime/**"]
+          deny:
+            - pkg: github.com/docker/docker/client
+              desc: only internal/runtime may import the Docker client
+        # Only internal/storage may talk to object storage (MinIO).
+        minio-client:
+          files: ["!$test", "!**/internal/storage/**"]
+          deny:
+            - pkg: github.com/minio/minio-go
+              desc: only internal/storage may import the MinIO client
+        # Only internal/redisx, internal/auth, and internal/scoreboard use Redis
+        # directly (scoreboard reads the frozen snapshot — the real graph, per the
+        # boundary audit). internal/testsupport wires Redis for integration tests.
+        redis-client:
+          files:
+            - "!$test"
+            - "!**/internal/redisx/**"
+            - "!**/internal/auth/**"
+            - "!**/internal/scoreboard/**"
+            - "!**/internal/testsupport/**"
+          deny:
+            - pkg: github.com/redis/go-redis/v9
+              desc: only internal/redisx, internal/auth, internal/scoreboard may use Redis directly
+        # Handlers may import db/gen for types but must not hold the DB pool or
+        # construct queries — they go through a service. (Import-level proxy: the
+        # pool is what query construction needs; handlers are handed services.)
+        handlers-no-db-pool:
+          files: ["**/internal/handlers/**", "!$test"]
+          deny:
+            - pkg: github.com/jackc/pgx/v5/pgxpool
+              desc: handlers must not hold the DB pool; go through a service (db/gen types are fine)
+        # auth and events are FOUNDATIONAL services: identity/credentials (auth)
+        # and the event phase/freeze authority (events). Nearly every other
+        # service legitimately depends on one or both, so ANY package may import
+        # them — that is a layer, not tangling, and hiding events behind an
+        # interface would add indirection without isolation. To stop the layer
+        # decaying into a cycle, the foundational services themselves must NOT
+        # import any other domain service (including each other) — that is the
+        # rule expected to catch a real regression later.
+        #
+        # Do NOT relax this further by analogy: a non-foundational service does
+        # not become foundational just because a couple of others import it.
+        # Foundational status is "identity + event phase", full stop.
+        foundational-auth:
+          files: ["**/internal/auth/**", "!$test"]
+          deny: &all-domain-services
+            - pkg: github.com/osctf/platform/internal/auth
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/users
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/teams
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/events
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/challenges
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/submissions
+              desc: a foundational service must not import any other domain service
+            - pkg: github.com/osctf/platform/internal/scoreboard
+              desc: a foundational service must not import any other domain service
+        foundational-events:
+          files: ["**/internal/events/**", "!$test"]
+          deny: *all-domain-services
+        # All other domain services: no peer-to-peer imports. They may still import
+        # the foundational auth/events above (not listed here), but not each other.
+        service-users:
+          files: ["**/internal/users/**", "!$test"]
+          deny: &peer-services
+            - pkg: github.com/osctf/platform/internal/users
+              desc: domain services must not import one another (depend on foundational auth/events instead)
+            - pkg: github.com/osctf/platform/internal/teams
+              desc: domain services must not import one another (depend on foundational auth/events instead)
+            - pkg: github.com/osctf/platform/internal/challenges
+              desc: domain services must not import one another (depend on foundational auth/events instead)
+            - pkg: github.com/osctf/platform/internal/submissions
+              desc: domain services must not import one another (depend on foundational auth/events instead)
+            - pkg: github.com/osctf/platform/internal/scoreboard
+              desc: domain services must not import one another (depend on foundational auth/events instead)
+        service-teams:
+          files: ["**/internal/teams/**", "!$test"]
+          deny: *peer-services
+        service-challenges:
+          files: ["**/internal/challenges/**", "!$test"]
+          deny: *peer-services
+        service-submissions:
+          files: ["**/internal/submissions/**", "!$test"]
+          deny: *peer-services
+        service-scoreboard:
+          files: ["**/internal/scoreboard/**", "!$test"]
+          deny: *peer-services
   exclusions:
     generated: lax
     rules:

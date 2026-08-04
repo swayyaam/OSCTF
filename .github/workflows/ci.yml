@@ -72,6 +72,14 @@ jobs:
         # Native-Linux runner: cross-network isolation MUST hold, so make the
         # isolation assertions strict (they skip informatively on Docker Desktop).
         run: cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
+      - name: 2-minute soak
+        # Full platform in-process (FakeRuntime on an accelerated clock) driven by
+        # 100 actors under seeded faults. Asserts the continuous invariants —
+        # including REST scoreboard == from-scratch recompute — WS convergence, and
+        # the event-end teardown (zero live instances, full port range reclaimed).
+        # No -race: this is a load/functional test; the unit and integration jobs
+        # own race coverage. Testcontainers provides Postgres+Redis.
+        run: cd api && go test -tags soak -run TestSoak ./internal/soak -timeout 6m -args -duration=2m -seed=1
       - name: migration up-down-up
         run: |
           docker run -d --name pg -e POSTGRES_PASSWORD=osctf -e POSTGRES_USER=osctf -e POSTGRES_DB=osctf -p 5432:5432 postgres:17-alpine

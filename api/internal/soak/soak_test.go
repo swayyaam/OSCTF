@@ -24,7 +24,9 @@
 package soak
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -41,9 +43,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/osctf/platform/internal/apigen"
 	"github.com/osctf/platform/internal/audit"
 	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/challenges"
@@ -58,6 +62,7 @@ import (
 	runtimepkg "github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scheduler"
 	"github.com/osctf/platform/internal/scoreboard"
+	"github.com/osctf/platform/internal/scoring"
 	"github.com/osctf/platform/internal/submissions"
 	"github.com/osctf/platform/internal/teams"
 	"github.com/osctf/platform/internal/testsupport"
@@ -75,6 +80,9 @@ var (
 	fThink    = flag.Duration("think", 1200*time.Millisecond, "mean per-actor think-time between actions (0 = unpaced stress)")
 	fScenario = flag.String("scenario", "mixed", "IP model: mixed | onenat | unique")
 	fPool     = flag.Int("pool", 64, "DB pool max connections")
+	fFaults   = flag.Bool("faults", true, "inject seeded deploy/destroy/reconcile faults + container vanish/exit")
+	fWSC      = flag.Int("wsclients", 8, "scoreboard WebSocket clients that must converge to the REST snapshot")
+	fBreakSB  = flag.Bool("break-scoreboard", false, "DEBUG: stop recomputing the scoreboard so REST goes stale — proves the from-scratch invariant bites")
 )
 
 const (
@@ -149,6 +157,7 @@ func TestSoak(t *testing.T) {
 
 	cursed := fmt.Sprintf("chal-%02d", numChallenges-1) // the fail-deploy cohort targets this per-team challenge
 	var baseRT runtimepkg.ChallengeRuntime
+	var fake *runtimepkg.FakeRuntime
 	if *fDocker {
 		dr, err := runtimepkg.NewDockerRuntime(q, testsupport.DiscardLogger(), "")
 		if err != nil {
@@ -156,9 +165,10 @@ func TestSoak(t *testing.T) {
 		}
 		baseRT = dr
 	} else {
-		baseRT = runtimepkg.NewFakeRuntimeWithClock(q, clk)
+		fake = runtimepkg.NewFakeRuntimeWithClock(q, clk)
+		baseRT = fake
 	}
-	rt := &faultyRuntime{ChallengeRuntime: baseRT}
+	rt := &faultyRuntime{ChallengeRuntime: baseRT, fake: fake, faults: *fFaults, rng: rand.New(rand.NewSource(*fSeed ^ 0x5a17))}
 
 	mgr := runtimepkg.NewManager(rt, q, "127.0.0.1", 30000, 30000+portRangeSize-1)
 	// TTL/Extend/MaxTTL are simulated time (the scheduler reads the injected clock);
@@ -182,8 +192,12 @@ func TestSoak(t *testing.T) {
 		Challenges:  challenges.New(q, &memStore{m: map[string][]byte{}}),
 		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())),
 		Scoreboard:  sb, Runtime: mgr, Scheduler: sched,
-		Recompute: func(rctx context.Context) { _ = sb.Recompute(rctx) },
-		Auth:      auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Recompute: func(rctx context.Context) {
+			if !*fBreakSB { // -break-scoreboard: stop refreshing the cache so REST goes stale
+				_ = sb.Recompute(rctx)
+			}
+		},
+		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, testsupport.DiscardLogger()),
 		Log: testsupport.DiscardLogger(), SessionTTL: time.Hour, MaxAttachmentMB: 100,
 		TrustProxy: true, SecureCookies: false,
@@ -200,11 +214,29 @@ func TestSoak(t *testing.T) {
 	runCtx, runCancel := context.WithTimeout(ctx, *fDuration)
 	defer runCancel()
 
+	// An authenticated client for the invariant checker's participant-surface scans.
+	checkGet := authedGetter(ctx, t, srv.URL, sessions)
+	wsColl := &wsCollector{latest: map[int]map[uuid.UUID]int{}}
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); runBackground(runCtx, sched, sb, mgr, m) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); m.sample(runCtx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); runFaults(runCtx, pool, fake, m, *fSeed) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); m.checkInvariants(runCtx, pool, q, sb, checkGet) }()
+
+	// WS clients live on their own context so they outlast the actors and receive the
+	// final quiescent broadcast before the convergence check.
+	wsCtx, wsCancel := context.WithCancel(ctx)
+	var wsWG sync.WaitGroup
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v0/ws"
+	for i := 0; i < *fWSC; i++ {
+		wsWG.Add(1)
+		go func(id int) { defer wsWG.Done(); wsClient(wsCtx, wsURL, id, wsColl) }(i)
+	}
 
 	w := &world{base: srv.URL, static: static, perTeam: perTeam, cursed: cursed}
 	for i := 0; i < *fActors; i++ {
@@ -212,7 +244,22 @@ func TestSoak(t *testing.T) {
 		a := newActor(ctx, t, i, w, sessions, rng.Int63())
 		go func() { defer wg.Done(); a.run(runCtx, m) }()
 	}
-	wg.Wait()
+	wg.Wait() // actors + background + faults + invariants done; WS clients still live
+
+	// End-of-run teardown: jump the clock past event end, converge CleanupEnded, and
+	// assert zero live per-team instances + the full port range reclaimed. This is the
+	// single moment a real event changes the most state at once.
+	endOfRunTeardown(ctx, t, sc, sched, pool)
+
+	// Quiesced (no new solves): a couple of final recomputes flush the throttled
+	// broadcast to the still-connected WS clients, which must then match REST.
+	for i := 0; i < 3; i++ {
+		_ = sb.Recompute(ctx)
+		time.Sleep(600 * time.Millisecond)
+	}
+	m.wsConverged, m.wsChecked = checkWSConvergence(ctx, sb, wsColl)
+	wsCancel()
+	wsWG.Wait()
 
 	m.report(t, sc)
 }
@@ -338,18 +385,42 @@ func ptr[T any](v T) *T { return &v }
 
 // ---------------- faulty runtime ----------------
 
-// faultyRuntime wraps a ChallengeRuntime and fails every Deploy of the cursed
-// challenge, so the fail-deploy cohort produces error rows for the reaper to
-// clear. (Commit 2 extends this with seeded random faults.)
+// faultyRuntime wraps a ChallengeRuntime: it always fails the cursed challenge's
+// deploys (deterministic, for the fail-deploy cohort) and, when -faults is set,
+// injects seeded random deploy/destroy failures. The fault injector (runFaults)
+// additionally vanishes/exits live containers via fake.
 type faultyRuntime struct {
 	runtimepkg.ChallengeRuntime
+	fake   *runtimepkg.FakeRuntime // nil in -docker mode
+	faults bool
+	mu     sync.Mutex
+	rng    *rand.Rand
+}
+
+func (f *faultyRuntime) chance(p float64) bool {
+	if !f.faults {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rng.Float64() < p
 }
 
 func (f *faultyRuntime) Deploy(ctx context.Context, spec runtimepkg.InstanceSpec) (runtimepkg.Instance, error) {
 	if c := cursedID.Load(); c != nil && spec.ChallengeID == *c {
-		return runtimepkg.Instance{}, runtimepkg.ErrDaemonTimeout // deploy-time fault → error row
+		return runtimepkg.Instance{}, runtimepkg.ErrDaemonTimeout // deterministic: the cursed challenge
+	}
+	if f.chance(0.04) {
+		return runtimepkg.Instance{}, runtimepkg.ErrDaemonTimeout // random deploy fault → stuck row → reaper
 	}
 	return f.ChallengeRuntime.Deploy(ctx, spec)
+}
+
+func (f *faultyRuntime) Destroy(ctx context.Context, id uuid.UUID) error {
+	if f.chance(0.03) {
+		return runtimepkg.ErrDaemonTimeout // transient destroy fault; the row stays, retried later
+	}
+	return f.ChallengeRuntime.Destroy(ctx, id)
 }
 
 // ---------------- actors ----------------
@@ -536,7 +607,9 @@ func runBackground(ctx context.Context, sched *scheduler.Scheduler, sb *scoreboa
 				m.reaped.Add(int64(n))
 			}
 			_ = mgr.Reconcile(ctx)
-			_ = sb.Recompute(ctx)
+			if !*fBreakSB {
+				_ = sb.Recompute(ctx)
+			}
 		}
 	}
 }
@@ -551,7 +624,18 @@ type collector struct {
 	rl    sync.Mutex
 	byAct map[string]*actStat
 
-	reaped atomic.Int64
+	reaped         atomic.Int64
+	faultsInjected atomic.Int64
+
+	invChecks atomic.Int64
+	invCostNs atomic.Int64
+	invLag    atomic.Int64 // scoreboard checks that mismatched transiently then reconciled (lag, not a bug)
+
+	vmu        sync.Mutex
+	viol       map[string]int // invariant name → count of confirmed violations
+	violSample []string       // a few human-readable examples
+
+	wsConverged, wsChecked int
 
 	peakHeap       atomic.Uint64
 	peakGoroutines atomic.Int64
@@ -560,6 +644,18 @@ type collector struct {
 
 	baseExpiries float64
 	baseSpawns   float64
+}
+
+func (m *collector) recordViol(name, detail string) {
+	m.vmu.Lock()
+	if m.viol == nil {
+		m.viol = map[string]int{}
+	}
+	m.viol[name]++
+	if len(m.violSample) < 12 {
+		m.violSample = append(m.violSample, name+": "+detail)
+	}
+	m.vmu.Unlock()
 }
 
 type actStat struct {
@@ -676,10 +772,40 @@ func (m *collector) report(t *testing.T, sc *simClock) {
 	var runNoTTL int
 	_ = m.pool.QueryRow(dctx, `SELECT count(*) FROM instances WHERE state='running' AND expires_at IS NULL`).Scan(&runNoTTL)
 	t.Logf("db state    : %s  (running-without-ttl=%d)", strings.Join(states, " "), runNoTTL)
+
+	avgMs := 0.0
+	if c := m.invChecks.Load(); c > 0 {
+		avgMs = float64(m.invCostNs.Load()) / float64(c) / 1e6
+	}
+	t.Logf("faults      : container vanish/exit injected=%d  (+seeded deploy/destroy faults inline)", m.faultsInjected.Load())
+	t.Logf("invariants  : %d checks  avg %.1f ms/check  scoreboard transient-lag=%d", m.invChecks.Load(), avgMs, m.invLag.Load())
+	t.Logf("ws converge : %d/%d clients matched the REST snapshot", m.wsConverged, m.wsChecked)
+
+	m.vmu.Lock()
+	nviol := 0
+	for _, c := range m.viol {
+		nviol += c
+	}
+	viols, samples := m.viol, m.violSample
+	m.vmu.Unlock()
+	if nviol == 0 {
+		t.Logf("invariants  : ALL HELD (0 confirmed violations)")
+	} else {
+		t.Logf("invariants  : %d CONFIRMED VIOLATIONS %v", nviol, viols)
+		for _, s := range samples {
+			t.Logf("   • %s", s)
+		}
+	}
 	t.Logf("%s", line)
 
 	if total == 0 {
 		t.Fatal("no actions executed")
+	}
+	if nviol > 0 {
+		t.Errorf("%d confirmed invariant violations: %v", nviol, viols)
+	}
+	if m.wsChecked > 0 && m.wsConverged == 0 {
+		t.Errorf("no WS client converged to the REST snapshot (%d received a board)", m.wsChecked)
 	}
 }
 
@@ -742,6 +868,327 @@ func liftInt(a *atomic.Int64, v int64) {
 		if v <= cur || a.CompareAndSwap(cur, v) {
 			return
 		}
+	}
+}
+
+// ---------------- fault injection ----------------
+
+// runFaults vanishes/exits a random live container periodically (fake only), so
+// reconcile marks the row lost and the reaper reclaims it — exercising the
+// lost→reap path under load. faultyRuntime handles the deploy/destroy faults.
+func runFaults(ctx context.Context, pool *pgxpool.Pool, fake *runtimepkg.FakeRuntime, m *collector, seed int64) {
+	if fake == nil || !*fFaults {
+		return
+	}
+	rng := rand.New(rand.NewSource(seed ^ 0x7a1c))
+	tick := time.NewTicker(700 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			var id uuid.UUID
+			if err := pool.QueryRow(ctx, `SELECT id FROM instances WHERE state='running' ORDER BY random() LIMIT 1`).Scan(&id); err != nil {
+				continue
+			}
+			if rng.Intn(2) == 0 {
+				fake.VanishContainer(id)
+			} else {
+				fake.ExitContainer(id)
+			}
+			// Age the row past reconcile's grace (which trails the ~150s-wall deploy
+			// timeout) so the vanished container is marked lost this run and then
+			// reclaimed by the reaper — the fault path we want to exercise; a 2m run
+			// would otherwise never reach the grace.
+			_, _ = pool.Exec(ctx, `UPDATE instances SET updated_at = now() - interval '3 minutes' WHERE id=$1 AND state='running'`, id)
+			m.faultsInjected.Add(1)
+		}
+	}
+}
+
+// ---------------- continuous invariants ----------------
+
+func (m *collector) checkInvariants(ctx context.Context, pool *pgxpool.Pool, q *gen.Queries, sb *scoreboard.Service, get func(string) []byte) {
+	// Sampled, not every tick: the from-scratch recompute reads the whole solve log.
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			start := time.Now()
+			m.oneInvariantPass(ctx, pool, q, sb, get)
+			m.invChecks.Add(1)
+			m.invCostNs.Add(int64(time.Since(start)))
+		}
+	}
+}
+
+func (m *collector) oneInvariantPass(ctx context.Context, pool *pgxpool.Pool, q *gen.Queries, sb *scoreboard.Service, get func(string) []byte) {
+	// Quota: no team ever has more than the configured running instances.
+	var overQuota int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT team_id FROM instances WHERE state='running' AND team_id IS NOT NULL GROUP BY team_id HAVING count(*) > 3) x`).Scan(&overQuota)
+	if overQuota > 0 {
+		m.recordViol("quota-exceeded", fmt.Sprintf("%d teams over quota 3", overQuota))
+	}
+	// Port range: no duplicate host_port, and never more allocated than the range holds.
+	var used, distinct int
+	_ = pool.QueryRow(ctx, `SELECT count(host_port), count(DISTINCT host_port) FROM instances WHERE host_port IS NOT NULL`).Scan(&used, &distinct)
+	if used != distinct {
+		m.recordViol("duplicate-port", fmt.Sprintf("%d ports held vs %d distinct", used, distinct))
+	}
+	if distinct > portRangeSize {
+		m.recordViol("port-range-exceeded", fmt.Sprintf("%d > %d", distinct, portRangeSize))
+	}
+	// Scoreboard: what REST SERVES (the cached snapshot, exactly as a client sees it —
+	// no forced recompute here) must equal an independent from-scratch recompute of
+	// the solve log. Under continuous solves the cache lags the log by up to the
+	// background recompute interval, so a one-shot mismatch is lag; re-read after a
+	// pause longer than that interval, and a mismatch that survives is a real stale-
+	// cache / broken-recompute divergence.
+	if ok, _ := scoreboardMatches(ctx, q, sb); !ok {
+		time.Sleep(600 * time.Millisecond) // > the 400ms background recompute interval
+		if ok2, d2 := scoreboardMatches(ctx, q, sb); !ok2 {
+			m.recordViol("scoreboard-mismatch", d2) // survived a full recompute cycle → real
+		} else {
+			m.invLag.Add(1)
+		}
+	}
+	// No flag on a participant surface, points non-negative.
+	if snap, err := sb.Current(ctx, false); err == nil {
+		for _, e := range snap.Standings {
+			if e.Points < 0 {
+				m.recordViol("negative-points", fmt.Sprintf("team %s: %d", e.TeamID, e.Points))
+				break
+			}
+		}
+	}
+	for _, path := range []string{"/api/v0/scoreboard", "/api/v0/challenges"} {
+		if bytes.Contains(get(path), []byte("OSCTF{")) {
+			m.recordViol("flag-leak", path)
+		}
+	}
+}
+
+// scoreboardMatches reports whether the scoreboard REST SERVES (sb.Current — the
+// cached snapshot, no forced recompute) equals an independent from-scratch
+// recompute of the solve log, and a detail string for the first discrepancy. It
+// records nothing — the caller decides (after a delayed re-read) whether a
+// mismatch is a confirmed stale-cache violation or ordinary lag.
+func scoreboardMatches(ctx context.Context, q *gen.Queries, sb *scoreboard.Service) (bool, string) {
+	want, err := independentStandings(ctx, q)
+	if err != nil {
+		return true, ""
+	}
+	snap, err := sb.Current(ctx, false)
+	if err != nil {
+		return true, ""
+	}
+	got := map[uuid.UUID]int{}
+	for _, e := range snap.Standings {
+		got[e.TeamID] = e.Points
+	}
+	for tid, pts := range want {
+		if got[tid] != pts {
+			return false, fmt.Sprintf("team %s: rest=%d fromscratch=%d", tid, got[tid], pts)
+		}
+	}
+	for tid, pts := range got {
+		if pts != 0 && want[tid] != pts {
+			return false, fmt.Sprintf("overcount team %s: rest=%d fromscratch=%d", tid, pts, want[tid])
+		}
+	}
+	return true, ""
+}
+
+// independentStandings recomputes team points straight from the valid-solve log
+// and the pure scoring engine, replicating compute()'s rules (per-challenge value
+// from the non-banned solve count) without touching the scoreboard service's
+// snapshot/cache/broadcast path — so a stale cache or broadcast divergence shows.
+func independentStandings(ctx context.Context, q *gen.Queries) (map[uuid.UUID]int, error) {
+	solves, err := q.ListValidSolves(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type cp struct {
+		mode string
+		p    scoring.ChallengeScoring
+	}
+	count := map[uuid.UUID]int{}
+	params := map[uuid.UUID]cp{}
+	for _, r := range solves {
+		if _, ok := params[r.ChallengeID]; !ok {
+			c := cp{mode: r.Scoring, p: scoring.ChallengeScoring{Initial: int(r.PointsInitial)}}
+			if r.PointsMin != nil {
+				c.p.Min = int(*r.PointsMin)
+			}
+			if r.Decay != nil {
+				c.p.Decay = int(*r.Decay)
+			}
+			params[r.ChallengeID] = c
+		}
+		if !r.TeamBanned {
+			count[r.ChallengeID]++
+		}
+	}
+	value := make(map[uuid.UUID]int, len(params))
+	for id, c := range params {
+		value[id] = scoring.Value(c.mode, c.p, count[id])
+	}
+	pts := map[uuid.UUID]int{}
+	for _, r := range solves {
+		pts[r.TeamID] += value[r.ChallengeID]
+	}
+	return pts, nil
+}
+
+// ---------------- WebSocket convergence ----------------
+
+type wsCollector struct {
+	mu     sync.Mutex
+	latest map[int]map[uuid.UUID]int
+}
+
+func (c *wsCollector) set(id int, s map[uuid.UUID]int) {
+	c.mu.Lock()
+	c.latest[id] = s
+	c.mu.Unlock()
+}
+
+func wsClient(ctx context.Context, wsURL string, id int, coll *wsCollector) {
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(4 << 20)
+	for ctx.Err() == nil {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		var env struct {
+			Type string          `json:"type"`
+			Data json.RawMessage `json:"data"`
+		}
+		if json.Unmarshal(data, &env) != nil || env.Type != "scoreboard" {
+			continue
+		}
+		var snap apigen.Scoreboard
+		if json.Unmarshal(env.Data, &snap) != nil {
+			continue
+		}
+		st := make(map[uuid.UUID]int, len(snap.Standings))
+		for _, e := range snap.Standings {
+			st[e.TeamId] = e.Points
+		}
+		coll.set(id, st)
+	}
+}
+
+// checkWSConvergence asserts every WS client that received a board has converged
+// to the REST snapshot. Returns (converged, checked).
+func checkWSConvergence(ctx context.Context, sb *scoreboard.Service, coll *wsCollector) (converged, checked int) {
+	snap, err := sb.Current(ctx, false)
+	if err != nil {
+		return 0, 0
+	}
+	rest := map[uuid.UUID]int{}
+	for _, e := range snap.Standings {
+		if e.Points != 0 {
+			rest[e.TeamID] = e.Points
+		}
+	}
+	coll.mu.Lock()
+	defer coll.mu.Unlock()
+	for _, st := range coll.latest {
+		if len(st) == 0 {
+			continue // never received a non-empty board
+		}
+		checked++
+		nz := map[uuid.UUID]int{}
+		for tid, p := range st {
+			if p != 0 {
+				nz[tid] = p
+			}
+		}
+		if len(nz) == len(rest) && func() bool {
+			for tid, p := range nz {
+				if rest[tid] != p {
+					return false
+				}
+			}
+			return true
+		}() {
+			converged++
+		}
+	}
+	return converged, checked
+}
+
+// ---------------- end-of-run teardown ----------------
+
+// endOfRunTeardown advances simulated time past the event end, converges the
+// event-end cleanup, and asserts zero live per-team instances and a fully
+// reclaimed port range — the single moment a real event changes the most state.
+func endOfRunTeardown(ctx context.Context, t *testing.T, sc *simClock, sched *scheduler.Scheduler, pool *pgxpool.Pool) {
+	t.Helper()
+	if sc == nil {
+		return // -real clock: cannot jump past the event end
+	}
+	sc.Jump(10 * time.Hour) // event ends at base+8h
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		remaining, err := sched.CleanupEnded(ctx)
+		if err != nil {
+			t.Fatalf("teardown CleanupEnded: %v", err)
+		}
+		if remaining == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("event-end teardown did not converge: %d per-team instances remain", remaining)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	var live int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM instances WHERE team_id IS NOT NULL AND state IN ('running','pending','error','lost')`).Scan(&live)
+	if live != 0 {
+		t.Errorf("after event-end teardown: %d per-team instances still present, want 0", live)
+	}
+	var ports int
+	_ = pool.QueryRow(ctx, `SELECT count(DISTINCT host_port) FROM instances WHERE host_port IS NOT NULL`).Scan(&ports)
+	if ports != 0 {
+		t.Errorf("after event-end teardown: %d host ports still reserved, want 0 (port range not fully reclaimed)", ports)
+	}
+}
+
+// authedGetter returns a GET closure authenticated as a participant, for the
+// invariant checker's participant-surface scans.
+func authedGetter(ctx context.Context, t *testing.T, base string, sessions *auth.SessionStore) func(string) []byte {
+	t.Helper()
+	sess, err := sessions.Create(ctx, seededUsers[0].userID, "user", "10.0.0.9", "checker")
+	if err != nil {
+		t.Fatalf("checker session: %v", err)
+	}
+	jar, _ := cookiejar.New(nil)
+	u, _ := url.Parse(base)
+	jar.SetCookies(u, []*http.Cookie{{Name: auth.CookieName, Value: sess.Token, Path: "/"}})
+	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
+	return func(path string) []byte {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+		if err != nil {
+			return nil
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return b
 	}
 }
 

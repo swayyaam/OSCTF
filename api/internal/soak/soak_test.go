@@ -805,8 +805,15 @@ func (m *collector) report(t *testing.T, sc *simClock) {
 	if nviol > 0 {
 		t.Errorf("%d confirmed invariant violations: %v", nviol, viols)
 	}
-	if m.wsChecked > 0 && m.wsConverged == 0 {
-		t.Errorf("no WS client converged to the REST snapshot (%d received a board)", m.wsChecked)
+	// A strict majority of the configured clients must converge — "at least one
+	// converged" isn't an assertion. 8/8 every seed across the sweep, so a majority
+	// threshold sits well inside the observed noise while still failing a real
+	// broadcast regression (a client that never connects counts against the gate).
+	if *fWSC > 0 {
+		if want := *fWSC/2 + 1; m.wsConverged < want {
+			t.Errorf("WS convergence below majority: %d/%d configured clients matched the REST snapshot (%d received a board), want >= %d",
+				m.wsConverged, *fWSC, m.wsChecked, want)
+		}
 	}
 }
 

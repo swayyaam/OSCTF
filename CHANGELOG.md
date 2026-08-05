@@ -20,6 +20,16 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ### Fixed (reliability)
 
+- **Post-freeze solves could leak into the frozen scoreboard.** `MaybeSnapshotFreeze`
+  checked the frozen-snapshot key outside its mutex and wrote it with a plain `SET`,
+  so at the instant a freeze began two first-accesses — the public scoreboard read
+  path and the background loop — could both compute and write the board, the later
+  overwriting the frozen snapshot with one that included solves landing *after* the
+  freeze, undermining the freeze the scoring rules promise. It now re-checks under the
+  lock and writes with `SETNX`, capturing the frozen board exactly once at freeze
+  onset (the guard is Redis-side, so it holds across replicas, not just in-process).
+  *Reachable via the public scoreboard endpoint.* Surfaced by the Phase 5
+  read-check-write audit.
 - **Max team size bypassable under concurrent joins.** `Join` counted members and
   then inserted in two separate statements with nothing serializing them, so several
   users submitting the same invite code at once each read a stale under-limit count

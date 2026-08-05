@@ -130,15 +130,38 @@ func (s *Service) MaybeSnapshotFreeze(ctx context.Context) error {
 	if exists > 0 {
 		return nil
 	}
+	if hook := afterFrozenExistsCheckHook; hook != nil {
+		hook() // test seam: drives the concurrent first-snapshot race
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Re-check under the lock: both the public read path and the background loop call
+	// this, so another goroutine may have snapshotted between the existence check
+	// above and the lock. Without this the later writer recomputes and overwrites the
+	// frozen board with a slightly later snapshot, leaking solves that landed after
+	// the freeze into the "frozen" view.
+	exists, err = s.rdb.Exists(ctx, keyFrozen).Result()
+	if err != nil {
+		return fmt.Errorf("scoreboard: re-checking frozen key: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
 	snap, err := compute(ctx, s.q, s.clock())
 	if err != nil {
 		return err
 	}
 	snap.Frozen = true
-	return s.write(ctx, keyFrozen, snap)
+	// SETNX, not SET: the first writer wins even across processes — the mutex only
+	// serializes this replica — so the frozen board is captured exactly once at
+	// freeze onset and never overwritten by a later racing snapshot.
+	return s.writeNX(ctx, keyFrozen, snap)
 }
+
+// afterFrozenExistsCheckHook, when set by a test, runs after the frozen-key
+// existence check and before the snapshot write. It exists to make the
+// concurrent-first-snapshot race deterministic; it is nil in production.
+var afterFrozenExistsCheckHook func()
 
 // ClearFreeze removes the frozen snapshot (admin cleared freeze_at → board unfreezes).
 func (s *Service) ClearFreeze(ctx context.Context) error {
@@ -162,6 +185,20 @@ func (s *Service) write(ctx context.Context, key string, snap Snapshot) error {
 		return fmt.Errorf("scoreboard: marshaling snapshot: %w", err)
 	}
 	if err := s.rdb.Set(ctx, key, b, 0).Err(); err != nil {
+		return fmt.Errorf("scoreboard: writing %s: %w", key, err)
+	}
+	return nil
+}
+
+// writeNX writes a snapshot only if the key is absent (SET NX), so a once-only value
+// like the frozen board cannot be overwritten by a concurrent write — the atomicity
+// is Redis-side, so it holds across processes, not just this replica's mutex.
+func (s *Service) writeNX(ctx context.Context, key string, snap Snapshot) error {
+	b, err := json.Marshal(snap)
+	if err != nil {
+		return fmt.Errorf("scoreboard: marshaling snapshot: %w", err)
+	}
+	if err := s.rdb.SetNX(ctx, key, b, 0).Err(); err != nil {
 		return fmt.Errorf("scoreboard: writing %s: %w", key, err)
 	}
 	return nil

@@ -1,0 +1,15 @@
+{
+  // Type-check config for `npm run typecheck`: the WHOLE of src, INCLUDING test
+  // files (which tsconfig.app.json excludes so the shippable build never compiles a
+  // test's cross-package import of ../../../api). This runs only in the repo/CI
+  // context where the api tree is present, never in the isolated dashboard Docker
+  // build. It exists so test files stay type-checked after being dropped from the
+  // build — otherwise excluding them silently reduces coverage.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": []
+}

@@ -23,5 +23,10 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"],
+  // The shippable build (tsc -b, incl. the isolated dashboard Docker stage) must not
+  // compile test files: frame-types.contract.test.ts imports ../../../api/... which
+  // does not exist in that stage's context, and it once broke the image build. Tests
+  // still RUN via vitest (`npm test`) and are TYPE-CHECKED via tsconfig.test.json
+  // (`npm run typecheck`), both in the repo context where the api tree is present.
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

@@ -73,13 +73,22 @@ jobs:
         # isolation assertions strict (they skip informatively on Docker Desktop).
         run: cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
       - name: 2-minute soak
+        shell: bash # -eo pipefail: a failed `go test` in the pipe must fail the step
         # Full platform in-process (FakeRuntime on an accelerated clock) driven by
         # 100 actors under seeded faults. Asserts the continuous invariants —
         # including REST scoreboard == from-scratch recompute — WS convergence, and
         # the event-end teardown (zero live instances, full port range reclaimed).
         # No -race: this is a load/functional test; the unit and integration jobs
         # own race coverage. Testcontainers provides Postgres+Redis.
-        run: cd api && go test -tags soak -run TestSoak ./internal/soak -timeout 6m -args -duration=2m -seed=1
+        #
+        # `-run TestSoak` selects by name, and `go test` exits 0 with "no tests to
+        # run" when nothing matches — the silent-pass that once dropped five tests.
+        # So assert the target was actually exercised: fail unless TestSoak PASSed.
+        run: |
+          cd api
+          go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee soak.out
+          grep -q '^--- PASS: TestSoak' soak.out \
+            || { echo '::error::soak produced no PASS for TestSoak — it exercised nothing'; exit 1; }
       - name: migration up-down-up
         run: |
           docker run -d --name pg -e POSTGRES_PASSWORD=osctf -e POSTGRES_USER=osctf -e POSTGRES_DB=osctf -p 5432:5432 postgres:17-alpine

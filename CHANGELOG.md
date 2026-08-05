@@ -3,6 +3,17 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
+## Unreleased
+
+### CI
+
+- **The CI-pipeline no-op fixes landed after the `v0.2.2` tag** (commit `f2622e7`):
+  the soak step now asserts its own `--- PASS: TestSoak`, the dashboard `typecheck`
+  is no longer a zero-file no-op, and `vitest` fails on zero tests. The `v0.2.2` tag
+  therefore points at a commit whose CI config still contains those no-ops. The
+  shipped code is unaffected — do not check out `v0.2.2` and trust its pipeline to
+  have exercised what it claims; use `main`.
+
 ## v0.2.2 — Concurrency hardening
 
 A patch release fixing a set of concurrency and data-corruption bugs, found by two

@@ -1,72 +1,111 @@
 # OSCTF
 
-> An open, self-hostable platform for cybersecurity competitions, labs, and training.
-> **v0.2:** dynamic **per-team challenge instances** — each team gets its own
-> isolated container, with its own flag, managed by a built-in scheduler.
+An open, self-hostable platform for running cybersecurity competitions, labs, and training.
 
-CTFs are the entry point; the durable goal is to be the open infrastructure layer that
-universities, communities, and companies build their security education on. See
-[`docs/project-desc.md`](docs/project-desc.md) for the full vision and roadmap.
+**What makes it different:** most CTF platforms hand every team the *same* shared challenge
+instance. OSCTF gives each team its **own isolated container** — its own port, its own
+network, an optional per-team unique flag — created on demand and lifecycle-managed by a
+built-in **scheduler** (TTL, extend, per-team quota, automatic teardown at event end). That
+per-team-instance model, not the scoreboard, is the reason to use it over a CTFd-class tool.
 
-## Quick start (golden path)
+> **Network isolation is enforced on Linux only.** On **Docker Desktop (macOS/Windows)**
+> per-team containers are reachable across networks when ports are published — isolation is
+> *not* enforced there. Run real events on a Linux host. Detail:
+> [`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md) ·
+> [issue #2](https://github.com/swayam-mishra/OSCTF/issues/2).
+
+CTFs are the entry point; the durable goal is to be the open infrastructure layer
+universities, communities, and companies build their security education on. Vision and
+roadmap: [`docs/project-desc.md`](docs/project-desc.md).
+
+## Quick start
 
 ```bash
-git clone <repo> && cd OSCTF
-cp .env.example .env          # then edit OSCTF_ADMIN_EMAIL / OSCTF_ADMIN_PASSWORD
-docker compose up -d --build
+git clone https://github.com/swayam-mishra/OSCTF && cd OSCTF
+cp .env.example .env
+
+# Change OSCTF_ADMIN_PASSWORD (default: change-me-now) before exposing this to anyone.
+
+# On Linux, give the platform access to the host Docker socket group, or every
+# container challenge fails at instance-start time (Docker Desktop can skip this):
+echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
+
+docker compose up -d --build --wait
 ```
 
-Within minutes you have authentication, teams, a challenge board with seeded examples,
-flag submission with scoring, a live scoreboard, and an admin panel — at
-<http://localhost:8080>. No cloud account, no license key, no external services.
+Then open <http://localhost:8080>: authentication, teams, a challenge board with seeded
+examples, flag submission with scoring, a live scoreboard, and an admin panel. No cloud
+account, no license key, no external services.
 
-> **Security note:** the platform mounts the host Docker socket to run challenge
-> containers, which is **root-equivalent on the host**. Run events on a dedicated VM.
-> See [`docs/v0.1/08-challenge-runtime.md`](docs/v0.1/08-challenge-runtime.md).
+> **The platform mounts the host Docker socket** to launch challenge containers, which is
+> **root-equivalent on the host.** Run events on a dedicated host/VM. See
+> [`docs/v0.1/08-challenge-runtime.md`](docs/v0.1/08-challenge-runtime.md).
+
+## Running a real event
+
+The quickstart is fine for a local trial; before an actual event, read
+[`docs/v0.1/10-deployment.md`](docs/v0.1/10-deployment.md). The notes people most often miss:
+
+- **Linux host** — for the per-team isolation above, and set `OSCTF_DOCKER_GID` to the
+  socket's group.
+- **Large scoreboards** — each live scoreboard WebSocket is a file descriptor;
+  `OSCTF_WS_MAX_CONNS` is clamped to `RLIMIT_NOFILE`, so raise the host ulimit
+  (e.g. `LimitNOFILE=65536`) and size the cap accordingly for a few thousand viewers.
+- **Shared-NAT venues** — the per-IP register/login limits default generous so a campus or
+  venue behind one NAT can all sign in at event start; tighten `OSCTF_REGISTER_IP_*` /
+  `OSCTF_LOGIN_IP_*` for a public-internet deployment.
+- **Instance tuning** — `OSCTF_INSTANCE_TTL` / `_EXTEND` / `_MAX_TTL` / `_REAP_AFTER`,
+  `OSCTF_TEAM_INSTANCE_QUOTA`, `OSCTF_PORT_RANGE_START` / `_END` (default `30000`–`32767`,
+  which must be open on the host). All settings are documented in
+  [`.env.example`](.env.example).
 
 ## Local development
 
 ```bash
-make setup      # install pinned tools + npm ci
+make setup      # install pinned tools + dashboard deps
 make dev        # start Postgres, Redis, MinIO (compose)
 make dev-api    # run the Go API on :8080
 make dev-web    # run the Vite dev server on :5173 (proxies /api -> :8080)
 ```
 
-- API: <http://localhost:8080>
-- Web (dev): <http://localhost:5173>
-- MinIO console (dev): <http://localhost:9001>
+- API <http://localhost:8080> · Web (dev) <http://localhost:5173> · MinIO console <http://localhost:9001>
 
-For everything else — architecture, how to add an endpoint, how to author a challenge —
-read [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
+## Tests
+
+```bash
+make test              # unit (Go -short + web)
+make test-integration  # integration (testcontainers spin up Postgres/Redis/MinIO)
+make smoke             # build the stack, run the end-to-end smoke test, tear down
+```
+
+The testing tiers, build tags, and the invariants they pin are described in
+[`AGENTS.md`](AGENTS.md); CI runs all of it (plus a compose smoke and Playwright e2e) on
+every push.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `api/` | Go backend (modular monolith): HTTP, services, stores, runtime |
+| `api/` | Go backend (modular monolith): HTTP, services, stores, challenge runtime, scheduler |
 | `dashboard/` | React + TypeScript SPA (Vite) |
 | `examples/` | Seeded example challenges (`challenge.yaml` format) |
-| `deploy/` | Prometheus/Grafana/Caddy configs (optional compose profiles) |
-| `docs/` | The build specification (`docs/v0.1/`) and vision (`docs/project-desc.md`) |
+| `deploy/` | Prometheus / Grafana / Caddy configs (optional compose profiles) |
+| `docs/` | Versioned build specs (`v0.1` → `v1.0`) + guides — start at [`docs/README.md`](docs/README.md) |
 | `scripts/` | Smoke test and dev helpers |
-
-## License
-
-[Apache License 2.0](LICENSE). Contributions are accepted under the same license
-(see [`NOTICE`](NOTICE)).
-
-## Per-team instances (v0.2)
-
-Mark a `container` challenge `per_team` in the admin editor; participants then click
-**Start** to get their own container (own port, network-isolated, optional per-team
-unique flag) and **Stop**/**Extend** it. The scheduler expires instances on a TTL
-and tears them all down at event end. Tunable via `OSCTF_INSTANCE_TTL`,
-`OSCTF_INSTANCE_EXTEND`, `OSCTF_INSTANCE_MAX_TTL`, `OSCTF_TEAM_INSTANCE_QUOTA`, and
-`OSCTF_FLAG_PREFIX` (see [`.env.example`](.env.example)). Every challenge container
-now runs read-only-rootfs with egress control; per-team instancing needs the wider
-`OSCTF_PORT_RANGE` (30000–32767) open on the host. Full spec: [`docs/v0.2/`](docs/v0.2/README.md).
 
 ## Status
 
-v0.2, feature-complete. No API stability promises before v1.0.
+**Latest release: see [Releases](https://github.com/swayam-mishra/OSCTF/releases)** and the
+[CHANGELOG](CHANGELOG.md). Shipped so far: **v0.1** (MVP) → **v0.2** (per-team instances +
+scheduler), hardened across **v0.2.1** (security) and **v0.2.2** (concurrency).
+
+**Next:** **v0.3** — a plugin system (auth / scoring / notifications / challenge types) and a
+stable, semver-governed **API v1** — is fully specified in
+[`docs/v0.3/`](docs/v0.3/README.md) and [`docs/v0.3.1/`](docs/v0.3.1/README.md), but **not
+yet built**. The HTTP surface is still `/api/v0`; there are no API stability promises before
+v1.0.
+
+## License
+
+[Apache License 2.0](LICENSE). Contributions are accepted under the same license (see
+[`NOTICE`](NOTICE)).

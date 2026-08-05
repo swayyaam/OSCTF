@@ -85,6 +85,83 @@ func TestTeamsJoinConcurrentDoesNotExceedMaxSize(t *testing.T) {
 	}
 }
 
+// TestTeamsRepairStrandedCaptains covers the startup self-heal for teams a pre-fix
+// build could strand with a non-member captain: it promotes the earliest-joining
+// member, leaves healthy teams alone, cannot touch an empty historical team (no
+// member to promote), and is idempotent.
+func TestTeamsRepairStrandedCaptains(t *testing.T) {
+	pool, _ := testsupport.Postgres(t)
+	q := gen.New(pool)
+	svc := teams.New(pool, 8)
+	ctx := context.Background()
+
+	mkUser := func() uuid.UUID {
+		uid := uuid.Must(uuid.NewV7())
+		if _, err := q.CreateUser(ctx, gen.CreateUserParams{ID: uid, Username: "u" + uniq(uid), Email: uniq(uid) + "@e.test", PasswordHash: "x", Role: "user"}); err != nil {
+			t.Fatalf("user: %v", err)
+		}
+		return uid
+	}
+	mkTeam := func(captain uuid.UUID, members ...uuid.UUID) uuid.UUID {
+		tid := uuid.Must(uuid.NewV7())
+		if _, err := q.CreateTeam(ctx, gen.CreateTeamParams{ID: tid, Name: "t" + uniq(tid), InviteCode: uniq(tid), CaptainID: captain}); err != nil {
+			t.Fatalf("team: %v", err)
+		}
+		for _, m := range members {
+			if err := q.AddTeamMember(ctx, gen.AddTeamMemberParams{TeamID: tid, UserID: m}); err != nil {
+				t.Fatalf("member: %v", err)
+			}
+		}
+		return tid
+	}
+
+	// Stranded team: captain A removed from members; earliest remaining is B.
+	a, b, c := mkUser(), mkUser(), mkUser()
+	stranded := mkTeam(a, a, b, c)
+	if err := q.RemoveTeamMember(ctx, gen.RemoveTeamMemberParams{TeamID: stranded, UserID: a}); err != nil {
+		t.Fatalf("strand: %v", err)
+	}
+	// Healthy team: captain is a member — must be left untouched.
+	d := mkUser()
+	healthy := mkTeam(d, d)
+	// Empty historical team: no members (captain stale) — nothing to promote.
+	e := mkUser()
+	empty := mkTeam(e) // captain e, but never added as a member
+
+	repaired, err := svc.RepairStrandedCaptains(ctx)
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if len(repaired) != 1 {
+		t.Fatalf("repaired %d teams, want exactly 1 (only the stranded one): %+v", len(repaired), repaired)
+	}
+	if repaired[0].TeamID != stranded || repaired[0].NewCaptain != b {
+		t.Fatalf("repair = team %s captain %s, want team %s captain %s (earliest joiner)",
+			repaired[0].TeamID, repaired[0].NewCaptain, stranded, b)
+	}
+	assertCaptain := func(team, want uuid.UUID, label string) {
+		var got uuid.UUID
+		if err := pool.QueryRow(ctx, `SELECT captain_id FROM teams WHERE id=$1`, team).Scan(&got); err != nil {
+			t.Fatalf("%s captain read: %v", label, err)
+		}
+		if got != want {
+			t.Fatalf("%s captain=%s, want %s", label, got, want)
+		}
+	}
+	assertCaptain(stranded, b, "stranded") // promoted to earliest joiner
+	assertCaptain(healthy, d, "healthy")   // untouched
+	assertCaptain(empty, e, "empty")       // no member to promote → unchanged
+
+	// Idempotent: a second pass repairs nothing.
+	again, err := svc.RepairStrandedCaptains(ctx)
+	if err != nil {
+		t.Fatalf("repair again: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second repair changed %d teams, want 0 (idempotent)", len(again))
+	}
+}
+
 // TestTeamsConcurrentLeaveKeepsCaptainAMember is the minimized reproducer for the
 // captaincy-transfer race: a team [captain A, B, C] where A and B leave at once.
 // Leave read captain_id outside the tx, so the second leave decided captaincy from a

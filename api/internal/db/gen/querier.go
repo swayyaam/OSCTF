@@ -106,6 +106,11 @@ type Querier interface {
 	// a genuine skew trips the future-row anomaly.
 	ReconcileClock(ctx context.Context) (time.Time, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) error
+	// Reassign captaincy to the earliest-joining member of any team whose captain_id is
+	// not a current member — a self-heal for the state older builds could leave behind
+	// when two members left at once (see teams.Leave, now lock-anchored). Empty teams
+	// have no member to promote and are left as historical records.
+	RepairStrandedCaptains(ctx context.Context) ([]RepairStrandedCaptainsRow, error)
 	SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error)
 	UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error)

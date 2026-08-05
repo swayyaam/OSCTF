@@ -230,6 +230,18 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	sessions := auth.NewSessionStore(rdb, cfg.SessionTTL)
 	usersSvc := users.New(q, sessions, cfg.RegistrationOpen)
 	teamsSvc := teams.New(pool, cfg.TeamMaxSize)
+	// Self-heal any team a pre-fix build left with a captain who is no longer a member
+	// (a concurrent-leave race, since fixed). Runs before serving; a no-op on a healthy
+	// database. A stranded team has no in-product recovery, so repair it loudly.
+	if repaired, err := teamsSvc.RepairStrandedCaptains(ctx); err != nil {
+		return err
+	} else if len(repaired) > 0 {
+		for _, r := range repaired {
+			log.Warn("reassigned captaincy for a team whose captain was not a member (data repaired)",
+				"team_id", r.TeamID, "new_captain", r.NewCaptain)
+		}
+		log.Warn("repaired stranded team captaincies on startup", "count", len(repaired))
+	}
 	challengesSvc := challenges.New(q, store)
 	if cfg.SeedExamples {
 		if err := seed.NewExampleSeeder(q, challengesSvc, log).Seed(ctx, cfg.ExamplesDir); err != nil {

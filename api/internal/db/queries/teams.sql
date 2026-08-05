@@ -37,6 +37,25 @@ ORDER BY tm.joined_at ASC;
 -- name: CountTeamMembers :one
 SELECT count(*) FROM team_members WHERE team_id = $1;
 
+-- name: RepairStrandedCaptains :many
+-- Reassign captaincy to the earliest-joining member of any team whose captain_id is
+-- not a current member — a self-heal for the state older builds could leave behind
+-- when two members left at once (see teams.Leave, now lock-anchored). Empty teams
+-- have no member to promote and are left as historical records.
+WITH earliest AS (
+    SELECT DISTINCT ON (team_id) team_id, user_id
+    FROM team_members
+    ORDER BY team_id, joined_at ASC
+)
+UPDATE teams t
+SET captain_id = e.user_id, updated_at = now()
+FROM earliest e
+WHERE t.id = e.team_id
+  AND NOT EXISTS (
+      SELECT 1 FROM team_members m WHERE m.team_id = t.id AND m.user_id = t.captain_id
+  )
+RETURNING t.id, t.captain_id;
+
 -- name: UpdateTeamName :one
 UPDATE teams SET name = $2, updated_at = now() WHERE id = $1 RETURNING *;
 

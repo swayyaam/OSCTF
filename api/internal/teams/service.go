@@ -182,6 +182,30 @@ func (s *Service) Leave(ctx context.Context, userID uuid.UUID) error {
 	})
 }
 
+// CaptainRepair records a captaincy reassignment performed by RepairStrandedCaptains.
+type CaptainRepair struct {
+	TeamID     uuid.UUID
+	NewCaptain uuid.UUID
+}
+
+// RepairStrandedCaptains reassigns captaincy to the earliest-joining member of every
+// team whose captain_id is not a current member, and returns what it changed. This
+// is a self-heal for the data corruption older builds could produce when two members
+// left simultaneously (now prevented in Leave): a stranded team has a captain who
+// cannot act, with no in-product recovery. Idempotent — a no-op once every captain is
+// a member — so it is safe to run on every startup. Run it before serving traffic.
+func (s *Service) RepairStrandedCaptains(ctx context.Context) ([]CaptainRepair, error) {
+	rows, err := s.q.RepairStrandedCaptains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("teams: repairing stranded captains: %w", err)
+	}
+	out := make([]CaptainRepair, len(rows))
+	for i, r := range rows {
+		out[i] = CaptainRepair{TeamID: r.ID, NewCaptain: r.CaptainID}
+	}
+	return out, nil
+}
+
 // Rename changes a team's name; captain-only (enforced by the caller/handler).
 func (s *Service) Rename(ctx context.Context, teamID uuid.UUID, name string) (Team, error) {
 	if err := validateName(name); err != nil {

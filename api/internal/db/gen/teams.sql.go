@@ -357,6 +357,51 @@ func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberPara
 	return err
 }
 
+const repairStrandedCaptains = `-- name: RepairStrandedCaptains :many
+WITH earliest AS (
+    SELECT DISTINCT ON (team_id) team_id, user_id
+    FROM team_members
+    ORDER BY team_id, joined_at ASC
+)
+UPDATE teams t
+SET captain_id = e.user_id, updated_at = now()
+FROM earliest e
+WHERE t.id = e.team_id
+  AND NOT EXISTS (
+      SELECT 1 FROM team_members m WHERE m.team_id = t.id AND m.user_id = t.captain_id
+  )
+RETURNING t.id, t.captain_id
+`
+
+type RepairStrandedCaptainsRow struct {
+	ID        uuid.UUID
+	CaptainID uuid.UUID
+}
+
+// Reassign captaincy to the earliest-joining member of any team whose captain_id is
+// not a current member — a self-heal for the state older builds could leave behind
+// when two members left at once (see teams.Leave, now lock-anchored). Empty teams
+// have no member to promote and are left as historical records.
+func (q *Queries) RepairStrandedCaptains(ctx context.Context) ([]RepairStrandedCaptainsRow, error) {
+	rows, err := q.db.Query(ctx, repairStrandedCaptains)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RepairStrandedCaptainsRow{}
+	for rows.Next() {
+		var i RepairStrandedCaptainsRow
+		if err := rows.Scan(&i.ID, &i.CaptainID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateTeamAdminFields = `-- name: UpdateTeamAdminFields :one
 UPDATE teams SET
     banned = coalesce($2, banned),

@@ -5,7 +5,7 @@ set -uo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${OSCTF_ADMIN_EMAIL:-admin@example.com}"
-ADMIN_PASSWORD="${OSCTF_ADMIN_PASSWORD:-devpassword123}"
+ADMIN_PASSWORD="${OSCTF_ADMIN_PASSWORD:-change-me-now}"
 ORIGIN="-H Origin:${BASE_URL}"
 SUFFIX="$RANDOM$RANDOM"
 JAR_A="$(mktemp)"; JAR_B="$(mktemp)"; JAR_ADMIN="$(mktemp)"

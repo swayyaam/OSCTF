@@ -236,12 +236,18 @@ Each phase has a theme, a scope, and an explicit exit criterion — a phase isn'
 
 - Plugin loader + lifecycle (discover, load, configure, isolate failures) over the interfaces defined since Phase 0
 - First-party plugins that prove each interface: OAuth/SSO auth, an alternative scoring algorithm, Discord/webhook notifications, one custom challenge type
-- The `platform` CLI: `init`, `create challenge`, `validate`, `deploy`, `package` — structured output (`--json`), non-interactive flags, meaningful exit codes
-- **Public API v1 declared stable**: versioned, documented, semver-governed from here on
-- **MCP server** over API v1 so agents can manage events and author challenges conversationally
-- Plugin author docs + a plugin template repo (with its own `AGENTS.md`)
+- **Public API v1 declared stable**: versioned, documented, semver-governed from here on — plus **API tokens** so non-cookie clients (plugins, integrations, and the client tooling in v0.3.1) authenticate
+- Plugin author docs + a plugin template repo (with its own `AGENTS.md`) and a CLI-free packaging convention
 
-**Exit criterion:** someone outside the core team builds and ships a working plugin without opening a PR against core.
+**Exit criterion:** someone outside the core team builds and ships a working plugin without opening a PR against core (verified by a self-runnable gate: build from the template with core mounted read-only, load into a running deployment, use it end to end).
+
+### Phase 3.1 — Client tooling (v0.3.1)
+
+Split out from v0.3 because it is a **separate product surface**: it depends on API v1 but not on plugins, so bundling it with v0.3 would put the plugin work behind client tooling. API tokens stay in v0.3 — plugins and the stable API both need them, and "every dashboard operation reachable with a token and no cookie" is a property of the API, not the CLI.
+
+- The `osctf` **CLI**: `init`, `create challenge`, `validate`, `deploy`, `package` — structured output (`--json`), non-interactive flags, meaningful exit codes. A pure API-v1 client.
+- **MCP server** over API v1 so agents can manage events and author challenges conversationally
+- **Exit criterion:** an operator drives a full event from the terminal, and an agent drives one through MCP — both token-only, no cookie, no DB access.
 
 ## Phase 4 — Scale (v0.4–v0.x)
 

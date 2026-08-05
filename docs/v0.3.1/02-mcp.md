@@ -1,4 +1,9 @@
-# 08 — MCP Server
+# 02 — MCP Server
+
+> Depends on **API v1** and **API tokens** (v0.3,
+> [`../v0.3/06-api-v1.md`](../v0.3/06-api-v1.md)) and on the CLI binary
+> ([`01-cli.md`](01-cli.md)), of which it is a subcommand. Like the CLI, it exposes the
+> stable API surface and no more.
 
 The MCP server lets an agent operate OSCTF conversationally — "spin up a practice event
 with last semester's web challenges and show me the scoreboard." It is a thin **Model

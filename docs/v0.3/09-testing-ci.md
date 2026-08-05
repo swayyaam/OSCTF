@@ -7,9 +7,11 @@ entire v0.2 suite unchanged**, and `/api/v0` keeps answering. Baselines:
 [`../v0.2/09-testing-ci.md`](../v0.2/09-testing-ci.md).
 
 Existing jobs: `generate-drift`, `api-lint`, `api-test`, `api-integration`, `web`, `image`,
-`smoke`, `e2e`. v0.3 extends `generate-drift` (now also proto + Go API client), `api-test`/
-`api-integration` (loader, tokens, event bus, registries), adds a **`plugins`** job and a
-**`cli`** job, and extends `smoke`/`e2e` with plugin + token + v1 coverage.
+`smoke`, `e2e`. v0.3 extends `generate-drift` (now also the plugin **proto**), `api-test`/
+`api-integration` (loader, tokens, event bus, registries), adds a **`plugins`** job, and
+extends `smoke`/`e2e` with plugin + token + v1 coverage. (The **`cli`** job — CLI golden
+path + offline + MCP — ships with the CLI in [v0.3.1](../v0.3.1/03-testing-ci.md); the Go
+API-v1 *client* it depends on is generated there too.)
 
 ## New unit tests (`api-test`, no external processes)
 
@@ -44,6 +46,14 @@ Plus a **boundary test**: a static check that no plugin package imports
 is real. And an **isolation test**: kill a plugin process mid-call and assert the host maps
 it to 502, stays up, and restarts the plugin.
 
+**The loader concurrency & failure invariants** are pinned here too — each row of the
+invariant table in [`03-plugin-loader.md`](03-plugin-loader.md) (*Invariants the tests pin*)
+is a named test in this job or `api-test`: no orphaned process survives shutdown/`SIGKILL`
+(pidfile boot sweep), no non-`ready` state serves, no registry entry for a stopped plugin, a
+crash-loop is quarantined within the cap (bounded processes/fds), reload is idempotent, and
+no host→plugin call blocks past its deadline. The residue guard (`goleak` + fd/PID count)
+extends over a load→serve→stop cycle.
+
 ## Integration tests (`api-integration`, testcontainers + real Postgres/daemon)
 
 - **Loader end-to-end:** boot the platform with the `regex-flag` + `webhook` plugins present;
@@ -57,15 +67,16 @@ it to 502, stays up, and restarts the plugin.
 - **Backwards-compat gate:** the full v0.2 integration suite runs with **no plugins** and
   passes unchanged.
 
-## CLI tests (`cli` job)
+## CLI + MCP tests → v0.3.1
 
-- Build `osctf`; run against a compose stack (or httptest server) with a token.
-- Golden-path: `login → whoami → challenge validate → challenge create → instance start →
-  submit → scoreboard`, asserting `--json` shapes and **exit codes** (0/2/3/4/5/6/7).
-- Offline: `challenge validate` on a good and a bad `challenge.yaml` (exit 0 / 6) with no
-  server; `challenge package` produces a deterministic tarball.
-- The MCP server: a minimal MCP client lists tools (scope-gated), calls `get_scoreboard`
-  (read) and a `confirm`-gated destructive tool, asserting the confirmation guard.
+The `cli` job (CLI golden path, offline `validate`/`package` parity, and the MCP client
+harness) moved with the CLI and MCP server to
+[v0.3.1](../v0.3.1/03-testing-ci.md). v0.3's pipeline does not build `osctf`.
+
+The **token-only, no-cookie** property those clients rely on is proven **here**, against the
+API directly — the `api-integration` Bearer flow below and the `smoke` token leg — not
+through any client binary. That is deliberate: it is an API guarantee (success criterion 3),
+so the clients inherit it rather than re-prove it.
 
 ## e2e (`e2e`, Playwright)
 
@@ -91,12 +102,12 @@ Extend `scripts/smoke.sh` with: create + use an API token (Bearer, no cookie); a
 
 | Job | Change |
 |---|---|
-| `generate-drift` | Now also regenerates `pluginpb` (proto) and the Go API-v1 client; fails on drift. |
+| `generate-drift` | Now also regenerates `pluginpb` (proto); fails on drift. (The Go API-v1 client is a v0.3.1 drift source.) |
 | `api-lint` | Unchanged; new packages must pass. |
 | `api-test` | Runs loader/tokens/bus/registry unit tests + the secret-leak scan. |
 | `api-integration` | Loader e2e, token flows, v0/v1 parity, v0.2 backwards-compat gate. |
 | **`plugins`** (new) | Builds first-party plugins; runs contract + boundary + isolation tests. |
-| **`cli`** (new) | Builds `osctf`; golden-path + offline + MCP tests. |
+| ~~`cli`~~ | Moved to [v0.3.1](../v0.3.1/03-testing-ci.md) with the CLI + MCP server. |
 | `web` | Dashboard migrated to `/api/v1`; token UI + plugins page tests. |
 | `image` | Now also builds the plugin binaries into the image (or a plugins layer). |
 | `smoke` | Token + plugins + v0-deprecation legs. |

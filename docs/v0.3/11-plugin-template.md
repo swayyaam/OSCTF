@@ -51,10 +51,35 @@ osctf-plugin-template/
   .github/workflows/ci.yml  # build + contract test on push
 ```
 
-`osctf init plugin <name> --type <auth|scoring|notification|challenge_type>` scaffolds this
-locally with the chosen type pre-selected. From a clean clone: `make test` runs the contract
-test against the built binary; `make package` produces the plugin directory (manifest +
-executable) ready to drop into `OSCTF_PLUGINS_DIR`.
+In v0.3 you scaffold by **cloning or copying the template** (`git clone …` or copy
+`templates/plugin/`) and editing the two marked lines to pick the type. From a clean clone:
+`make test` runs the contract test against the built binary; `make package` produces the
+plugin directory. (The `osctf init plugin <name> --type …` scaffolder is a
+[v0.3.1](../v0.3.1/README.md) convenience that pre-selects the type for you — it saves the
+copy-and-edit step, nothing more.)
+
+## Packaging is a directory convention, not a tool (v0.3)
+
+This is a fixed decision, called out because the **exit criterion depends on it**: in v0.3,
+**packaging a plugin needs no CLI.** A "package" *is* a directory —
+
+```
+<plugin-name>/
+  plugin.yaml     # the manifest: name, type, ABI version, executable, config schema
+  <plugin-name>   # the built executable
+```
+
+— dropped into `OSCTF_PLUGINS_DIR`. The template's `make package` builds the binary and
+lays out that directory (and, optionally, `tar`s it); it uses only Go + `make`, no OSCTF
+binary. This keeps G10 self-sufficient in v0.3: a third party ships a plugin with the SDK,
+the template, and `make` alone — before the CLI exists.
+
+**Why not defer packaging to the CLI?** Because the exit criterion ("someone outside the
+core team ships a working plugin") must hold in v0.3, and the CLI ships in
+[v0.3.1](../v0.3.1/README.md). If packaging required `osctf plugin package`, the exit
+criterion would silently depend on an unbuilt tool. So packaging is a documented layout the
+platform reads directly; **v0.3.1's `osctf plugin package` automates the identical layout**
+and adds no capability — it is convenience over a convention that already stands on its own.
 
 ## The contract-test harness (`plugin/plugintest`)
 
@@ -83,8 +108,9 @@ Human + agent readable, per the AI-native principle:
   idempotent; keep calls fast (the host bounds them). Health = your `Info` responding.
 - **Testing:** the `plugintest` harness; the boundary rule (no `internal/*` imports);
   determinism for scoring.
-- **Publishing (forward-looking):** `osctf plugin package`; the future registry is a
-  post-1.0 concern — for v0.3 you ship a directory.
+- **Publishing:** in v0.3 you ship a directory (`make package`; the convention above). The
+  `osctf plugin package` convenience is [v0.3.1](../v0.3.1/README.md); the future registry is
+  a post-1.0 concern.
 
 The template's **`AGENTS.md`** makes the repo agent-ready from the first clone: setup steps,
 "to change the plugin type, edit these two lines," the test/package commands, and the
@@ -93,10 +119,11 @@ and it has everything it needs.
 
 ## Definition of done for the author kit
 
-1. `osctf init plugin demo --type notification && cd demo && make test` passes on a clean
-   machine with only Go + the OSCTF module — no core checkout.
-2. `make package` output dropped into a running deployment's `plugins/` and a `serve`
-   restart shows it healthy in `osctf plugin list` and active in the platform.
+1. Copy/clone the template, pick a type, and `make test` passes on a clean machine with only
+   **Go + `make` + the OSCTF module** — no core checkout, no `osctf` binary.
+2. `make package` output dropped into a running deployment's `OSCTF_PLUGINS_DIR` and a
+   `serve` restart shows it **healthy in `GET /api/v1/admin/plugins`** and active in the
+   platform.
 3. The template's contract test, boundary check (no `internal/*`), and CI workflow are
    green out of the box.
 

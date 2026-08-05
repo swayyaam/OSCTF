@@ -2,8 +2,10 @@
 
 Same shape as before: one Go server process (`platform serve`), a modular monolith with
 enforced package boundaries. v0.3 adds a **plugin host** (loader + ABI + registries + event
-bus), a **client CLI**, and an **MCP server** — all around the existing core, none of it
-in the request hot path unless a plugin is actually configured.
+bus) around the existing core, none of it in the request hot path unless a plugin is
+actually configured. The **client CLI** and **MCP server** are part of the same target
+architecture — pure API-v1 clients — but ship in [v0.3.1](../v0.3.1/README.md); this doc
+shows where they sit so the boundaries are clear, and their build detail lives there.
 
 ## The central idea: registries the loader extends
 
@@ -69,7 +71,7 @@ Full ABI in [`02-plugin-abi.md`](02-plugin-abi.md); loader in
 | `httpserver` | Mount the generated server under **both** `/api/v1` (canonical) and `/api/v0` (deprecated alias); Bearer-token middleware; deprecation headers on v0. |
 | `handlers` | New endpoints: plugin listing/health, token management, and any auth-provider routes. No business logic moves. |
 | `apigen` / `openapi` | `openapi.yaml` version bumped to `1.0.0`; servers list `/api/v1` (+ `/api/v0` deprecated). New paths for tokens + plugins. Regenerated. |
-| `cmd/osctf` | **NEW.** The client CLI binary. |
+| `cmd/osctf` | **NEW in [v0.3.1](../v0.3.1/README.md).** The client CLI binary (not built in v0.3). |
 | `cmd/platform` | `serve` starts the plugin loader + event bus; no new subcommands (CLI is separate). |
 
 **Hard rules:**
@@ -116,11 +118,12 @@ Full ABI in [`02-plugin-abi.md`](02-plugin-abi.md); loader in
    event over gRPC (`Notify`) and posts a message. Delivery is best-effort; a slow/failing
    notifier is logged and does not block or fail the solve.
 
-### CLI / MCP operation
+### CLI / MCP operation (built in [v0.3.1](../v0.3.1/README.md))
 
 1. `osctf` (or the MCP server) authenticates with an **API token** (`Authorization: Bearer`).
 2. It calls `/api/v1/...` exactly as the dashboard would — same handlers, same authz. No
-   privileged backdoor exists for the CLI.
+   privileged backdoor exists for the CLI. This flow is why API v1 + tokens ship in v0.3:
+   the clients that exercise it are v0.3.1, but the surface they depend on is delivered here.
 
 ## What is deliberately absent (still)
 

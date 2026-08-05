@@ -1,4 +1,8 @@
-# 07 — The `osctf` CLI
+# 01 — The `osctf` CLI
+
+> Depends on **API v1** and **API tokens**, both shipped in v0.3
+> ([`../v0.3/06-api-v1.md`](../v0.3/06-api-v1.md)). The CLI adds no capability the API
+> lacks; it is a client of the stable surface v0.3 froze.
 
 `osctf` is the **client** CLI, a new binary at `api/cmd/osctf`, separate from the
 `platform` server binary. It is a pure API-v1 client for anything remote and works offline
@@ -58,7 +62,7 @@ osctf
   token   create --name … --scope …|list|revoke <id>
   plugin  list | reload <name>               # admin: loader state
   deploy                                     # bring up / migrate a deployment (compose profile helper)
-  mcp                                         # run the MCP server (see 08-mcp.md)
+  mcp                                         # run the MCP server (see 02-mcp.md)
   version
 ```
 

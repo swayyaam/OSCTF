@@ -16,12 +16,13 @@ deprecated), mount the generated server under both prefixes with `Deprecation`/`
 v0; author the plugin `.proto` ABI ([`02-plugin-abi.md`](02-plugin-abi.md)) + `make generate`
 wiring for `pluginpb` (host) and the SDK stubs; migration `0003` (`api_tokens`); `tokens`
 package + Bearer middleware ([`06-api-v1.md`](06-api-v1.md)); new config env
-([`03-plugin-loader.md`](03-plugin-loader.md)). Add the Go API-v1 client generation for the
-CLI. Regenerate `apigen` + TS + Go client + `pluginpb`; new endpoints return 501.
+([`03-plugin-loader.md`](03-plugin-loader.md)). Regenerate `apigen` + TS + `pluginpb`; new
+endpoints return 501. (The Go API-v1 *client* is generated in [v0.3.1](../v0.3.1/README.md),
+where the CLI that consumes it is built — not here.)
 
 **Acceptance**:
 ```
-make generate && git diff --exit-code                 # drift clean (openapi + proto + clients)
+make generate && git diff --exit-code                 # drift clean (openapi + proto)
 goose ... up && down-to 0 && up                        # 0003 up/down/up
 cd api && go build ./... && go test ./internal/tokens/... ./internal/config/...
 curl /api/v1/event and /api/v0/event                   # both answer; v0 has Deprecation header
@@ -70,8 +71,9 @@ plugin imports `internal/*`.
 **Tasks**: extend `AuthProvider` with the redirect capability + `auth.Registry`; the
 provider-agnostic `/api/v1/auth/{provider}/login|callback` routes, identity→user mapping +
 provisioning policy (open/invite/off), `GET /auth/providers`. Challenge-type registry +
-`ValidateConfig` at authoring (admin + seeder + CLI) and `CheckFlag` inside the submissions
-tx. First-party `oidc` + `regex-flag`.
+`ValidateConfig` at authoring (admin + seeder; the CLI's offline `validate` is
+[v0.3.1](../v0.3.1/README.md)) and `CheckFlag` inside the submissions tx. First-party `oidc`
++ `regex-flag`.
 
 **Acceptance**:
 ```
@@ -95,54 +97,37 @@ page (health/reload), and provider **login buttons**.
 cd api && go test ./internal/handlers/... -run 'Token|Plugin'   # integration
 cd dashboard && npm run lint && npm run typecheck && npm test && npm run build
 ```
-Integration: full participant + admin flow with `Authorization: Bearer` and no cookie; scope
-enforcement (`read` can't POST; `admin` scope ≤ role); revoke invalidates immediately; `GET
-/admin/plugins` healthy; reload works.
+Integration: this is the **success-criterion-3 proof** — drive the full event lifecycle
+(authenticate → set the event window → author + publish a challenge → start an instance →
+submit → read the scoreboard → an admin action) against `/api/v1` with `Authorization:
+Bearer`, using a plain HTTP client (test/`curl`, **no OSCTF client binary**), asserting **no
+`Set-Cookie` and no session cookie** on any request. Plus: scope enforcement (`read` can't
+POST; `admin` scope ≤ role); revoke invalidates immediately; `GET /admin/plugins` healthy;
+reload works.
 
-## M5 — The `osctf` CLI
+> The `osctf` CLI and MCP server (former M5 + M6) moved to
+> [v0.3.1 milestones](../v0.3.1/04-milestones.md). v0.3 ends at the milestone below.
 
-**Tasks**: `api/cmd/osctf` (Cobra), the command tree in [`07-cli.md`](07-cli.md), the
-generated Go API-v1 client, contexts/auth (`login`/`whoami`/`context`), `--json` +
-exit-code taxonomy, and the shared `challengespec` parser promoted from the seeder for
-offline `challenge validate|package`.
-
-**Acceptance**:
-```
-cd api && go build ./cmd/osctf && go test ./cmd/osctf/...
-```
-`cli` job: golden path (`login→whoami→challenge validate→create→instance start→submit→
-scoreboard`) with asserted `--json` + exit codes; offline `validate` good/bad (exit 0/6);
-deterministic `package` tarball. Seeder + CLI validate give identical results.
-
-## M6 — The MCP server
-
-**Tasks**: `osctf mcp` (stdio), the tool surface generated from the OpenAPI operations
-([`08-mcp.md`](08-mcp.md)), scope-gated tool exposure, `confirm`-gated destructive tools,
-problem+json → tool-error passthrough.
-
-**Acceptance**:
-```
-cd api && go test ./cmd/osctf/... -run MCP
-```
-A minimal MCP client: lists tools (scope-gated by token), calls `get_scoreboard` (read),
-and is refused a destructive tool without `confirm:true`; no tool exposes a secret.
-
-## M7 — Template, e2e, CI, docs, release
+## M5 — Template, e2e, CI, docs, release
 
 **Tasks**: the plugin **template repo** + author docs + its `AGENTS.md`
 ([`11-plugin-template.md`](11-plugin-template.md)); e2e (mock-OIDC login, admin Plugins page,
 token management) added to the compose stack with `oidc` + `webhook` loaded; confirm all CI
-jobs green (drift incl. proto, lint, test, integration, **plugins**, **cli**, web, image,
-smoke, e2e); update `CHANGELOG.md` (v0.3.0), `.env.example`, README/AGENTS, and the API
-stability policy in `info.description`. Tag `v0.3.0`.
+jobs green (drift incl. proto, lint, test, integration, **plugins**, web, image, smoke,
+e2e); update `CHANGELOG.md` (v0.3.0), `.env.example`, README/AGENTS, and the API stability
+policy in `info.description`. Tag `v0.3.0`. (The `cli` job ships with the CLI in
+[v0.3.1](../v0.3.1/README.md).)
 
 **Acceptance**:
 ```
 cd api && go test ./... -race && go test -run Contract ./api/plugins/...
 cd dashboard && npm run lint && npm run typecheck && npm test && npm run build
 docker compose up -d --build --wait && npx --prefix dashboard playwright test
-# the exit-criterion demo:
-osctf plugin package <a plugin built from the template, no core edits> && drop into plugins/ && osctf plugin list  # shows it healthy and in use
+# the exit-criterion self-verifiable gate (00-overview) — no CLI:
+#   clean template checkout, CORE READ-ONLY  →  make build   (must NOT need to touch core)
+#   make package  →  drop into OSCTF_PLUGINS_DIR  →  restart serve
+#   GET /api/v1/admin/plugins shows it healthy  →  use it end to end (login/score/notify/solve)
+#   with ZERO edits to the osctf/platform tree
 ```
 The v0.1/v0.2 golden flows pass **unchanged**; the plugin, token, and provider-login flows
 pass. All success criteria in [`00-overview.md`](00-overview.md) are met. Then tag + release.
@@ -153,12 +138,14 @@ pass. All success criteria in [`00-overview.md`](00-overview.md) are met. Then t
 
 | Criterion ([00](00-overview.md)) | Proven in |
 |---|---|
-| 1 — third-party plugin used end-to-end | M2/M3 (contract) + M7 (exit-criterion demo) |
+| 1 — third-party plugin used end-to-end | M2/M3 (contract) + M5 (exit-criterion gate) |
 | 2 — kill a plugin → graceful degrade + restart | M1 (isolation) + M4 (admin health) |
-| 3 — every dashboard op reachable via `/api/v1` + token | M4 + M5 (CLI golden path) |
-| 4 — agent runs an event via MCP only | M6 |
-| 5 — `/api/v0` alive; v0.2 suite passes plugin-free | M0 + every milestone's backwards check |
-| 6 — ABI version enforced | M1 (mismatch refused) |
+| 3 — every dashboard op reachable via `/api/v1` + token, no cookie | M4 (Bearer HTTP-driven integration test; no client binary) |
+| 4 — `/api/v0` alive; v0.2 suite passes plugin-free | M0 + every milestone's backwards check |
+| 5 — ABI version enforced | M1 (mismatch refused) |
+
+> The former criterion 4 (agent runs an event via MCP only) moved with the MCP server to
+> [v0.3.1](../v0.3.1/04-milestones.md) as its success criterion 1.
 
 ## Notes for the building agent
 

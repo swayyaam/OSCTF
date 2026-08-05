@@ -2,8 +2,8 @@
 
 v0.1 pinned everything at `/api/v0` and told clients "unstable until Phase 3." Phase 3 is
 now: v0.3 promotes the surface to **`/api/v1`**, declares it **stable and semver-governed**,
-and adds **API tokens** so non-browser clients (the CLI, MCP server, integrations) can
-authenticate without a session cookie. `openapi.yaml` stays the single source of truth;
+and adds **API tokens** so non-browser clients (integrations, plugins, and the
+[v0.3.1](../v0.3.1/README.md) CLI + MCP server) can authenticate without a session cookie. `openapi.yaml` stays the single source of truth;
 `apigen` + the clients are regenerated and drift-gated.
 
 ## The v0 → v1 promotion (a cut, not a break)
@@ -28,7 +28,7 @@ Cleanups folded into v1 (do these once, at the cut — they are the only allowed
 | Additive v0.2/v0.3 fields kept | instancing/flag_mode/instance fields, plugin + token endpoints — all additive. |
 
 `openapi.yaml` `info.version` → `1.0.0`; `servers` lists `/api/v1` first and `/api/v0`
-(deprecated). The MCP + CLI clients target `/api/v1`.
+(deprecated). The [v0.3.1](../v0.3.1/README.md) CLI + MCP clients target `/api/v1`.
 
 ## Stability policy (semver from v1)
 
@@ -98,7 +98,7 @@ CREATE TABLE api_tokens (
 | `GET /admin/tokens` | `adminListTokens` | Admin view across users (metadata only). |
 
 The dashboard gains a "API tokens" section in the profile; the CLI's `osctf login` creates
-and stores one ([`07-cli.md`](07-cli.md)).
+and stores one ([`../v0.3.1/01-cli.md`](../v0.3.1/01-cli.md)).
 
 ## Plugin admin endpoints (new, under `/api/v1`)
 

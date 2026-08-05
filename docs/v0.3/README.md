@@ -21,12 +21,16 @@ authentication, scoring, notifications, and challenge types — **out of process
 crashing or malicious plugin cannot take down the core, and a plugin author never edits,
 recompiles, or opens a PR against core.
 
-Two more headline deliverables ride along, both direct consequences of "API first":
+One more headline deliverable rides along, a direct consequence of "API first":
 
-- **API v1, declared stable** — `/api/v1`, semver-governed from here on. (v0.1 pinned
-  everything at `/api/v0` precisely so this is a clean promotion, not a break.)
-- **A client CLI (`osctf`) and an MCP server** over API v1 — so humans script the
-  platform and agents operate it conversationally.
+- **API v1, declared stable** — `/api/v1`, semver-governed from here on, plus **API tokens**
+  for non-cookie clients. (v0.1 pinned everything at `/api/v0` precisely so this is a clean
+  promotion, not a break.)
+
+The **client CLI (`osctf`) and MCP server** that consume this surface are split into
+**[v0.3.1](../v0.3.1/README.md)** — they depend on API v1 but not on plugins, so keeping them
+here would put the plugin work behind client tooling. See
+[`00-overview.md`](00-overview.md) for the rationale.
 
 ## How to use these docs (read this first)
 
@@ -58,11 +62,13 @@ Two more headline deliverables ride along, both direct consequences of "API firs
 | [`04-plugin-interfaces.md`](04-plugin-interfaces.md) | The four extensible surfaces in detail — auth, scoring, notifications, challenge types — and the internal event bus |
 | [`05-first-party-plugins.md`](05-first-party-plugins.md) | Reference plugins that prove each interface: OIDC/OAuth, an alt scoring algorithm, a Discord/webhook notifier, a custom challenge type |
 | [`06-api-v1.md`](06-api-v1.md) | API v1 stability policy, semver + deprecation, the v0→v1 diff, and API tokens (non-cookie auth) |
-| [`07-cli.md`](07-cli.md) | The `osctf` client CLI: command reference, `--json`, exit codes, offline vs remote, config/auth |
-| [`08-mcp.md`](08-mcp.md) | The MCP server: transport, the tool surface over API v1, auth, and safety |
-| [`09-testing-ci.md`](09-testing-ci.md) | The plugin contract-test harness, CLI + MCP tests, and CI additions |
-| [`10-milestones.md`](10-milestones.md) | **The build plan**: M0–M7 with tasks, deliverables, acceptance |
-| [`11-plugin-template.md`](11-plugin-template.md) | The plugin template repo, author docs, and its `AGENTS.md` |
+| [`09-testing-ci.md`](09-testing-ci.md) | The plugin contract-test harness and CI additions |
+| [`10-milestones.md`](10-milestones.md) | **The build plan**: M0–M5 with tasks, deliverables, acceptance |
+| [`11-plugin-template.md`](11-plugin-template.md) | The plugin template repo, author docs, its `AGENTS.md`, and the CLI-free packaging convention |
+| → [`../v0.3.1/`](../v0.3.1/README.md) | **Split out:** the `osctf` CLI (`01-cli.md`) and MCP server (`02-mcp.md`), with their own overview, milestones, and `cli` job. |
+
+> Docs `07-cli.md` and `08-mcp.md` moved to [`../v0.3.1/`](../v0.3.1/README.md) as
+> `01-cli.md` and `02-mcp.md`. The numbering here skips 07/08.
 
 ## Suggested kickoff prompt for a coding agent
 
@@ -85,5 +91,5 @@ Two more headline deliverables ride along, both direct consequences of "API firs
 | **API v1** | The first stability-promised HTTP surface (`/api/v1`); semver-governed from v0.3 on. |
 | **API token** | A bearer credential (personal/service access token) for non-cookie clients — the CLI, the MCP server, and integrations. |
 | **Event bus** | The in-core publisher of domain events (`challenge.solved`, `event.started`, …) that notification plugins subscribe to. |
-| **`osctf`** | The client CLI (distinct from the `platform` server binary); speaks API v1 and works offline for authoring. |
-| **MCP server** | A Model Context Protocol adapter over API v1, exposing platform operations as agent tools. |
+| **`osctf`** | The client CLI (distinct from the `platform` server binary); speaks API v1. Specified in [v0.3.1](../v0.3.1/01-cli.md). |
+| **MCP server** | A Model Context Protocol adapter over API v1, exposing platform operations as agent tools. Specified in [v0.3.1](../v0.3.1/02-mcp.md). |

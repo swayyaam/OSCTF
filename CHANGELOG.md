@@ -3,7 +3,14 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
-## Unreleased
+## v0.2.2 — Concurrency hardening
+
+A patch release fixing a set of concurrency and data-corruption bugs, found by two
+new test tiers built this cycle — an in-process soak harness and a randomized
+property-test suite — plus that test infrastructure itself. **No manual action on
+upgrade:** a startup consistency check automatically repairs any team already left
+with a non-member captain, and every other fix applies on deploy. No OpenAPI or
+database-schema change.
 
 ### Security
 
@@ -43,8 +50,11 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
   pre-transfer captain, removed the member the first leave had just promoted without
   re-transferring, leaving the team with a `captain_id` pointing to someone no longer
   on it — no member could then perform captain-only actions. Leave now locks and
-  re-reads the team inside the transaction. *Impact:* availability — a team with no
-  functional captain. *Reachable via the HTTP leave endpoint.* Surfaced by the
+  re-reads the team inside the transaction. Because pre-fix builds may already have
+  written this corruption, a startup consistency check reassigns captaincy to the
+  earliest-joining member of any stranded team, so an affected deployment self-heals
+  on the next boot with no manual database edit. *Impact:* availability — a team with
+  no functional captain. *Reachable via the HTTP leave endpoint.* Surfaced by the
   Phase 5 property tests.
 - **Event-end teardown was not phase-gated.** `CleanupEnded` destroys every per-team
   instance; it relied entirely on its caller to invoke it only in the `ended` phase,

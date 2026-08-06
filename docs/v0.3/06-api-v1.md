@@ -88,6 +88,41 @@ CREATE TABLE api_tokens (
   `last_used_at` is updated best-effort for the admin view. Banning a user disables their
   tokens (same session-revocation path).
 
+### Issuance and revocation are session-only (decided)
+
+**A token cannot issue or revoke tokens.** `createToken`, `revokeToken`, and `listTokens`
+require a **session** (cookie) credential; a bearer token is rejected on these routes even
+if its owner is otherwise privileged. The reason is containment: if a leaked token could
+mint more tokens, revoking the leaked one wouldn't stop the attacker — they'd have already
+minted successors that outlive the revocation. Forcing issuance through a session means an
+attacker with only a stolen token cannot self-perpetuate; the legitimate owner (or an admin
+ban) revokes the token and the attacker is out. Token management is a browser/console
+operation, so requiring a session costs the real user nothing. This is enforced in the
+policy table (the token-management ops carry an `authn: session` requirement) and asserted
+in the matrix like any other authorization rule.
+
+### Revocation is immediate; there is no token-lookup cache (decided)
+
+Revocation latency is a security property, so it is stated explicitly rather than left to
+implementation:
+
+- **No caching of token validity.** Every bearer request performs a fresh hashed lookup and
+  resolves the owner's **current** role from the users table in the same request. There is
+  no in-memory token cache in v0.3. Consequently:
+  - A **revoked** or **expired** token fails the **very next** request (there is no window
+    where a revoked token still works).
+  - A **ban or role demotion** of the owner takes effect on the **next** request — the
+    effective permission is `role ∩ scope`, and `role` is read live, so a token never
+    outlives its owner's privileges. (This is the same immediacy sessions already have via
+    the ban→session-revocation path.)
+  - An **in-flight** request that has already passed authentication completes normally;
+    revocation stops the *next* request, not one already executing. This is the standard,
+    accepted semantics and is not a caching window.
+- **If a future version adds a token-lookup cache** for hot-path performance, the cache TTL
+  becomes the **maximum revocation latency** and MUST be documented here and bounded (and
+  ban/expiry should punch through it). v0.3 deliberately avoids the cache so revocation is
+  exact; the hashed-lookup cost is one indexed query per request, acceptable at v0.3 scale.
+
 ### Endpoints (new, under `/api/v1`)
 
 | Method + path | operationId | Purpose |
@@ -120,5 +155,12 @@ CLI:
   user's role.
 - **Store only the hash; show the secret once.** Standard PAT hygiene; a DB leak can't
   reveal live tokens.
+- **Token management is session-only.** A token cannot issue or revoke tokens, so a leaked
+  token can't self-perpetuate past its own revocation. (See "Issuance and revocation are
+  session-only".)
+- **No token-lookup cache; revocation is immediate.** Every bearer request re-looks-up the
+  token and resolves the owner's live role, so revocation/ban/demotion take effect on the
+  next request. A future cache would make its TTL the max revocation latency and must say so.
+  (See "Revocation is immediate".)
 - **Stability policy travels with the spec.** Written into `info.description` so any client
   or agent reading the OpenAPI sees the contract.

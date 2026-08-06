@@ -77,9 +77,28 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 	cd dashboard && npm run lint && npm run typecheck
 	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
+# Build tags vet-tags compiles. TAG_ALLOWLIST names tags deliberately NOT compiled here,
+# with the reason. The guard in vet-tags fails if the tree uses a tag in neither list, so a
+# fifth build tag added later can't silently reintroduce the partial-compile gap — the same
+# shape as the policy-table route-coverage gate.
+VET_TAGS := integration dockerint soak
+# embed_spa: compiled only in the image build — it embeds the built SPA (webdist/static),
+# absent in a plain checkout, so vetting it here would fail on the missing embed.
+TAG_ALLOWLIST := embed_spa
+
 .PHONY: vet-tags
-vet-tags: ## Type-check EVERY build tag (integration, dockerint, soak) — catches a compile break in a tagged file that an untagged/-tags integration run never compiles
-	cd api && go vet -tags "integration dockerint soak" ./...
+vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered tag
+	@present=$$(grep -rhoE '^//go:build .*' api --include='*.go' | sed 's|//go:build||' | grep -oE '[a-z_][a-z0-9_]*' | sort -u); \
+	known=" $(VET_TAGS) $(TAG_ALLOWLIST) "; \
+	missing=""; \
+	for t in $$present; do case "$$known" in *" $$t "*) ;; *) missing="$$missing $$t" ;; esac; done; \
+	if [ -n "$$missing" ]; then \
+	  echo "vet-tags: build tag(s) present in the tree but covered by neither VET_TAGS nor TAG_ALLOWLIST:$$missing"; \
+	  echo "  add each to VET_TAGS (to compile it here) or TAG_ALLOWLIST (with a reason) in the Makefile"; \
+	  exit 1; \
+	fi; \
+	echo "vet-tags: all tree build tags covered ($$(echo $$present | tr '\n' ' '))"
+	cd api && go vet -tags "$(VET_TAGS)" ./...
 
 .PHONY: test
 test: vet-tags ## Type-check every build tag, then run unit tests (Go -short + web)

@@ -198,7 +198,7 @@ func TestSoak(t *testing.T) {
 				_ = sb.Recompute(rctx)
 			}
 		},
-		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, testsupport.DiscardLogger()),
 		Log: testsupport.DiscardLogger(), SessionTTL: time.Hour, MaxAttachmentMB: 100,
 		TrustProxy: true, SecureCookies: false,

@@ -77,8 +77,12 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 	cd dashboard && npm run lint && npm run typecheck
 	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
+.PHONY: vet-tags
+vet-tags: ## Type-check EVERY build tag (integration, dockerint, soak) — catches a compile break in a tagged file that an untagged/-tags integration run never compiles
+	cd api && go vet -tags "integration dockerint soak" ./...
+
 .PHONY: test
-test: ## Run unit tests (Go -short + web)
+test: vet-tags ## Type-check every build tag, then run unit tests (Go -short + web)
 	cd api && go test ./... -short
 	cd dashboard && npm test
 

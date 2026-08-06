@@ -52,19 +52,6 @@ func (DynamicEngine) Value(params ChallengeScoring, solves int) int {
 	return rounded
 }
 
-// Registry maps a scoring mode name to its engine.
-func Registry() map[string]ScoringEngine {
-	return map[string]ScoringEngine{
-		"static":  StaticEngine{},
-		"dynamic": DynamicEngine{},
-	}
-}
-
-// Value is a convenience that selects the engine by mode and computes the value.
-// Unknown modes fall back to static.
-func Value(mode string, params ChallengeScoring, solves int) int {
-	if eng, ok := Registry()[mode]; ok {
-		return eng.Value(params, solves)
-	}
-	return StaticEngine{}.Value(params, solves)
-}
+// The scoring registry (mutable, override-protected, atomic-swap) and the package-level
+// Value / Register / Engines convenience functions live in registry.go. The engines above
+// stay pure.

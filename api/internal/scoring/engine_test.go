@@ -68,7 +68,7 @@ func TestRegistryAndValue(t *testing.T) {
 	if Value("unknown", ChallengeScoring{Initial: 42}, 5) != 42 {
 		t.Error("Value(unknown) should fall back to static")
 	}
-	reg := Registry()
+	reg := Engines()
 	if reg["static"].Name() != "static" || reg["dynamic"].Name() != "dynamic" {
 		t.Error("registry names wrong")
 	}

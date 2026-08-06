@@ -266,6 +266,36 @@ and nothing can score it" will happen in production** — so the behaviour is fi
 This is the fail-closed posture applied consistently: an unresolvable checker withholds
 scoring rather than guessing at it.
 
+### Changing a challenge's type after solves exist is rejected (specified now, reachable in P4)
+
+`ChallengeAdminUpdate` carries `type`, so an admin can change which checker decides a
+challenge's correctness. P1 cannot reach the hazard — the two built-ins (`standard`,
+`container`) share the same flag-comparison path, so switching between them changes nothing
+about how a solve was decided. **P4 can:** once a plugin checker exists, changing the type of
+a challenge that *already has valid solves* rewrites history in one of two unacceptable ways —
+either those solves are silently invalidated, or they stand while attributed to a checker that
+never scored them (the standing was earned under the old checker, the challenge now claims a
+different one).
+
+So the behaviour is fixed here, consistent with the unresolvable-type case above:
+
+- **A type change is rejected when the challenge has at least one valid solve**, with a clear
+  error (e.g. `cannot change the type of a challenge with existing solves; delete and recreate
+  if you mean to re-score it`). The check is the solve count the update path already loads —
+  zero valid solves, the change is allowed; one or more, it is refused at write time with the
+  offending transition named.
+- **An admin who genuinely means to re-score deletes and recreates**, which is already the
+  explicit, audited, confirm-gated path for rewriting a solved challenge's history (the same
+  guard that makes deleting a visible challenge mid-event require `confirm=true`). Making the
+  destructive intent explicit is the point — a type change must not be a quiet side door
+  around it.
+- **This is a write-time application check, not a DB constraint** — same reasoning as the
+  absent `type` CHECK: the rule depends on runtime state (the solve count), which a schema
+  constraint cannot express.
+
+Implemented when a second checker becomes reachable (P4); until then the built-ins make it
+unobservable, but the rule is settled so P4 doesn't have to relitigate it.
+
 ## What stays in-tree (not pluginizable in v0.3)
 
 - **`ChallengeRuntime`** (Docker) and **`ObjectStore`** (MinIO/S3): single implementations,

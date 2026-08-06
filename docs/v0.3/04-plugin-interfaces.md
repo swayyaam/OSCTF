@@ -38,6 +38,32 @@ Core changes:
 - The login page lists available providers (`GET /api/v1/auth/providers`) so the dashboard
   renders the right buttons.
 
+### Built-in login: override-protected *and* separately disable-able
+
+Two orthogonal properties, decided here so an SSO-only deployment isn't stuck:
+
+- **Override-protected (a security property, kept).** A plugin **cannot replace** the
+  built-in `email` provider — `Registry.Register("email", …)` is refused without an explicit
+  operator override. A plugin that could swap `email` would intercept every password login,
+  which is exactly the auth return-path contract's concern. So plugins add providers beside
+  the built-in; they never displace it.
+- **Enabled by default, but disable-able (an operator control, distinct from the above).**
+  "Cannot be overridden by a plugin" is **not** "cannot be turned off." Email/password login
+  is **on by default** — a fail-closed **break-glass** path so a deployment always has a
+  working login even if its auth plugin is down or misconfigured. An operator who wants
+  SSO-only sets **`OSCTF_AUTH_EMAIL_LOGIN=false`**: `POST /auth/login` then returns
+  `404`/disabled and `email` is omitted from `GET /auth/providers`; only redirect providers
+  (e.g. `oidc`) authenticate. This is what makes "SSO-only" possible without letting a plugin
+  seize the built-in.
+- **Break-glass caveat (documented for operators).** Disabling email while relying solely on
+  an external IdP means an **IdP outage locks everyone out, admins included.** Operators who
+  disable email should keep a break-glass path — re-enable `OSCTF_AUTH_EMAIL_LOGIN` via env
+  in an emergency, or provision a bootstrap admin. The default (email on) is the safe choice;
+  turning it off is a deliberate trade of that safety net for SSO exclusivity.
+
+The disable config and the OIDC provider ship in **P4-auth**; the decision is fixed here so
+the registry and the provider-list endpoint are built with it in mind.
+
 ### Security — the auth return-path contract
 
 Auth plugins are different, and get their own contract. The general plugin posture —

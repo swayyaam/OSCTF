@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,17 +70,22 @@ func TestAuthRegistryBuiltinOverrideProtected(t *testing.T) {
 	}
 }
 
-// TestAuthRegistryReaderAtomicSwap pins invariant (c): a register/swap is atomic from a
-// reader's perspective. Under concurrent Get + Register, a name present in every map
-// version (here `email`, never removed) must ALWAYS resolve — never absent, never torn.
-// Run under -race; a non-atomic swap (or a torn map read) fails this.
+// TestAuthRegistryReaderAtomicSwap pins invariant (c) as a contention test: a
+// register/swap is atomic from a reader's perspective. N readers resolve `email` in a
+// tight loop while a writer swaps the map repeatedly under load. `email` is present in
+// every map version, so every read must return a VALID, NON-NIL provider that is actually
+// the email provider — never absent, never nil, never torn. A copy-on-write bug (or a
+// non-atomic swap) shows here as a missing/torn lookup. Run under -race.
 func TestAuthRegistryReaderAtomicSwap(t *testing.T) {
 	email := &stubProvider{name: "email"}
 	r := auth.NewRegistry(email)
 
 	var wg sync.WaitGroup
+	var reads atomic.Int64
 	stop := make(chan struct{})
 
+	// Writer: churn a rotating set of plugin registrations so the map is swapped
+	// continuously while readers run.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -89,11 +95,12 @@ func TestAuthRegistryReaderAtomicSwap(t *testing.T) {
 				return
 			default:
 			}
-			_ = r.Register(fmt.Sprintf("p%d", i%4), &stubProvider{name: "churn"}, false)
+			_ = r.Register(fmt.Sprintf("p%d", i%8), &stubProvider{name: "churn"}, false)
 		}
 	}()
 
-	for g := 0; g < 8; g++ {
+	const readers = 16
+	for g := 0; g < readers; g++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -103,15 +110,20 @@ func TestAuthRegistryReaderAtomicSwap(t *testing.T) {
 					return
 				default:
 				}
-				if _, ok := r.Get("email"); !ok {
-					t.Errorf("Get(email) returned absent during a concurrent swap — registry swap is not reader-atomic")
+				p, ok := r.Get("email")
+				if !ok || p == nil || p.Name() != "email" {
+					t.Errorf("Get(email) during a swap returned (%v, ok=%v) — registry swap is not reader-atomic", p, ok)
 					return
 				}
+				reads.Add(1)
 			}
 		}()
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+	if reads.Load() == 0 {
+		t.Fatal("no reads happened — the contention test exercised nothing")
+	}
 }

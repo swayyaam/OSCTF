@@ -13,6 +13,7 @@ import (
 
 type Querier interface {
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
+	CountAllAPITokens(ctx context.Context) (int64, error)
 	CountChallengeSolves(ctx context.Context, challengeID uuid.UUID) (int64, error)
 	CountChallenges(ctx context.Context) (int64, error)
 	CountChallengesAdmin(ctx context.Context, arg CountChallengesAdminParams) (int64, error)
@@ -30,6 +31,7 @@ type Querier interface {
 	CountTeamsAdmin(ctx context.Context, q_ *string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountUsersAdmin(ctx context.Context, arg CountUsersAdminParams) (int64, error)
+	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
 	CreateAttachment(ctx context.Context, arg CreateAttachmentParams) (ChallengeAttachment, error)
 	CreateChallenge(ctx context.Context, arg CreateChallengeParams) (Challenge, error)
 	CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error)
@@ -37,11 +39,19 @@ type Querier interface {
 	CreateSubmission(ctx context.Context, arg CreateSubmissionParams) (Submission, error)
 	CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Scoped to the owner: a caller can only revoke their own token (0 rows ⇒ not found/not theirs).
+	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
+	// Ban hook: disable all of a user's tokens, the token equivalent of DeleteAllForUser.
+	DeleteAPITokensForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteAttachment(ctx context.Context, id uuid.UUID) error
 	DeleteChallenge(ctx context.Context, id uuid.UUID) error
 	DeleteInstance(ctx context.Context, id uuid.UUID) error
 	DeleteTeam(ctx context.Context, id uuid.UUID) error
 	FindInstanceByFlag(ctx context.Context, arg FindInstanceByFlagParams) (Instance, error)
+	GetAPIToken(ctx context.Context, id uuid.UUID) (ApiToken, error)
+	// Auth probe: candidates sharing a presented token's prefix. The caller constant-time
+	// compares the full hash; the prefix is only an index hint, never the credential check.
+	GetAPITokensByPrefix(ctx context.Context, prefix string) ([]ApiToken, error)
 	GetAttachment(ctx context.Context, arg GetAttachmentParams) (ChallengeAttachment, error)
 	GetChallengeByID(ctx context.Context, id uuid.UUID) (Challenge, error)
 	GetChallengeBySlug(ctx context.Context, slug string) (Challenge, error)
@@ -59,6 +69,9 @@ type Querier interface {
 	GetUserTeam(ctx context.Context, userID uuid.UUID) (GetUserTeamRow, error)
 	HasTeamSolved(ctx context.Context, arg HasTeamSolvedParams) (bool, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
+	ListAPITokensByUser(ctx context.Context, userID uuid.UUID) ([]ApiToken, error)
+	// Admin view across users; never selects the hash into any DTO (metadata only at the handler).
+	ListAllAPITokens(ctx context.Context, arg ListAllAPITokensParams) ([]ApiToken, error)
 	ListAttachments(ctx context.Context, challengeID uuid.UUID) ([]ChallengeAttachment, error)
 	ListChallengesAdmin(ctx context.Context, arg ListChallengesAdminParams) ([]Challenge, error)
 	ListExpiredInstances(ctx context.Context, now *time.Time) ([]Instance, error)
@@ -112,6 +125,7 @@ type Querier interface {
 	// have no member to promote and are left as historical records.
 	RepairStrandedCaptains(ctx context.Context) ([]RepairStrandedCaptainsRow, error)
 	SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error)
+	TouchAPIToken(ctx context.Context, id uuid.UUID) error
 	UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error)
 	UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (Instance, error)

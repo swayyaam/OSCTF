@@ -21,6 +21,7 @@ func sessionMiddleware(sessions *auth.SessionStore) func(http.Handler) http.Hand
 						UserID:       sess.UserID,
 						Role:         sess.Role,
 						SessionToken: sess.Token,
+						Method:       auth.AuthSession,
 					}))
 				}
 			}
@@ -41,6 +42,13 @@ func originCheckMiddleware(baseOrigin, devOrigin string) func(http.Handler) http
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				next.ServeHTTP(w, r)
+				return
+			}
+			// A bearer-authenticated request skips the CSRF origin check: the credential is a
+			// deliberate Authorization header, not an ambient cookie, so it cannot be driven
+			// cross-site (a browser won't attach it, and CORS gates any cross-origin attempt).
+			if id, ok := auth.IdentityFrom(r.Context()); ok && id.Method == auth.AuthToken {
 				next.ServeHTTP(w, r)
 				return
 			}

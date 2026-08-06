@@ -11,6 +11,18 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Name       string
+	TokenHash  string
+	Prefix     string
+	Scopes     []string
+	LastUsedAt *time.Time
+	ExpiresAt  *time.Time
+	CreatedAt  time.Time
+}
+
 type AuditLog struct {
 	ID          int64
 	ActorID     *uuid.UUID

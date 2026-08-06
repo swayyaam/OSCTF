@@ -15,6 +15,7 @@ import (
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpx"
 	"github.com/osctf/platform/internal/metrics"
+	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/webdist"
 )
 
@@ -39,6 +40,12 @@ type Deps struct {
 	// V0Sunset is the date advertised in the /api/v0 Sunset header (RFC 8594). The zero
 	// value still emits a header (an ancient date); production passes cfg.APIV0Sunset.
 	V0Sunset time.Time
+	// Tokens resolves `Authorization: Bearer` API tokens; nil disables token auth.
+	Tokens *auth.TokenService
+	// Limiter rate-limits token requests by token identity; nil disables that limit.
+	Limiter         *redisx.Limiter
+	TokenRateBurst  int
+	TokenRateWindow time.Duration
 	// TrustProxy mirrors OSCTF_TRUST_PROXY. When false the server warns once if it
 	// receives a forwarded header, since a proxy is likely in front but its client IPs
 	// are being ignored (every request would then key to the proxy IP).
@@ -100,6 +107,11 @@ func New(d Deps) http.Handler {
 	}
 	if d.BaseOrigin != "" {
 		api = originCheckMiddleware(d.BaseOrigin, d.CORSDevOrigin)(api)
+	}
+	// Token auth wraps the origin check (bearer requests skip CSRF) but is wrapped BY the
+	// session middleware (a resolved session takes precedence over a presented token).
+	if d.Tokens != nil {
+		api = tokenMiddleware(d.Tokens, d.Limiter, d.TokenRateBurst, d.TokenRateWindow)(api)
 	}
 	if d.Sessions != nil {
 		api = sessionMiddleware(d.Sessions)(api)

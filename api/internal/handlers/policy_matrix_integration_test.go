@@ -163,6 +163,7 @@ func matrixServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Hand
 	mgr := runtime.NewManager(runtime.NewFakeRuntime(q), q, "ctf.example.com", 30000, 30999)
 	sched := scheduler.New(mgr, q, ev, flags.NewGenerator("osctf"), audit.New(q, discardLog()), clk, discardLog(),
 		scheduler.Config{TTL: time.Hour, Extend: 30 * time.Minute, MaxTTL: 4 * time.Hour, Quota: 50})
+	limiter := redisx.NewLimiter(rdb)
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4), Events: ev,
 		Challenges:  challenges.New(q, newMemStore()),
@@ -170,11 +171,12 @@ func matrixServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Hand
 		Scoreboard:  sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
 		Runtime: mgr, Scheduler: sched,
 		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
-		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()),
+		Limiter: limiter, Audit: audit.New(q, discardLog()),
 		SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})
 	return httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin,
-		V0Sunset: time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)})
+		V0Sunset: time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC),
+		Tokens:   auth.NewTokenService(q), Limiter: limiter, TokenRateBurst: 6000, TokenRateWindow: time.Minute})
 }
 
 func newMatrix(t *testing.T) *mtx {

@@ -196,6 +196,7 @@ func containmentServer(t *testing.T) *containment {
 	sb.SetBroadcaster(func(s scoreboard.Snapshot) { hub.BroadcastScoreboard(handlers.ToScoreboard(s)) })
 	_ = sb.Recompute(context.Background())
 
+	limiter := redisx.NewLimiter(rdb)
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4), Events: ev,
 		Challenges:  challenges.New(q, newMemStore()),
@@ -203,10 +204,11 @@ func containmentServer(t *testing.T) *containment {
 		Scoreboard:  sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
 		Runtime: mgr, Scheduler: sched,
 		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
-		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, log),
+		Limiter: limiter, Audit: audit.New(q, log),
 		Log: log, SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})
-	srv := httpserver.New(httpserver.Deps{Log: log, Handlers: h, Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler()})
+	srv := httpserver.New(httpserver.Deps{Log: log, Handlers: h, Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler(),
+		Tokens: auth.NewTokenService(q), Limiter: limiter, TokenRateBurst: 6000, TokenRateWindow: time.Minute})
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { ts.Close(); hubStop() })
 	return &containment{srv: srv, pool: pool, q: q, logs: logs, hub: hub, sb: sb, ts: ts, hubStop: hubStop}
@@ -348,12 +350,37 @@ func TestFlagContainmentIntegration(t *testing.T) {
 		t.Fatalf("expected a generated per-instance flag, got %q", perInstFlag)
 	}
 
+	// A live API token: the plaintext should exist exactly once (the create response, added in
+	// P2-b2) and NEVER reach a response body, log line, audit row, or metric label. Mint one,
+	// exercise it on the auth path (a success and a scope-denied error, both of which log and
+	// could echo the header), and treat it as a secret allowed to NO ONE.
+	apiToken, _, err := auth.NewTokenService(c.q).Create(ctx, uuid.MustParse(ownerUserID), "containment", []string{auth.ScopeRead}, nil)
+	if err != nil {
+		t.Fatalf("mint api token: %v", err)
+	}
+	tokReq := func(method, path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
+		r.Header.Set("Authorization", "Bearer "+apiToken)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, r)
+		return rec
+	}
+	if rec := tokReq(http.MethodGet, "/api/v1/challenges"); rec.Code != http.StatusOK {
+		t.Fatalf("token GET /challenges = %d (%s); want 200", rec.Code, rec.Body)
+	}
+	if rec := tokReq(http.MethodGet, "/api/v1/admin/stats"); rec.Code != http.StatusForbidden { // scope-denied error path
+		t.Fatalf("read token GET /admin/stats = %d; want 403", rec.Code)
+	}
+
 	secrets := []secret{
 		{name: "static-flag", value: staticFlag, allowed: map[string]bool{"admin": true}},
 		{name: "per-instance-flag", value: perInstFlag, allowed: map[string]bool{"owner": true}},
 		// `type` is admin-visible, participant-omitted: it may appear on admin challenge
 		// views but must not ride any participant Challenge/ChallengeDetail response.
 		{name: "challenge-type", value: sentinelType, allowed: map[string]bool{"admin": true}},
+		// A live token is a secret allowed to nobody — it must not appear in ANY response,
+		// log, audit row, or metric.
+		{name: "api-token", value: apiToken, allowed: map[string]bool{}},
 	}
 
 	// owner solves the static challenge (real solve data on the board) and its own

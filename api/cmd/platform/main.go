@@ -328,6 +328,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 	})
 	limiter := redisx.NewLimiter(rdb)
+	tokenSvc := auth.NewTokenService(q)
 
 	authRegistry := auth.NewRegistry(provider)
 	// Refuse to boot with no way to log in: email login disabled and no other provider
@@ -379,15 +380,19 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	handler := httpserver.New(httpserver.Deps{
-		Log:           log,
-		Handlers:      h,
-		Ready:         ready,
-		Sessions:      sessions,
-		BaseOrigin:    cfg.BaseOrigin(),
-		CORSDevOrigin: cfg.CORSDevOrigin,
-		WSHandler:     hub.Handler(),
-		TrustProxy:    cfg.TrustProxy,
-		V0Sunset:      cfg.APIV0Sunset,
+		Log:             log,
+		Handlers:        h,
+		Ready:           ready,
+		Sessions:        sessions,
+		BaseOrigin:      cfg.BaseOrigin(),
+		CORSDevOrigin:   cfg.CORSDevOrigin,
+		WSHandler:       hub.Handler(),
+		TrustProxy:      cfg.TrustProxy,
+		V0Sunset:        cfg.APIV0Sunset,
+		Tokens:          tokenSvc,
+		Limiter:         limiter,
+		TokenRateBurst:  cfg.TokenRateBurst,
+		TokenRateWindow: cfg.TokenRateWindow,
 	})
 
 	srv := &http.Server{

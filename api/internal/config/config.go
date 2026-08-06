@@ -104,6 +104,13 @@ type Config struct {
 	WSHandshakeBurst  int           `env:"OSCTF_WS_HANDSHAKE_BURST" envDefault:"600"`      // handshakes per client per window
 	WSHandshakeWindow time.Duration `env:"OSCTF_WS_HANDSHAKE_WINDOW" envDefault:"60s"`
 
+	// API-token rate limit, keyed by TOKEN IDENTITY (not IP or account). Automation traffic
+	// is legitimately unlike a browser's, and the venue-NAT lesson (issue #1) applies to bots:
+	// an IP-keyed limit throttles a CI runner or many tokens behind one egress IP. Generous by
+	// default (100 req/s sustained); 0 disables.
+	TokenRateBurst  int           `env:"OSCTF_TOKEN_RATE_BURST" envDefault:"6000"`
+	TokenRateWindow time.Duration `env:"OSCTF_TOKEN_RATE_WINDOW" envDefault:"60s"`
+
 	CORSDevOrigin string `env:"OSCTF_CORS_DEV_ORIGIN"`
 
 	LogFormat string `env:"OSCTF_LOG_FORMAT" envDefault:"json"`

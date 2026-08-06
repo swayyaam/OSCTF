@@ -6,13 +6,26 @@ import (
 	"github.com/google/uuid"
 )
 
-// Identity is the authenticated caller attached to a request context by the
-// session middleware. Role comes from the session (cheap checks); admin
-// endpoints must re-read the user row (docs/v0.1/06-auth.md).
+// AuthMethod records how a request authenticated. Scope enforcement applies only to token
+// auth; a session carries the caller's full role.
+type AuthMethod string
+
+const (
+	AuthSession AuthMethod = "session"
+	AuthToken   AuthMethod = "token"
+)
+
+// Identity is the authenticated caller attached to a request context by the auth
+// middleware. For session auth, Role comes from the session (cheap checks) and admin
+// endpoints re-read the user row. For token auth, Role is resolved LIVE per request and
+// Scopes/TokenID are set.
 type Identity struct {
 	UserID       uuid.UUID
 	Role         string
-	SessionToken string
+	SessionToken string     // session auth only
+	Method       AuthMethod // how this request authenticated
+	Scopes       []string   // token auth only — the granted scope set
+	TokenID      uuid.UUID  // token auth only — for rate-limit keying and audit
 }
 
 // IsAdmin reports whether the session role is admin (session-cached; re-check

@@ -218,6 +218,16 @@ type ChallengeType interface {
 - The built-in `standard`/`container` behaviour is registered as the default type; a
   challenge references a type id. Author-time validation (admin create/update, the CLI
   `validate`, and the seeder) calls `ValidateConfig`.
+- **An unregistered type is rejected at write time**, with an error naming it — a `422` like
+  `unknown challenge type "regex-flag": no such type is registered`. An admin typo, or a
+  challenge authored against a plugin *this* deployment doesn't have, fails on create/update
+  rather than silently storing a `type` nothing can resolve. (The default `standard` is always
+  registered, so v0.2-shaped authoring is unaffected.)
+- **`type` is admin-visible, participant-omitted.** Authors set and see the type on the admin
+  challenge DTO; it never appears on any participant-facing DTO (board, detail, WS). A new
+  column on a table whose participant view is protected by type separation is exactly where
+  that protection gets accidentally widened, so the serialization goldens and the
+  flag-containment scanner both assert its absence from participant responses.
 - A type with a custom `CheckFlag` participates in the **existing** submissions transaction:
   the host still locks the challenge, enforces solved/attempt rules, rate limits, and
   logging (v0.1), and calls the plugin only to answer correctness — inside the same
@@ -231,6 +241,30 @@ type ChallengeType interface {
   ([`03-plugin-loader.md`](03-plugin-loader.md) → the per-type table).
 - Runtime/instancing is unchanged: a container challenge of any type still deploys through
   `ChallengeRuntime`. Challenge-type plugins do **not** provide a runtime.
+
+### An unresolvable type fails closed (specified now, implemented when reachable in P4)
+
+Write-time rejection stops a *new* challenge from referencing a missing type, but an
+*existing* challenge can become unresolvable later: its plugin is removed, the plugin is in
+`failed`/quarantine, or a database is restored onto a deployment that lacks the plugin. P1
+cannot reach this state (no plugin types exist yet), but **P4 can, and "the challenge exists
+and nothing can score it" will happen in production** — so the behaviour is fixed here:
+
+- **The challenge stays in the database** — never deleted or mutated because its type is
+  momentarily unresolvable (the plugin may come back).
+- **It is hidden from participants** — omitted from the board and 404 on direct access, the
+  same as an unreleased challenge, so no one can attempt something that can't be scored.
+- **Submissions against it are rejected with a clear error** (e.g. `this challenge's type is
+  currently unavailable`), the tx rolls back with no solve and no attempt consumed. The host
+  **does not** fall back to the standard flag comparison — that is the challenge-type
+  equivalent of the scoring fallback we already rejected, and worse: it would **hand out
+  solves against a checker that never ran**.
+- **It is surfaced in the admin view as unresolvable** — the same treatment unadopted
+  containers/networks got in v0.2 (a flagged, admin-visible state with the offending type
+  named), so an operator can see and fix it.
+
+This is the fail-closed posture applied consistently: an unresolvable checker withholds
+scoring rather than guessing at it.
 
 ## What stays in-tree (not pluginizable in v0.3)
 

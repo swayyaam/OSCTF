@@ -55,10 +55,15 @@ type Deps struct {
 
 	// SecureCookies mirrors OSCTF_BASE_URL's scheme; TrustProxy gates
 	// X-Forwarded-For handling; SessionTTL sizes the cookie Max-Age.
-	SecureCookies   bool
-	TrustProxy      bool
-	SessionTTL      time.Duration
-	MaxAttachmentMB int
+	SecureCookies bool
+	TrustProxy    bool
+	// EmailLoginDisabled gates POST /auth/login (the built-in email/password path). Stored
+	// in the "disabled" sense so the zero value is the safe, common default (enabled) — a
+	// Deps built without setting it keeps email login on. True only for an SSO-only
+	// deployment; see config.AuthEmailLogin.
+	EmailLoginDisabled bool
+	SessionTTL         time.Duration
+	MaxAttachmentMB    int
 
 	// RegisterIPBurst / RegisterIPWindow bound anonymous sign-ups per client IP. The
 	// default is generous because a venue registers many players from one NAT at once;

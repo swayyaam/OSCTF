@@ -329,6 +329,13 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	})
 	limiter := redisx.NewLimiter(rdb)
 
+	authRegistry := auth.NewRegistry(provider)
+	// Refuse to boot with no way to log in: email login disabled and no other provider
+	// registered. Booting a login-less deployment is worse than failing loudly here.
+	if !authRegistry.HasUsableLogin(cfg.AuthEmailLogin) {
+		return fmt.Errorf("no login method available: OSCTF_AUTH_EMAIL_LOGIN=false and no auth provider is registered — enable email login or register a provider")
+	}
+
 	h := handlers.New(handlers.Deps{
 		Users:       usersSvc,
 		Teams:       teamsSvc,
@@ -343,19 +350,20 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				log.Warn("scoreboard recompute failed", "error", err.Error())
 			}
 		},
-		Auth:             auth.NewRegistry(provider),
-		Sessions:         sessions,
-		Limiter:          limiter,
-		Audit:            auditLog,
-		Log:              log,
-		RegisterIPBurst:  cfg.RegisterIPBurst,
-		RegisterIPWindow: cfg.RegisterIPWindow,
-		LoginIPBurst:     cfg.LoginIPBurst,
-		LoginIPWindow:    cfg.LoginIPWindow,
-		SecureCookies:    cfg.IsHTTPS(),
-		TrustProxy:       cfg.TrustProxy,
-		SessionTTL:       cfg.SessionTTL,
-		MaxAttachmentMB:  cfg.MaxAttachmentMB,
+		Auth:               authRegistry,
+		EmailLoginDisabled: !cfg.AuthEmailLogin,
+		Sessions:           sessions,
+		Limiter:            limiter,
+		Audit:              auditLog,
+		Log:                log,
+		RegisterIPBurst:    cfg.RegisterIPBurst,
+		RegisterIPWindow:   cfg.RegisterIPWindow,
+		LoginIPBurst:       cfg.LoginIPBurst,
+		LoginIPWindow:      cfg.LoginIPWindow,
+		SecureCookies:      cfg.IsHTTPS(),
+		TrustProxy:         cfg.TrustProxy,
+		SessionTTL:         cfg.SessionTTL,
+		MaxAttachmentMB:    cfg.MaxAttachmentMB,
 	})
 
 	if err := scoreboardSvc.Recompute(ctx); err != nil {

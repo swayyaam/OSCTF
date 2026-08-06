@@ -36,6 +36,14 @@ type Config struct {
 	SessionTTL       time.Duration `env:"OSCTF_SESSION_TTL" envDefault:"168h"`
 	RegistrationOpen bool          `env:"OSCTF_REGISTRATION_OPEN" envDefault:"true"`
 
+	// AuthEmailLogin enables the built-in email/password login. Set false for an
+	// SSO-only deployment. On by default as a fail-closed break-glass path; the platform
+	// refuses to boot if this is false and no other auth provider is registered, since
+	// booting with no way to log in is worse than refusing to boot. Disabling it while
+	// relying solely on an external IdP means an IdP outage locks everyone out — keep a
+	// break-glass path (re-enable this via env in an emergency).
+	AuthEmailLogin bool `env:"OSCTF_AUTH_EMAIL_LOGIN" envDefault:"true"`
+
 	// Registration is unauthenticated, so its abuse limit can only key on the client IP
 	// -- and a venue is a hundred-plus players on one NAT registering in the first couple
 	// of minutes. The default is therefore generous per IP; tighten it for a public-

@@ -77,6 +77,24 @@ func (r *Registry) Register(name string, p AuthProvider, override bool) error {
 	return nil
 }
 
+// HasUsableLogin reports whether at least one login method is available, given the
+// email-login toggle: the built-in email/password path (if emailEnabled), or any
+// registered non-default provider (a redirect/SSO provider, arriving in P4). The platform
+// calls this at boot and refuses to start when it returns false — booting with no way to
+// log in is worse than refusing to boot. In P1–P3 only `email` is registered, so this is
+// false exactly when email login is disabled.
+func (r *Registry) HasUsableLogin(emailEnabled bool) bool {
+	if emailEnabled {
+		return true
+	}
+	for name := range *r.m.Load() {
+		if name != r.defaultName {
+			return true // a non-email provider (e.g. an OIDC redirect provider)
+		}
+	}
+	return false
+}
+
 // Names returns the registered provider names (for admin listing / GET /auth/providers).
 func (r *Registry) Names() []string {
 	m := *r.m.Load()

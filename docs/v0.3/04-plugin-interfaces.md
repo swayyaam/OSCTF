@@ -51,10 +51,13 @@ Two orthogonal properties, decided here so an SSO-only deployment isn't stuck:
   "Cannot be overridden by a plugin" is **not** "cannot be turned off." Email/password login
   is **on by default** — a fail-closed **break-glass** path so a deployment always has a
   working login even if its auth plugin is down or misconfigured. An operator who wants
-  SSO-only sets **`OSCTF_AUTH_EMAIL_LOGIN=false`**: `POST /auth/login` then returns
-  `404`/disabled and `email` is omitted from `GET /auth/providers`; only redirect providers
-  (e.g. `oidc`) authenticate. This is what makes "SSO-only" possible without letting a plugin
-  seize the built-in.
+  SSO-only sets **`OSCTF_AUTH_EMAIL_LOGIN=false`**: `POST /auth/login` then returns a clear
+  **`403`** ("email/password login is disabled on this deployment") and `email` is omitted
+  from `GET /auth/providers`; only redirect providers (e.g. `oidc`) authenticate. This is
+  what makes "SSO-only" possible without letting a plugin seize the built-in. **The platform
+  refuses to boot** if email login is disabled and no other provider is registered — booting
+  with no way to log in is worse than failing loudly. (Shipped in P1: the config, the login
+  gate, and the boot check; `GET /auth/providers` and redirect providers arrive in P4.)
 - **Break-glass caveat (documented for operators).** Disabling email while relying solely on
   an external IdP means an **IdP outage locks everyone out, admins included.** Operators who
   disable email should keep a break-glass path — re-enable `OSCTF_AUTH_EMAIL_LOGIN` via env

@@ -70,6 +70,25 @@ func TestAuthRegistryBuiltinOverrideProtected(t *testing.T) {
 	}
 }
 
+// TestAuthRegistryHasUsableLogin pins the boot-refuse condition: email disabled with no
+// other provider means no way to log in (the platform must refuse to start).
+func TestAuthRegistryHasUsableLogin(t *testing.T) {
+	r := auth.NewRegistry(&stubProvider{name: "email"})
+
+	if !r.HasUsableLogin(true) {
+		t.Fatal("email enabled → should be usable")
+	}
+	if r.HasUsableLogin(false) {
+		t.Fatal("email disabled with only email registered → must be unusable (boot-refuse case)")
+	}
+	if err := r.Register("oidc", &stubProvider{name: "oidc"}, false); err != nil {
+		t.Fatalf("register oidc: %v", err)
+	}
+	if !r.HasUsableLogin(false) {
+		t.Fatal("email disabled but a non-email provider registered → should be usable")
+	}
+}
+
 // TestAuthRegistryReaderAtomicSwap pins invariant (c) as a contention test: a
 // register/swap is atomic from a reader's perspective. N readers resolve `email` in a
 // tight loop while a writer swaps the map repeatedly under load. `email` is present in

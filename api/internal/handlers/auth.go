@@ -131,6 +131,11 @@ func (s *Server) Login(ctx context.Context, request apigen.LoginRequestObject) (
 	if request.Body == nil {
 		return nil, apperr.ErrBadRequest
 	}
+	// Email/password login can be disabled for an SSO-only deployment. This is a global
+	// config, not per-account, so a clear error is fine (no enumeration concern).
+	if s.d.EmailLoginDisabled {
+		return nil, apperr.Forbiddenf("email/password login is disabled on this deployment; use your configured identity provider")
+	}
 	email := strings.ToLower(string(request.Body.Email))
 	ip := s.clientIP(ctx)
 

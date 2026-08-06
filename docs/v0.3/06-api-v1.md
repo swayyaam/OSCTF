@@ -78,15 +78,30 @@ CREATE TABLE api_tokens (
   `token_hash` (constant-time), gated by `prefix` for an index-friendly probe.
 - **Scopes.** Coarse in v0.3: `read` (GET), `submit` (participant actions), `admin`
   (admin endpoints). A token cannot exceed its owner's role — an `admin` scope on a
-  non-admin user's token grants nothing. Scope is enforced by the same authz middleware
-  that checks roles today.
+  non-admin user's token grants nothing (`role ∩ scope`). A token carrying an unrecognized
+  scope is rejected (fail closed), never treated as scopeless-and-continue.
 - **Auth middleware.** `Authorization: Bearer osctf_pat_…` is accepted anywhere a session
-  is, resolving to the owning user + scopes. Sessions remain for the browser; a request may
-  present one or the other, never both required. Bearer requests skip the CSRF origin check
-  (there's no ambient cookie to protect) but are rate-limited like sessions.
-- **Lifecycle.** `expires_at` and explicit revoke (`DELETE`) both invalidate immediately;
-  `last_used_at` is updated best-effort for the admin view. Banning a user disables their
-  tokens (same session-revocation path).
+  is, resolving to the owning user + scopes. It is read from the Authorization header ONLY —
+  never a cookie, query parameter, or form field, since accepting a token from an ambient
+  channel would forfeit the CSRF protection bearer requests skip. Sessions remain for the
+  browser; a request presents one or the other. Bearer requests are rate-limited by TOKEN
+  IDENTITY (not IP), because automation traffic is unlike a browser's.
+- **Expiry (decided).** Tokens are NOT immortal. Create takes an optional lifetime; omitted,
+  it gets the default (`OSCTF_TOKEN_DEFAULT_TTL`, 90 days); a requested lifetime is capped at
+  `OSCTF_TOKEN_MAX_TTL` (365 days) and a longer request is rejected. There is no API path to
+  a never-expiring token — a permanent admin-scoped credential is exactly what a security
+  product should not mint by default. The create response states the resulting `expires_at`.
+- **Lifecycle.** `expires_at` and explicit revoke (`DELETE`) both invalidate on the next
+  request. `last_used_at` is best-effort and COARSENED — updated at most once per minute per
+  token (a conditional write), so the hot path doesn't amplify writes; it's an "in use
+  recently" signal for operators deciding whether to revoke, not an exact timestamp.
+- **Ban disables tokens (decided — which mechanism is load-bearing).** The LOAD-BEARING
+  mechanism is the per-request live check: every bearer request re-reads the owner's role and
+  banned flag, so a ban takes effect on the next request regardless of anything else. Banning
+  ALSO deletes the user's token rows (defense-in-depth + row hygiene, the token equivalent of
+  session revocation), but that deletion is NOT what makes the ban safe. Do not add a token
+  cache on the assumption that "banned tokens are deleted anyway" — that silently reintroduces
+  a window equal to the cache TTL. The live check is the guarantee; deletion is a bonus.
 
 ### Issuance and revocation are session-only (decided)
 
@@ -123,14 +138,28 @@ implementation:
   ban/expiry should punch through it). v0.3 deliberately avoids the cache so revocation is
   exact; the hashed-lookup cost is one indexed query per request, acceptable at v0.3 scale.
 
+### Ownership (decided)
+
+- A user **lists and revokes their own** tokens only. `listTokens` returns the caller's
+  tokens; `revokeToken` is scoped to the caller (revoking an id that isn't theirs is a 404,
+  indistinguishable from a nonexistent id — no cross-user existence leak).
+- An **admin lists and revokes anyone's** via the `/admin/tokens` routes.
+- **Metadata only, ever.** `listTokens`/`adminListTokens` return `{id, prefix, name, scopes,
+  created_at, last_used_at, expires_at}` — never the plaintext (shown once at create) and
+  never the `token_hash`. The plaintext exists in exactly one response and nowhere else.
+
 ### Endpoints (new, under `/api/v1`)
 
-| Method + path | operationId | Purpose |
-|---|---|---|
-| `POST /tokens` | `createToken` | Create a token for the caller; returns the secret **once**. |
-| `GET /tokens` | `listTokens` | List the caller's tokens (prefix + metadata, never the secret). |
-| `DELETE /tokens/{id}` | `revokeToken` | Revoke one of the caller's tokens. |
-| `GET /admin/tokens` | `adminListTokens` | Admin view across users (metadata only). |
+| Method + path | operationId | Purpose | Auth |
+|---|---|---|---|
+| `POST /tokens` | `createToken` | Create a token for the caller; returns the secret **once**. | session |
+| `GET /tokens` | `listTokens` | List the caller's tokens (metadata only, never the secret). | session |
+| `DELETE /tokens/{id}` | `revokeToken` | Revoke one of the caller's tokens. | session |
+| `GET /admin/tokens` | `adminListTokens` | Admin view across users (metadata only). | session, admin |
+| `DELETE /admin/tokens/{id}` | `adminRevokeToken` | Revoke any user's token. | session, admin |
+
+Every token-management route is **session-only** (a bearer token is rejected on them even if
+its owner is privileged — see "Issuance and revocation are session-only").
 
 The dashboard gains a "API tokens" section in the profile; the CLI's `osctf login` creates
 and stores one ([`../v0.3.1/01-cli.md`](../v0.3.1/01-cli.md)).

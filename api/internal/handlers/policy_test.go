@@ -26,6 +26,7 @@ type policy struct {
 	role      string
 	ownership string
 	phases    []string
+	authn     string // "" = session or token; "session" = bearer rejected (token management)
 	note      string
 }
 
@@ -52,6 +53,15 @@ var policyTable = map[string]policy{
 
 	// downloads: authenticated; a hidden/unreleased challenge is 404 (3b).
 	"downloadAttachment": {role: "user"},
+
+	// API tokens. Management is SESSION-ONLY (a bearer token cannot mint or revoke tokens),
+	// so a leaked token cannot self-perpetuate past its revocation. revokeToken is scoped to
+	// the caller; the admin routes reach any user's tokens.
+	"createToken":      {role: "user", authn: "session", note: "issue a token for the caller; session only"},
+	"listTokens":       {role: "user", authn: "session", note: "caller's own tokens, metadata only"},
+	"revokeToken":      {role: "user", authn: "session", ownership: "self", note: "revoke one of the caller's own tokens"},
+	"adminListTokens":  {role: "admin", authn: "session", note: "all tokens across users, metadata only"},
+	"adminRevokeToken": {role: "admin", authn: "session", note: "revoke any user's token"},
 
 	// team lifecycle
 	"createTeam":           {role: "user"},

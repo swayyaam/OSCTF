@@ -41,6 +41,8 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// Scoped to the owner: a caller can only revoke their own token (0 rows ⇒ not found/not theirs).
 	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
+	// Admin revoke: delete any token by id regardless of owner.
+	DeleteAPITokenByID(ctx context.Context, id uuid.UUID) (int64, error)
 	// Ban hook: disable all of a user's tokens, the token equivalent of DeleteAllForUser.
 	DeleteAPITokensForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteAttachment(ctx context.Context, id uuid.UUID) error
@@ -49,6 +51,8 @@ type Querier interface {
 	DeleteTeam(ctx context.Context, id uuid.UUID) error
 	FindInstanceByFlag(ctx context.Context, arg FindInstanceByFlagParams) (Instance, error)
 	GetAPIToken(ctx context.Context, id uuid.UUID) (ApiToken, error)
+	// Admin revoke path: fetch by id (any owner) to confirm existence before deleting.
+	GetAPITokenAdmin(ctx context.Context, id uuid.UUID) (ApiToken, error)
 	// Auth probe: candidates sharing a presented token's prefix. The caller constant-time
 	// compares the full hash; the prefix is only an index hint, never the credential check.
 	GetAPITokensByPrefix(ctx context.Context, prefix string) ([]ApiToken, error)
@@ -70,8 +74,8 @@ type Querier interface {
 	HasTeamSolved(ctx context.Context, arg HasTeamSolvedParams) (bool, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	ListAPITokensByUser(ctx context.Context, userID uuid.UUID) ([]ApiToken, error)
-	// Admin view across users; never selects the hash into any DTO (metadata only at the handler).
-	ListAllAPITokens(ctx context.Context, arg ListAllAPITokensParams) ([]ApiToken, error)
+	// Admin view across users; the handler maps to metadata only (never the hash).
+	ListAllAPITokens(ctx context.Context, arg ListAllAPITokensParams) ([]ListAllAPITokensRow, error)
 	ListAttachments(ctx context.Context, challengeID uuid.UUID) ([]ChallengeAttachment, error)
 	ListChallengesAdmin(ctx context.Context, arg ListChallengesAdminParams) ([]Challenge, error)
 	ListExpiredInstances(ctx context.Context, now *time.Time) ([]Instance, error)
@@ -125,6 +129,10 @@ type Querier interface {
 	// have no member to promote and are left as historical records.
 	RepairStrandedCaptains(ctx context.Context) ([]RepairStrandedCaptainsRow, error)
 	SetInstanceExpiry(ctx context.Context, arg SetInstanceExpiryParams) (Instance, error)
+	// COARSENED: only writes if last_used_at is stale by > 1 minute, so a hot token doesn't
+	// amplify writes (row churn / WAL / vacuum) on every request. last_used_at is therefore an
+	// "in use recently" signal, not an exact timestamp — enough for an operator deciding whether
+	// a token is still live before revoking it.
 	TouchAPIToken(ctx context.Context, id uuid.UUID) error
 	UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error)

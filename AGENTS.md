@@ -80,6 +80,12 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
 - Never log flags, passwords, session tokens, or password hashes.
 - Generated code (`apigen/`, `db/gen/`, `dashboard/src/api/schema.d.ts`) is committed;
   CI fails on drift. Regenerate with `make generate`.
+- **Any `openapi.yaml` change must pass the dashboard CI job before "green": `cd dashboard
+  && npm run lint && npm run typecheck && npm run build`.** `schema.d.ts` is a generated
+  dashboard input, and a spec change can break the dashboard while the entire Go gate stays
+  green — e.g. adding `default:` to a request-body field makes openapi-typescript type it as
+  *required*, breaking `tsc`. The Go suite, vet-tags, and golangci-lint do NOT cover this
+  seam; the dashboard typecheck is a distinct CI job and must be run locally on any spec edit.
 - Conventional Commits; no `TODO`/`FIXME` comments (lint enforces).
 
 ## Testing contract

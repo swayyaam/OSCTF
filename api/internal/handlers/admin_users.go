@@ -56,6 +56,16 @@ func (s *Server) AdminUpdateUser(ctx context.Context, request apigen.AdminUpdate
 	if err != nil {
 		return nil, err
 	}
+	// Delete the banned user's API tokens (row hygiene, the token analogue of the session
+	// revocation AdminUpdate already does). This is DEFENSE-IN-DEPTH, not the enforcement: a
+	// ban already takes effect on the next request via the live role/ban check in token auth
+	// (auth.TokenService.Authenticate). Do not weaken that live check on the assumption that
+	// banned tokens are deleted here — deletion is a bonus, the live check is the guarantee.
+	if request.Body.Banned != nil && *request.Body.Banned && s.d.Tokens != nil {
+		if derr := s.d.Tokens.DeleteForUser(ctx, request.Id); derr != nil {
+			return nil, derr
+		}
+	}
 	s.d.Audit.Log(ctx, actor.ID, "user.update", "user", request.Id.String(), map[string]any{
 		"banned": request.Body.Banned, "hidden": request.Body.Hidden, "role": role,
 	})

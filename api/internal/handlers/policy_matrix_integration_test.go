@@ -171,6 +171,7 @@ func matrixServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Hand
 		Scoreboard:  sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
 		Runtime: mgr, Scheduler: sched,
 		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
+		Tokens: auth.NewTokenService(q), TokenDefaultTTL: 90 * 24 * time.Hour, TokenMaxTTL: 365 * 24 * time.Hour,
 		Limiter: limiter, Audit: audit.New(q, discardLog()),
 		SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})
@@ -439,6 +440,7 @@ func sharedP(method string, path func(*mtx) string, body string) func(*mtx, stri
 func TestPolicyMatrixIntegration(t *testing.T) {
 	m := newMatrix(t)
 	P := "/api/v1"
+	const dummyTokenID = "11111111-1111-1111-1111-111111111111"
 
 	routes := []mroute{
 		// --- public ---------------------------------------------------------
@@ -680,6 +682,29 @@ func TestPolicyMatrixIntegration(t *testing.T) {
 			}},
 		{op: "adminGetStats", expect: adminRoute(http.StatusOK), build: shared(http.MethodGet, P+"/admin/stats", "")},
 		{op: "adminListUsers", expect: adminRoute(http.StatusOK), build: shared(http.MethodGet, P+"/admin/users", "")},
+
+		// --- API tokens. All session-authenticated here (the cookie matrix), so these cells
+		// exercise the ROLE dimension; the session-only gate and role∩scope are asserted in
+		// the token-authz matrix + token_auth tests. A dummy token id makes revoke hermetic. ---
+		{op: "createToken", expect: userRoute(http.StatusCreated), build: shared(http.MethodPost, P+"/tokens", `{"name":"m","scopes":["read"]}`)},
+		{op: "listTokens", expect: userRoute(http.StatusOK), build: shared(http.MethodGet, P+"/tokens", "")},
+		{op: "revokeToken", expect: func(_ *mtx, id, _ string) int {
+			if id == idAnon {
+				return http.StatusUnauthorized
+			}
+			return http.StatusNotFound // a dummy id is never the caller's own token
+		}, build: shared(http.MethodDelete, P+"/tokens/"+dummyTokenID, "")},
+		{op: "adminListTokens", expect: adminRoute(http.StatusOK), build: shared(http.MethodGet, P+"/admin/tokens", "")},
+		{op: "adminRevokeToken", expect: func(_ *mtx, id, _ string) int {
+			switch id {
+			case idAnon:
+				return http.StatusUnauthorized
+			case idAdmin:
+				return http.StatusNotFound // dummy id, admin reaches the handler
+			default:
+				return http.StatusForbidden
+			}
+		}, build: shared(http.MethodDelete, P+"/admin/tokens/"+dummyTokenID, "")},
 		{op: "adminUpdateUser", expect: adminRoute(http.StatusOK),
 			build: sharedP(http.MethodPatch, func(m *mtx) string { return P + "/admin/users/" + m.victimUserID }, `{"role":"user"}`)},
 		{op: "adminResetPassword", expect: adminRoute(http.StatusNoContent),

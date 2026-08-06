@@ -58,9 +58,14 @@ tags:
     description: Standings.
   - name: admin
     description: Organizer operations. All require the admin role.
+  - name: tokens
+    description: API tokens (bearer credentials for non-browser clients).
 
+# Either a session cookie or a bearer token authenticates a request (public ops override with
+# an empty security list; token-management ops are session-only, enforced in the handler).
 security:
   - cookieAuth: []
+  - tokenAuth: []
 
 paths:
   # ---------------------------------------------------------------- auth
@@ -158,6 +163,62 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Validation" }
+
+  # ---------------------------------------------------------------- API tokens
+  /tokens:
+    post:
+      tags: [tokens]
+      operationId: createToken
+      summary: Create an API token
+      description: >
+        Create a bearer API token for the calling user. The plaintext is returned ONCE in
+        this response and never again. SESSION AUTH ONLY — a bearer token cannot mint another,
+        so a leaked token cannot self-perpetuate past its own revocation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenCreate" }
+      responses:
+        "201":
+          description: The created token, including its one-time plaintext.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenCreated" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Validation" }
+    get:
+      tags: [tokens]
+      operationId: listTokens
+      summary: List the caller's API tokens
+      description: Metadata only — never the plaintext or the hash. Session auth only.
+      responses:
+        "200":
+          description: The caller's tokens.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Token" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /tokens/{id}:
+    delete:
+      tags: [tokens]
+      operationId: revokeToken
+      summary: Revoke one of the caller's tokens
+      description: >
+        Scoped to the caller. Revoking an id that isn't yours is a 404 (indistinguishable
+        from a nonexistent id — no cross-user existence leak). Session auth only.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # ---------------------------------------------------------------- users
   /users/{id}:
@@ -841,6 +902,38 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/RuntimeUnavailable" }
 
+  # ---------------------------------------------------------------- admin: tokens
+  /admin/tokens:
+    get:
+      tags: [admin]
+      operationId: adminListTokens
+      summary: List all API tokens
+      description: Paginated view across users; metadata only (never the plaintext or hash).
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: A page of tokens.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenAdminPage" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/tokens/{id}:
+    delete:
+      tags: [admin]
+      operationId: adminRevokeToken
+      summary: Revoke any user's token
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # ---------------------------------------------------------------- admin: users/teams
   /admin/users:
     get:
@@ -1031,6 +1124,13 @@ components:
       in: cookie
       name: osctf_session
       description: Server-side session; obtained via register or login.
+    tokenAuth:
+      type: http
+      scheme: bearer
+      description: >
+        API token: `Authorization: Bearer osctf_pat_…`. Accepted from the Authorization
+        header ONLY (never a cookie, query, or form field). Effective permission is
+        role ∩ scope.
 
   parameters:
     IdPath:
@@ -1349,6 +1449,76 @@ components:
         invite_code:
           type: string
           description: The team invite code.
+
+    TokenScope:
+      type: string
+      enum: [read, submit, admin]
+      description: Coarse capability a token grants, bounded by the owner's role (role ∩ scope).
+
+    Token:
+      type: object
+      description: API token metadata. NEVER contains the plaintext or the hash.
+      required: [id, prefix, name, scopes, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        prefix: { type: string, description: First chars of the token, for display. }
+        name: { type: string, description: Human label. }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/TokenScope" }
+        created_at: { type: string, format: date-time }
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Approximate — coarsened to at most once per minute; null if never used.
+        expires_at: { type: string, format: date-time, nullable: true }
+
+    TokenCreate:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, description: Human label. }
+        scopes:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/TokenScope" }
+        expires_in_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >
+            Lifetime in days. Omitted → the server default; a value above the server maximum
+            is rejected. There is no never-expiring option.
+
+    TokenCreated:
+      allOf:
+        - $ref: "#/components/schemas/Token"
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: The plaintext token. Shown ONCE — store it now; it cannot be retrieved again.
+
+    TokenAdmin:
+      allOf:
+        - $ref: "#/components/schemas/Token"
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: "#/components/schemas/Member" }
+
+    TokenAdminPage:
+      type: object
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TokenAdmin" }
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
 
     TeamMine:
       type: object
@@ -1676,7 +1846,7 @@ components:
         description: { type: string, description: Markdown body. }
         difficulty: { $ref: "#/components/schemas/Difficulty" }
         kind: { $ref: "#/components/schemas/ChallengeKind" }
-        type: { type: string, default: standard, description: "Challenge-type id; defaults to the built-in 'standard'. Must be a registered type." }
+        type: { type: string, description: "Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it." }
         flag:
           type: string
           minLength: 1

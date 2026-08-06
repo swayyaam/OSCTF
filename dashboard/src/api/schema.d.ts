@@ -104,6 +104,50 @@ export interface paths {
         patch: operations["changePassword"];
         trace?: never;
     };
+    "/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's API tokens
+         * @description Metadata only — never the plaintext or the hash. Session auth only.
+         */
+        get: operations["listTokens"];
+        put?: never;
+        /**
+         * Create an API token
+         * @description Create a bearer API token for the calling user. The plaintext is returned ONCE in this response and never again. SESSION AUTH ONLY — a bearer token cannot mint another, so a leaked token cannot self-perpetuate past its own revocation.
+         */
+        post: operations["createToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one of the caller's tokens
+         * @description Scoped to the caller. Revoking an id that isn't yours is a 404 (indistinguishable from a nonexistent id — no cross-user existence leak). Session auth only.
+         */
+        delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{id}": {
         parameters: {
             query?: never;
@@ -620,6 +664,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all API tokens
+         * @description Paginated view across users; metadata only (never the plaintext or hash).
+         */
+        get: operations["adminListTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke any user's token */
+        delete: operations["adminRevokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -951,6 +1032,50 @@ export interface components {
             /** @description The team invite code. */
             invite_code: string;
         };
+        /**
+         * @description Coarse capability a token grants, bounded by the owner's role (role ∩ scope).
+         * @enum {string}
+         */
+        TokenScope: "read" | "submit" | "admin";
+        /** @description API token metadata. NEVER contains the plaintext or the hash. */
+        Token: {
+            /** Format: uuid */
+            id: string;
+            /** @description First chars of the token */
+            prefix: string;
+            /** @description Human label. */
+            name: string;
+            scopes: components["schemas"]["TokenScope"][];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Approximate — coarsened to at most once per minute; null if never used.
+             */
+            last_used_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+        };
+        TokenCreate: {
+            /** @description Human label. */
+            name: string;
+            scopes: components["schemas"]["TokenScope"][];
+            /** @description Lifetime in days. Omitted → the server default; a value above the server maximum is rejected. There is no never-expiring option. */
+            expires_in_days?: number | null;
+        };
+        TokenCreated: components["schemas"]["Token"] & {
+            /** @description The plaintext token. Shown ONCE — store it now; it cannot be retrieved again. */
+            token: string;
+        };
+        TokenAdmin: components["schemas"]["Token"] & {
+            user: components["schemas"]["Member"];
+        };
+        TokenAdminPage: {
+            items: components["schemas"]["TokenAdmin"][];
+            total: number;
+            page: number;
+            per_page: number;
+        };
         /** @description A team as seen by its own members (includes the invite code). */
         TeamMine: {
             /**
@@ -1274,11 +1399,8 @@ export interface components {
             description?: string;
             difficulty?: components["schemas"]["Difficulty"];
             kind?: components["schemas"]["ChallengeKind"];
-            /**
-             * @description Challenge-type id; defaults to the built-in 'standard'. Must be a registered type.
-             * @default standard
-             */
-            type: string;
+            /** @description Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it. */
+            type?: string;
             /** @description The flag, stored verbatim. */
             flag: string;
             /** @description Case-insensitive matching (default false). */
@@ -1881,6 +2003,79 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["Validation"];
+        };
+    };
+    listTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Token"][];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenCreate"];
+            };
+        };
+        responses: {
+            /** @description The created token, including its one-time plaintext. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenCreated"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Validation"];
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource ID. */
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getUser: {
@@ -2772,6 +2967,57 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["RuntimeUnavailable"];
+        };
+    };
+    adminListTokens: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number. */
+                page?: components["parameters"]["Page"];
+                /** @description Items per page (max 200). */
+                per_page?: components["parameters"]["PerPage"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenAdminPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminRevokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource ID. */
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     adminListUsers: {

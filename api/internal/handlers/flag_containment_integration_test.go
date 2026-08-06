@@ -288,6 +288,10 @@ func restProbes(mount, statID, statSlug, instID, instSlug, teamID, userID string
 		{"adminListUsers", http.MethodGet, P + "/admin/users", ""},
 		{"adminGetStats", http.MethodGet, P + "/admin/stats", ""},
 		{"adminGetEvent", http.MethodGet, P + "/admin/event", ""},
+		// Token-management reads: the token plaintext is a secret (below); these list responses
+		// carry metadata only and must never echo it (or a hash).
+		{"listTokens", http.MethodGet, P + "/tokens", ""},
+		{"adminListTokens", http.MethodGet, P + "/admin/tokens", ""},
 	}
 }
 

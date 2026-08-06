@@ -20,6 +20,7 @@ import (
 
 const (
 	CookieAuthScopes = "cookieAuth.Scopes"
+	TokenAuthScopes  = "tokenAuth.Scopes"
 )
 
 // Defines values for Category.
@@ -85,14 +86,21 @@ const (
 
 // Defines values for Role.
 const (
-	Admin Role = "admin"
-	User  Role = "user"
+	RoleAdmin Role = "admin"
+	RoleUser  Role = "user"
 )
 
 // Defines values for ScoringMode.
 const (
 	ScoringModeDynamic ScoringMode = "dynamic"
 	ScoringModeStatic  ScoringMode = "static"
+)
+
+// Defines values for TokenScope.
+const (
+	TokenScopeAdmin  TokenScope = "admin"
+	TokenScopeRead   TokenScope = "read"
+	TokenScopeSubmit TokenScope = "submit"
 )
 
 // AdminInstance A challenge instance as seen by an admin (shared or per-team). Never contains the flag.
@@ -417,7 +425,7 @@ type ChallengeAdminCreate struct {
 	// Title Display title.
 	Title string `json:"title"`
 
-	// Type Challenge-type id; defaults to the built-in 'standard'. Must be a registered type.
+	// Type Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it.
 	Type *string `json:"type,omitempty"`
 
 	// Visible Whether participants can see it (default false).
@@ -1087,6 +1095,84 @@ type TeamSummary struct {
 	Rank *int `json:"rank"`
 }
 
+// Token API token metadata. NEVER contains the plaintext or the hash.
+type Token struct {
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt *time.Time         `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// LastUsedAt Approximate — coarsened to at most once per minute; null if never used.
+	LastUsedAt *time.Time `json:"last_used_at"`
+
+	// Name Human label.
+	Name string `json:"name"`
+
+	// Prefix First chars of the token
+	Prefix string       `json:"prefix"`
+	Scopes []TokenScope `json:"scopes"`
+}
+
+// TokenAdmin defines model for TokenAdmin.
+type TokenAdmin struct {
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt *time.Time         `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// LastUsedAt Approximate — coarsened to at most once per minute; null if never used.
+	LastUsedAt *time.Time `json:"last_used_at"`
+
+	// Name Human label.
+	Name string `json:"name"`
+
+	// Prefix First chars of the token
+	Prefix string       `json:"prefix"`
+	Scopes []TokenScope `json:"scopes"`
+
+	// User A team member.
+	User Member `json:"user"`
+}
+
+// TokenAdminPage defines model for TokenAdminPage.
+type TokenAdminPage struct {
+	Items   []TokenAdmin `json:"items"`
+	Page    int          `json:"page"`
+	PerPage int          `json:"per_page"`
+	Total   int          `json:"total"`
+}
+
+// TokenCreate defines model for TokenCreate.
+type TokenCreate struct {
+	// ExpiresInDays Lifetime in days. Omitted → the server default; a value above the server maximum is rejected. There is no never-expiring option.
+	ExpiresInDays *int `json:"expires_in_days"`
+
+	// Name Human label.
+	Name   string       `json:"name"`
+	Scopes []TokenScope `json:"scopes"`
+}
+
+// TokenCreated defines model for TokenCreated.
+type TokenCreated struct {
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt *time.Time         `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// LastUsedAt Approximate — coarsened to at most once per minute; null if never used.
+	LastUsedAt *time.Time `json:"last_used_at"`
+
+	// Name Human label.
+	Name string `json:"name"`
+
+	// Prefix First chars of the token
+	Prefix string       `json:"prefix"`
+	Scopes []TokenScope `json:"scopes"`
+
+	// Token The plaintext token. Shown ONCE — store it now; it cannot be retrieved again.
+	Token string `json:"token"`
+}
+
+// TokenScope Coarse capability a token grants, bounded by the owner's role (role ∩ scope).
+type TokenScope string
+
 // UnadoptedContainer A managed container reconcile could not resolve to an instance.
 type UnadoptedContainer struct {
 	// ContainerId Docker container ID.
@@ -1272,6 +1358,15 @@ type AdminListTeamsParams struct {
 	Q *Query `form:"q,omitempty" json:"q,omitempty"`
 }
 
+// AdminListTokensParams defines parameters for AdminListTokens.
+type AdminListTokensParams struct {
+	// Page 1-based page number.
+	Page *Page `form:"page,omitempty" json:"page,omitempty"`
+
+	// PerPage Items per page (max 200).
+	PerPage *PerPage `form:"per_page,omitempty" json:"per_page,omitempty"`
+}
+
 // AdminListUsersParams defines parameters for AdminListUsers.
 type AdminListUsersParams struct {
 	// Page 1-based page number.
@@ -1335,6 +1430,9 @@ type JoinTeamJSONRequestBody = TeamJoinRequest
 // RenameTeamJSONRequestBody defines body for RenameTeam for application/json ContentType.
 type RenameTeamJSONRequestBody = TeamRenameRequest
 
+// CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
+type CreateTokenJSONRequestBody = TokenCreate
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// List all challenges
@@ -1397,6 +1495,12 @@ type ServerInterface interface {
 	// Update a team
 	// (PATCH /admin/teams/{id})
 	AdminUpdateTeam(w http.ResponseWriter, r *http.Request, id IdPath)
+	// List all API tokens
+	// (GET /admin/tokens)
+	AdminListTokens(w http.ResponseWriter, r *http.Request, params AdminListTokensParams)
+	// Revoke any user's token
+	// (DELETE /admin/tokens/{id})
+	AdminRevokeToken(w http.ResponseWriter, r *http.Request, id IdPath)
 	// List users
 	// (GET /admin/users)
 	AdminListUsers(w http.ResponseWriter, r *http.Request, params AdminListUsersParams)
@@ -1469,6 +1573,15 @@ type ServerInterface interface {
 	// Regenerate the invite code (captain)
 	// (POST /teams/{id}/invite-code)
 	RegenerateInviteCode(w http.ResponseWriter, r *http.Request, id IdPath)
+	// List the caller's API tokens
+	// (GET /tokens)
+	ListTokens(w http.ResponseWriter, r *http.Request)
+	// Create an API token
+	// (POST /tokens)
+	CreateToken(w http.ResponseWriter, r *http.Request)
+	// Revoke one of the caller's tokens
+	// (DELETE /tokens/{id})
+	RevokeToken(w http.ResponseWriter, r *http.Request, id IdPath)
 	// Public user profile
 	// (GET /users/{id})
 	GetUser(w http.ResponseWriter, r *http.Request, id IdPath)
@@ -1595,6 +1708,18 @@ func (_ Unimplemented) AdminListTeams(w http.ResponseWriter, r *http.Request, pa
 // Update a team
 // (PATCH /admin/teams/{id})
 func (_ Unimplemented) AdminUpdateTeam(w http.ResponseWriter, r *http.Request, id IdPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List all API tokens
+// (GET /admin/tokens)
+func (_ Unimplemented) AdminListTokens(w http.ResponseWriter, r *http.Request, params AdminListTokensParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke any user's token
+// (DELETE /admin/tokens/{id})
+func (_ Unimplemented) AdminRevokeToken(w http.ResponseWriter, r *http.Request, id IdPath) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1742,6 +1867,24 @@ func (_ Unimplemented) RegenerateInviteCode(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List the caller's API tokens
+// (GET /tokens)
+func (_ Unimplemented) ListTokens(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create an API token
+// (POST /tokens)
+func (_ Unimplemented) CreateToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke one of the caller's tokens
+// (DELETE /tokens/{id})
+func (_ Unimplemented) RevokeToken(w http.ResponseWriter, r *http.Request, id IdPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Public user profile
 // (GET /users/{id})
 func (_ Unimplemented) GetUser(w http.ResponseWriter, r *http.Request, id IdPath) {
@@ -1765,6 +1908,8 @@ func (siw *ServerInterfaceWrapper) AdminListChallenges(w http.ResponseWriter, r 
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -1829,6 +1974,8 @@ func (siw *ServerInterfaceWrapper) AdminCreateChallenge(w http.ResponseWriter, r
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1859,6 +2006,8 @@ func (siw *ServerInterfaceWrapper) AdminDeleteChallenge(w http.ResponseWriter, r
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -1902,6 +2051,8 @@ func (siw *ServerInterfaceWrapper) AdminGetChallenge(w http.ResponseWriter, r *h
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1933,6 +2084,8 @@ func (siw *ServerInterfaceWrapper) AdminUpdateChallenge(w http.ResponseWriter, r
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1963,6 +2116,8 @@ func (siw *ServerInterfaceWrapper) AdminUploadAttachment(w http.ResponseWriter, 
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2004,6 +2159,8 @@ func (siw *ServerInterfaceWrapper) AdminDeleteAttachment(w http.ResponseWriter, 
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2034,6 +2191,8 @@ func (siw *ServerInterfaceWrapper) AdminDestroyInstance(w http.ResponseWriter, r
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2066,6 +2225,8 @@ func (siw *ServerInterfaceWrapper) AdminGetInstance(w http.ResponseWriter, r *ht
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2097,6 +2258,8 @@ func (siw *ServerInterfaceWrapper) AdminDeployInstance(w http.ResponseWriter, r 
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2127,6 +2290,8 @@ func (siw *ServerInterfaceWrapper) AdminGetInstanceLogs(w http.ResponseWriter, r
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2170,6 +2335,8 @@ func (siw *ServerInterfaceWrapper) AdminRestartInstance(w http.ResponseWriter, r
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2189,6 +2356,8 @@ func (siw *ServerInterfaceWrapper) AdminGetEvent(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2210,6 +2379,8 @@ func (siw *ServerInterfaceWrapper) AdminUpdateEvent(w http.ResponseWriter, r *ht
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2229,6 +2400,8 @@ func (siw *ServerInterfaceWrapper) AdminListInstances(w http.ResponseWriter, r *
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2261,6 +2434,8 @@ func (siw *ServerInterfaceWrapper) AdminDestroyInstanceById(w http.ResponseWrite
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2280,6 +2455,8 @@ func (siw *ServerInterfaceWrapper) AdminGetStats(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2302,6 +2479,8 @@ func (siw *ServerInterfaceWrapper) AdminListSubmissions(w http.ResponseWriter, r
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2392,6 +2571,8 @@ func (siw *ServerInterfaceWrapper) AdminListTeams(w http.ResponseWriter, r *http
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
@@ -2450,10 +2631,88 @@ func (siw *ServerInterfaceWrapper) AdminUpdateTeam(w http.ResponseWriter, r *htt
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AdminUpdateTeam(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminListTokens operation middleware
+func (siw *ServerInterfaceWrapper) AdminListTokens(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AdminListTokensParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page", r.URL.Query(), &params.Page)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "per_page" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "per_page", r.URL.Query(), &params.PerPage)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "per_page", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminListTokens(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminRevokeToken operation middleware
+func (siw *ServerInterfaceWrapper) AdminRevokeToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id IdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminRevokeToken(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2471,6 +2730,8 @@ func (siw *ServerInterfaceWrapper) AdminListUsers(w http.ResponseWriter, r *http
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2554,6 +2815,8 @@ func (siw *ServerInterfaceWrapper) AdminUpdateUser(w http.ResponseWriter, r *htt
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2584,6 +2847,8 @@ func (siw *ServerInterfaceWrapper) AdminResetPassword(w http.ResponseWriter, r *
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2619,6 +2884,8 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2639,6 +2906,8 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2658,6 +2927,8 @@ func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2693,6 +2964,8 @@ func (siw *ServerInterfaceWrapper) ListChallenges(w http.ResponseWriter, r *http
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2723,6 +2996,8 @@ func (siw *ServerInterfaceWrapper) GetChallenge(w http.ResponseWriter, r *http.R
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2764,6 +3039,8 @@ func (siw *ServerInterfaceWrapper) DownloadAttachment(w http.ResponseWriter, r *
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2794,6 +3071,8 @@ func (siw *ServerInterfaceWrapper) StopInstance(w http.ResponseWriter, r *http.R
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2826,6 +3105,8 @@ func (siw *ServerInterfaceWrapper) StartInstance(w http.ResponseWriter, r *http.
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2857,6 +3138,8 @@ func (siw *ServerInterfaceWrapper) ExtendInstance(w http.ResponseWriter, r *http
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2887,6 +3170,8 @@ func (siw *ServerInterfaceWrapper) SubmitFlag(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -2950,6 +3235,8 @@ func (siw *ServerInterfaceWrapper) CreateTeam(w http.ResponseWriter, r *http.Req
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2970,6 +3257,8 @@ func (siw *ServerInterfaceWrapper) JoinTeam(w http.ResponseWriter, r *http.Reque
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2989,6 +3278,8 @@ func (siw *ServerInterfaceWrapper) LeaveTeam(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -3046,6 +3337,8 @@ func (siw *ServerInterfaceWrapper) RenameTeam(w http.ResponseWriter, r *http.Req
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3077,10 +3370,89 @@ func (siw *ServerInterfaceWrapper) RegenerateInviteCode(w http.ResponseWriter, r
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RegenerateInviteCode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTokens operation middleware
+func (siw *ServerInterfaceWrapper) ListTokens(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTokens(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateToken operation middleware
+func (siw *ServerInterfaceWrapper) CreateToken(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokeToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id IdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeToken(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3289,6 +3661,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/admin/teams/{id}", wrapper.AdminUpdateTeam)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/tokens", wrapper.AdminListTokens)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/tokens/{id}", wrapper.AdminRevokeToken)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/users", wrapper.AdminListUsers)
 	})
 	r.Group(func(r chi.Router) {
@@ -3359,6 +3737,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{id}/invite-code", wrapper.RegenerateInviteCode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/tokens", wrapper.ListTokens)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/tokens", wrapper.CreateToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/tokens/{id}", wrapper.RevokeToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users/{id}", wrapper.GetUser)
@@ -4460,6 +4847,94 @@ type AdminUpdateTeam422ApplicationProblemPlusJSONResponse struct {
 func (response AdminUpdateTeam422ApplicationProblemPlusJSONResponse) VisitAdminUpdateTeamResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListTokensRequestObject struct {
+	Params AdminListTokensParams
+}
+
+type AdminListTokensResponseObject interface {
+	VisitAdminListTokensResponse(w http.ResponseWriter) error
+}
+
+type AdminListTokens200JSONResponse TokenAdminPage
+
+func (response AdminListTokens200JSONResponse) VisitAdminListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListTokens401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListTokens401ApplicationProblemPlusJSONResponse) VisitAdminListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListTokens403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListTokens403ApplicationProblemPlusJSONResponse) VisitAdminListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminRevokeTokenRequestObject struct {
+	Id IdPath `json:"id"`
+}
+
+type AdminRevokeTokenResponseObject interface {
+	VisitAdminRevokeTokenResponse(w http.ResponseWriter) error
+}
+
+type AdminRevokeToken204Response struct {
+}
+
+func (response AdminRevokeToken204Response) VisitAdminRevokeTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AdminRevokeToken401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminRevokeToken401ApplicationProblemPlusJSONResponse) VisitAdminRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminRevokeToken403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminRevokeToken403ApplicationProblemPlusJSONResponse) VisitAdminRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminRevokeToken404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AdminRevokeToken404ApplicationProblemPlusJSONResponse) VisitAdminRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -5646,6 +6121,143 @@ func (response RegenerateInviteCode404ApplicationProblemPlusJSONResponse) VisitR
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListTokensRequestObject struct {
+}
+
+type ListTokensResponseObject interface {
+	VisitListTokensResponse(w http.ResponseWriter) error
+}
+
+type ListTokens200JSONResponse []Token
+
+func (response ListTokens200JSONResponse) VisitListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListTokens401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTokens401ApplicationProblemPlusJSONResponse) VisitListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListTokens403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTokens403ApplicationProblemPlusJSONResponse) VisitListTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateTokenRequestObject struct {
+	Body *CreateTokenJSONRequestBody
+}
+
+type CreateTokenResponseObject interface {
+	VisitCreateTokenResponse(w http.ResponseWriter) error
+}
+
+type CreateToken201JSONResponse TokenCreated
+
+func (response CreateToken201JSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateToken401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateToken401ApplicationProblemPlusJSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateToken403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateToken403ApplicationProblemPlusJSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateToken422ApplicationProblemPlusJSONResponse struct {
+	ValidationApplicationProblemPlusJSONResponse
+}
+
+func (response CreateToken422ApplicationProblemPlusJSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeTokenRequestObject struct {
+	Id IdPath `json:"id"`
+}
+
+type RevokeTokenResponseObject interface {
+	VisitRevokeTokenResponse(w http.ResponseWriter) error
+}
+
+type RevokeToken204Response struct {
+}
+
+func (response RevokeToken204Response) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeToken401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeToken401ApplicationProblemPlusJSONResponse) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeToken403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeToken403ApplicationProblemPlusJSONResponse) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RevokeToken404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeToken404ApplicationProblemPlusJSONResponse) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetUserRequestObject struct {
 	Id IdPath `json:"id"`
 }
@@ -5736,6 +6348,12 @@ type StrictServerInterface interface {
 	// Update a team
 	// (PATCH /admin/teams/{id})
 	AdminUpdateTeam(ctx context.Context, request AdminUpdateTeamRequestObject) (AdminUpdateTeamResponseObject, error)
+	// List all API tokens
+	// (GET /admin/tokens)
+	AdminListTokens(ctx context.Context, request AdminListTokensRequestObject) (AdminListTokensResponseObject, error)
+	// Revoke any user's token
+	// (DELETE /admin/tokens/{id})
+	AdminRevokeToken(ctx context.Context, request AdminRevokeTokenRequestObject) (AdminRevokeTokenResponseObject, error)
 	// List users
 	// (GET /admin/users)
 	AdminListUsers(ctx context.Context, request AdminListUsersRequestObject) (AdminListUsersResponseObject, error)
@@ -5808,6 +6426,15 @@ type StrictServerInterface interface {
 	// Regenerate the invite code (captain)
 	// (POST /teams/{id}/invite-code)
 	RegenerateInviteCode(ctx context.Context, request RegenerateInviteCodeRequestObject) (RegenerateInviteCodeResponseObject, error)
+	// List the caller's API tokens
+	// (GET /tokens)
+	ListTokens(ctx context.Context, request ListTokensRequestObject) (ListTokensResponseObject, error)
+	// Create an API token
+	// (POST /tokens)
+	CreateToken(ctx context.Context, request CreateTokenRequestObject) (CreateTokenResponseObject, error)
+	// Revoke one of the caller's tokens
+	// (DELETE /tokens/{id})
+	RevokeToken(ctx context.Context, request RevokeTokenRequestObject) (RevokeTokenResponseObject, error)
 	// Public user profile
 	// (GET /users/{id})
 	GetUser(ctx context.Context, request GetUserRequestObject) (GetUserResponseObject, error)
@@ -6383,6 +7010,58 @@ func (sh *strictHandler) AdminUpdateTeam(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AdminUpdateTeamResponseObject); ok {
 		if err := validResponse.VisitAdminUpdateTeamResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdminListTokens operation middleware
+func (sh *strictHandler) AdminListTokens(w http.ResponseWriter, r *http.Request, params AdminListTokensParams) {
+	var request AdminListTokensRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminListTokens(ctx, request.(AdminListTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminListTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminListTokensResponseObject); ok {
+		if err := validResponse.VisitAdminListTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdminRevokeToken operation middleware
+func (sh *strictHandler) AdminRevokeToken(w http.ResponseWriter, r *http.Request, id IdPath) {
+	var request AdminRevokeTokenRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminRevokeToken(ctx, request.(AdminRevokeTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminRevokeToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminRevokeTokenResponseObject); ok {
+		if err := validResponse.VisitAdminRevokeTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7047,6 +7726,87 @@ func (sh *strictHandler) RegenerateInviteCode(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RegenerateInviteCodeResponseObject); ok {
 		if err := validResponse.VisitRegenerateInviteCodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTokens operation middleware
+func (sh *strictHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
+	var request ListTokensRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTokens(ctx, request.(ListTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTokensResponseObject); ok {
+		if err := validResponse.VisitListTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateToken operation middleware
+func (sh *strictHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
+	var request CreateTokenRequestObject
+
+	var body CreateTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateToken(ctx, request.(CreateTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTokenResponseObject); ok {
+		if err := validResponse.VisitCreateTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeToken operation middleware
+func (sh *strictHandler) RevokeToken(w http.ResponseWriter, r *http.Request, id IdPath) {
+	var request RevokeTokenRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeToken(ctx, request.(RevokeTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeTokenResponseObject); ok {
+		if err := validResponse.VisitRevokeTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -44,6 +44,12 @@ type Deps struct {
 	Sessions    *auth.SessionStore
 	Limiter     *redisx.Limiter
 	Audit       *audit.Logger
+	// Tokens issues/lists/revokes API tokens (P2-b). Nil disables the token endpoints.
+	Tokens *auth.TokenService
+	// Token lifetime policy: a create without an explicit lifetime gets TokenDefaultTTL; a
+	// requested lifetime above TokenMaxTTL is rejected. No never-expiring tokens via the API.
+	TokenDefaultTTL time.Duration
+	TokenMaxTTL     time.Duration
 
 	// Recompute triggers a scoreboard recompute + broadcast; wired in M5/M6.
 	// Nil is a no-op, so earlier milestones compile and run.

@@ -82,6 +82,19 @@ func (q *Queries) DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) 
 	return result.RowsAffected(), nil
 }
 
+const deleteAPITokenByID = `-- name: DeleteAPITokenByID :execrows
+DELETE FROM api_tokens WHERE id = $1
+`
+
+// Admin revoke: delete any token by id regardless of owner.
+func (q *Queries) DeleteAPITokenByID(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAPITokenByID, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteAPITokensForUser = `-- name: DeleteAPITokensForUser :exec
 DELETE FROM api_tokens WHERE user_id = $1
 `
@@ -98,6 +111,28 @@ SELECT id, user_id, name, token_hash, prefix, scopes, last_used_at, expires_at, 
 
 func (q *Queries) GetAPIToken(ctx context.Context, id uuid.UUID) (ApiToken, error) {
 	row := q.db.QueryRow(ctx, getAPIToken, id)
+	var i ApiToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.TokenHash,
+		&i.Prefix,
+		&i.Scopes,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getAPITokenAdmin = `-- name: GetAPITokenAdmin :one
+SELECT id, user_id, name, token_hash, prefix, scopes, last_used_at, expires_at, created_at FROM api_tokens WHERE id = $1
+`
+
+// Admin revoke path: fetch by id (any owner) to confirm existence before deleting.
+func (q *Queries) GetAPITokenAdmin(ctx context.Context, id uuid.UUID) (ApiToken, error) {
+	row := q.db.QueryRow(ctx, getAPITokenAdmin, id)
 	var i ApiToken
 	err := row.Scan(
 		&i.ID,
@@ -184,7 +219,9 @@ func (q *Queries) ListAPITokensByUser(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const listAllAPITokens = `-- name: ListAllAPITokens :many
-SELECT id, user_id, name, token_hash, prefix, scopes, last_used_at, expires_at, created_at FROM api_tokens ORDER BY created_at DESC LIMIT $1 OFFSET $2
+SELECT t.id, t.user_id, t.name, t.token_hash, t.prefix, t.scopes, t.last_used_at, t.expires_at, t.created_at, u.id AS user_id, u.username
+FROM api_tokens t JOIN users u ON u.id = t.user_id
+ORDER BY t.created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListAllAPITokensParams struct {
@@ -192,26 +229,34 @@ type ListAllAPITokensParams struct {
 	Offset int32
 }
 
-// Admin view across users; never selects the hash into any DTO (metadata only at the handler).
-func (q *Queries) ListAllAPITokens(ctx context.Context, arg ListAllAPITokensParams) ([]ApiToken, error) {
+type ListAllAPITokensRow struct {
+	ApiToken ApiToken
+	UserID   uuid.UUID
+	Username string
+}
+
+// Admin view across users; the handler maps to metadata only (never the hash).
+func (q *Queries) ListAllAPITokens(ctx context.Context, arg ListAllAPITokensParams) ([]ListAllAPITokensRow, error) {
 	rows, err := q.db.Query(ctx, listAllAPITokens, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ApiToken{}
+	items := []ListAllAPITokensRow{}
 	for rows.Next() {
-		var i ApiToken
+		var i ListAllAPITokensRow
 		if err := rows.Scan(
-			&i.ID,
+			&i.ApiToken.ID,
+			&i.ApiToken.UserID,
+			&i.ApiToken.Name,
+			&i.ApiToken.TokenHash,
+			&i.ApiToken.Prefix,
+			&i.ApiToken.Scopes,
+			&i.ApiToken.LastUsedAt,
+			&i.ApiToken.ExpiresAt,
+			&i.ApiToken.CreatedAt,
 			&i.UserID,
-			&i.Name,
-			&i.TokenHash,
-			&i.Prefix,
-			&i.Scopes,
-			&i.LastUsedAt,
-			&i.ExpiresAt,
-			&i.CreatedAt,
+			&i.Username,
 		); err != nil {
 			return nil, err
 		}
@@ -224,9 +269,14 @@ func (q *Queries) ListAllAPITokens(ctx context.Context, arg ListAllAPITokensPara
 }
 
 const touchAPIToken = `-- name: TouchAPIToken :exec
-UPDATE api_tokens SET last_used_at = now() WHERE id = $1
+UPDATE api_tokens SET last_used_at = now()
+WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')
 `
 
+// COARSENED: only writes if last_used_at is stale by > 1 minute, so a hot token doesn't
+// amplify writes (row churn / WAL / vacuum) on every request. last_used_at is therefore an
+// "in use recently" signal, not an exact timestamp — enough for an operator deciding whether
+// a token is still live before revoking it.
 func (q *Queries) TouchAPIToken(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, touchAPIToken, id)
 	return err

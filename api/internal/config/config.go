@@ -111,6 +111,12 @@ type Config struct {
 	TokenRateBurst  int           `env:"OSCTF_TOKEN_RATE_BURST" envDefault:"6000"`
 	TokenRateWindow time.Duration `env:"OSCTF_TOKEN_RATE_WINDOW" envDefault:"60s"`
 
+	// Token lifetime policy: a create without an explicit lifetime gets the default; a
+	// requested lifetime above the max is rejected. Tokens are never immortal — a permanent
+	// admin-scoped credential is exactly what a security product should not mint by default.
+	TokenDefaultTTL time.Duration `env:"OSCTF_TOKEN_DEFAULT_TTL" envDefault:"2160h"` // 90 days
+	TokenMaxTTL     time.Duration `env:"OSCTF_TOKEN_MAX_TTL" envDefault:"8760h"`     // 365 days
+
 	CORSDevOrigin string `env:"OSCTF_CORS_DEV_ORIGIN"`
 
 	LogFormat string `env:"OSCTF_LOG_FORMAT" envDefault:"json"`

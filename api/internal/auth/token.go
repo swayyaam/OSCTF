@@ -172,6 +172,11 @@ func (s *TokenService) Authenticate(ctx context.Context, raw string, now time.Ti
 	if err := ValidateScopes(tok.Scopes); err != nil {
 		return Identity{}, ErrTokenScope // fail closed on version skew / manual edit
 	}
+	// Resolve the owner's role + ban LIVE, every request. This check is LOAD-BEARING: it is
+	// what makes a ban/demotion/revocation take effect on the next request. Banning also
+	// deletes token rows (defense-in-depth), but that deletion is NOT the guarantee — do not
+	// add a token cache assuming "banned tokens are deleted anyway"; that reintroduces a
+	// window equal to the cache TTL. The live read is the guarantee.
 	u, err := s.q.GetUserByID(ctx, tok.UserID)
 	if err != nil {
 		return Identity{}, ErrInvalidToken
@@ -219,4 +224,37 @@ func (s *TokenService) Revoke(ctx context.Context, userID, tokenID uuid.UUID) (b
 // DeleteAllForUser for sessions).
 func (s *TokenService) DeleteForUser(ctx context.Context, userID uuid.UUID) error {
 	return s.q.DeleteAPITokensForUser(ctx, userID)
+}
+
+// TokenAdminMeta is a token's metadata plus its owner (for the admin cross-user view).
+type TokenAdminMeta struct {
+	TokenMeta
+	UserID   uuid.UUID
+	Username string
+}
+
+// ListAll returns a page of every token with its owner (admin view; metadata only).
+func (s *TokenService) ListAll(ctx context.Context, limit, offset int32) ([]TokenAdminMeta, int64, error) {
+	rows, err := s.q.ListAllAPITokens(ctx, gen.ListAllAPITokensParams{Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, 0, fmt.Errorf("auth: listing all tokens: %w", err)
+	}
+	total, err := s.q.CountAllAPITokens(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("auth: counting tokens: %w", err)
+	}
+	out := make([]TokenAdminMeta, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, TokenAdminMeta{TokenMeta: metaOf(r.ApiToken), UserID: r.UserID, Username: r.Username})
+	}
+	return out, total, nil
+}
+
+// RevokeAny deletes a token by id regardless of owner (admin revoke). Returns false if none.
+func (s *TokenService) RevokeAny(ctx context.Context, tokenID uuid.UUID) (bool, error) {
+	n, err := s.q.DeleteAPITokenByID(ctx, tokenID)
+	if err != nil {
+		return false, fmt.Errorf("auth: admin revoking token: %w", err)
+	}
+	return n > 0, nil
 }

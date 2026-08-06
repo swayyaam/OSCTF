@@ -168,6 +168,15 @@ Challenges today are `kind = standard | container`. v0.3 adds a **challenge-type
 so a plugin can define a new authoring shape and (optionally) a custom flag check, without
 touching the container runtime.
 
+`type` is a **new column, orthogonal to `kind`** — an additive migration defaulting existing
+rows to the built-in type id, existing rows untouched. The two are different axes: **`kind`
+is how the platform deploys** a challenge (standard vs container), **`type` is who decides
+correctness** (the built-in comparison vs a plugin checker). A container challenge with a
+plugin-provided checker needs both, so one field can't express it; reusing `kind` would
+conflate deployment with verification. In P1 the registry only carries the type id and
+`ValidateConfig`; `CheckFlag` does not enter the submission transaction until a plugin needs
+it (P4).
+
 ```go
 type ChallengeType interface {
     ID() string                                   // "standard" | "container" | plugin id

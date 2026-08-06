@@ -158,3 +158,67 @@ func TestMountEquivalenceIntegration(t *testing.T) {
 	}
 	t.Logf("mount equivalence: %d routes × %d identities = %d cross-mount comparisons", len(routes), len(identities), comparisons)
 }
+
+// assertMountEquiv2xx sends the same request to both mounts and asserts a genuine 2xx with
+// identical bodies (request_id stripped) and the correct deprecation-header split. The
+// wantCode sanity-check keeps the comparison from being two identical rejections.
+func assertMountEquiv2xx(t *testing.T, srv http.Handler, jar *cookieJar, method, path, body, label string, wantCode int) {
+	t.Helper()
+	r0 := do(t, srv, jar, method, "/api/v0"+path, body)
+	r1 := do(t, srv, jar, method, "/api/v1"+path, body)
+	if r0.Code != wantCode {
+		t.Fatalf("%s: v0 = %d (%s); want %d — read/mutation did not succeed, equivalence would be vacuous", label, r0.Code, r0.Body, wantCode)
+	}
+	if r0.Code != r1.Code {
+		t.Errorf("%s: status v0=%d v1=%d — mount drift on a 2xx path", label, r0.Code, r1.Code)
+	}
+	if b0, b1 := canonJSON(r0.Body.Bytes()), canonJSON(r1.Body.Bytes()); b0 != b1 {
+		t.Errorf("%s: 2xx body differs across mounts — mount drift:\n  v0=%s\n  v1=%s", label, b0, b1)
+	}
+	if r0.Header().Get("Deprecation") != "true" || r0.Header().Get("Sunset") == "" {
+		t.Errorf("%s: v0 missing Deprecation/Sunset on a 2xx response", label)
+	}
+	if r1.Header().Get("Deprecation") != "" || r1.Header().Get("Sunset") != "" {
+		t.Errorf("%s: v1 carries deprecation headers on a 2xx response", label)
+	}
+}
+
+// TestMountEquivalence2xxAndMutationIntegration complements the hermetic sweep: that sweep
+// only exercises rejection paths (dummy params, empty bodies), so a middleware difference
+// affecting SUCCESSFUL requests — body handling, content negotiation, a header set only on
+// 2xx — would not show. This proves the 2xx path is equivalent across mounts too: a handful
+// of real reads and one real mutation, each compared v0-vs-v1.
+func TestMountEquivalence2xxAndMutationIntegration(t *testing.T) {
+	pool, _ := testsupport.Postgres(t)
+	rdb := testsupport.Redis(t)
+	srv := matrixServer(t, pool, rdb) // full stack + a running event
+
+	admin := makeAdmin(t, srv, pool, "root", "root@x.test")
+	const flag = "OSCTF{mount_equiv_2xx}"
+	_, slug := createChallenge(t, srv, admin, staticChallengeBody("MountEquiv", flag)) // no max_attempts
+	team := teamUp(t, srv, "meq", "meq@x.test", "MeqTeam")
+	_, teamID := meOf(t, srv, team)
+
+	// --- real 2xx READS, compared across mounts (before any submit, so attempts_used=0 on
+	// both and the challenge detail bodies match). ---
+	assertMountEquiv2xx(t, srv, team, http.MethodGet, "/scoreboard", "", "getScoreboard", http.StatusOK)
+	assertMountEquiv2xx(t, srv, team, http.MethodGet, "/challenges", "", "listChallenges", http.StatusOK)
+	assertMountEquiv2xx(t, srv, team, http.MethodGet, "/challenges/"+slug, "", "getChallenge", http.StatusOK)
+	assertMountEquiv2xx(t, srv, team, http.MethodGet, "/teams/"+teamID, "", "getTeam", http.StatusOK)
+
+	// --- real MUTATION, compared across mounts: a wrong-flag submit hits the write path
+	// (records a submission, consumes an attempt) on each mount and must return the same
+	// verdict shape. The team has unlimited attempts, so the second submit isn't capped. ---
+	assertMountEquiv2xx(t, srv, team, http.MethodPost, "/challenges/"+slug+"/submit",
+		`{"flag":"OSCTF{wrong}"}`, "submitFlag.wrong", http.StatusOK)
+
+	// Prove the mutation genuinely ran the submit path (not some early identical rejection):
+	// the verdict is a real incorrect result.
+	rec := do(t, srv, team, http.MethodPost, "/api/v1/challenges/"+slug+"/submit", `{"flag":"OSCTF{wrong}"}`)
+	var v struct {
+		Correct bool `json:"correct"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || v.Correct {
+		t.Errorf("submitFlag.wrong verdict = %s (err %v); want {correct:false} — the mutation path was not exercised", rec.Body, err)
+	}
+}

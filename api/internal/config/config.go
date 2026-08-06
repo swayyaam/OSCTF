@@ -36,6 +36,14 @@ type Config struct {
 	SessionTTL       time.Duration `env:"OSCTF_SESSION_TTL" envDefault:"168h"`
 	RegistrationOpen bool          `env:"OSCTF_REGISTRATION_OPEN" envDefault:"true"`
 
+	// APIV0Sunset is the date advertised in the /api/v0 Sunset header (RFC 3339; formatted
+	// to an HTTP-date at response time so the weekday is always correct). /api/v0 is the
+	// deprecated alias of /api/v1 and is removed no earlier than v0.4; this is the earliest
+	// advertised removal, not a promise to remove on that day. The default is deliberately a
+	// date the project can plausibly honour. If it passes while v0 is still mounted the
+	// server logs a startup warning — an advertised date nobody tracks is worse than none.
+	APIV0Sunset time.Time `env:"OSCTF_V0_SUNSET" envDefault:"2027-02-01T00:00:00Z"`
+
 	// AuthEmailLogin enables the built-in email/password login. Set false for an
 	// SSO-only deployment. On by default as a fail-closed break-glass path; the platform
 	// refuses to boot if this is false and no other auth provider is registered, since
@@ -104,6 +112,11 @@ type Config struct {
 	// baseURL is the parsed form of BaseURL, populated by Load.
 	baseURL *url.URL
 }
+
+// V0SunsetPassed reports whether the advertised /api/v0 Sunset has already elapsed as of
+// now. main uses it to warn at startup: serving past an advertised sunset date that nobody
+// is tracking is worse than advertising none.
+func (c *Config) V0SunsetPassed(now time.Time) bool { return now.After(c.APIV0Sunset) }
 
 // Load parses the environment into a Config, applies derived defaults, and
 // validates cross-field constraints. Every problem found is returned in a single

@@ -260,8 +260,8 @@ func meOf(t *testing.T, srv http.Handler, jar *cookieJar) (userID, teamID string
 	return out.Id, out.Team.Id
 }
 
-func restProbes(statID, statSlug, instID, instSlug, teamID, userID string) []probe {
-	const P = "/api/v0"
+func restProbes(mount, statID, statSlug, instID, instSlug, teamID, userID string) []probe {
+	P := mount
 	return []probe{
 		{"getEvent", http.MethodGet, P + "/event", ""},
 		{"getScoreboard", http.MethodGet, P + "/scoreboard", ""},
@@ -291,7 +291,7 @@ func restProbes(statID, statSlug, instID, instSlug, teamID, userID string) []pro
 
 // wsFrames dials the scoreboard socket with the given jar and returns the frames
 // delivered on connect (hello + any replayed scoreboard) as raw JSON.
-func wsFrames(t *testing.T, c *containment, jar *cookieJar, n int) [][]byte {
+func wsFrames(t *testing.T, c *containment, jar *cookieJar, n int, mount string) [][]byte {
 	t.Helper()
 	opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
 	if h := jar.cookieHeader(); h != "" {
@@ -299,7 +299,7 @@ func wsFrames(t *testing.T, c *containment, jar *cookieJar, n int) [][]byte {
 	}
 	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dcancel()
-	conn, _, err := websocket.Dial(dctx, "ws"+strings.TrimPrefix(c.ts.URL, "http")+"/api/v0/ws", opts) //nolint:bodyclose
+	conn, _, err := websocket.Dial(dctx, "ws"+strings.TrimPrefix(c.ts.URL, "http")+mount+"/ws", opts) //nolint:bodyclose
 	if err != nil {
 		t.Fatalf("ws dial: %v", err)
 	}
@@ -391,29 +391,44 @@ func TestFlagContainmentIntegration(t *testing.T) {
 	callers := []caller{
 		{"owner", owner}, {"nonowner", nonowner}, {"anon", &cookieJar{}}, {"admin", admin},
 	}
-	probes := restProbes(statID, statSlug, instID, instSlug, ownerTeamID, ownerUserID)
+	// Sweep BOTH mounts: a containment guarantee scoped to the old path only is exactly the
+	// drift a new canonical mount introduces. Each probe is tagged with its mount so a leak
+	// names where it surfaced.
+	var probes []probe
+	for _, mount := range []string{"/api/v0", "/api/v1"} {
+		tag := strings.TrimPrefix(mount, "/api/")
+		for _, p := range restProbes(mount, statID, statSlug, instID, instSlug, ownerTeamID, ownerUserID) {
+			p.name = tag + ":" + p.name
+			probes = append(probes, p)
+		}
+	}
 	if leaks := sweepREST(t, srv, secrets, probes, callers); len(leaks) > 0 {
 		t.Errorf("REST flag leaks:\n  - %s", strings.Join(leaks, "\n  - "))
 	}
 
-	// --- WebSocket frames (owner + nonowner) ---
-	for _, cl := range []caller{{"owner", owner}, {"nonowner", nonowner}, {"anon", &cookieJar{}}} {
-		for _, f := range wsFrames(t, c, cl.jar, 2) {
-			for _, s := range secrets {
-				if s.leakedTo(cl.class) && contains(f, s.value) {
-					t.Errorf("WS frame leaked secret %s to %s: %s", s.name, cl.class, f)
+	// --- WebSocket frames (owner + nonowner), on BOTH mounts (same hub, but the handshake
+	// path differs, so assert containment on each). ---
+	for _, mount := range []string{"/api/v0", "/api/v1"} {
+		for _, cl := range []caller{{"owner", owner}, {"nonowner", nonowner}, {"anon", &cookieJar{}}} {
+			for _, f := range wsFrames(t, c, cl.jar, 2, mount) {
+				for _, s := range secrets {
+					if s.leakedTo(cl.class) && contains(f, s.value) {
+						t.Errorf("WS frame (%s) leaked secret %s to %s: %s", mount, s.name, cl.class, f)
+					}
 				}
 			}
 		}
 	}
 
 	// --- WS reconnect replay (3c-ii): a fresh client gets the cached lastScoreboard;
-	// no flag may ride that replay, normal or frozen. ---
+	// no flag may ride that replay, normal or frozen. Checked on both mounts. ---
 	checkReplay := func(label string) {
-		for _, f := range wsFrames(t, c, &cookieJar{}, 2) { // anon late joiner
-			for _, s := range secrets {
-				if contains(f, s.value) {
-					t.Errorf("WS reconnect replay (%s) leaked secret %s: %s", label, s.name, f)
+		for _, mount := range []string{"/api/v0", "/api/v1"} {
+			for _, f := range wsFrames(t, c, &cookieJar{}, 2, mount) { // anon late joiner
+				for _, s := range secrets {
+					if contains(f, s.value) {
+						t.Errorf("WS reconnect replay (%s, %s) leaked secret %s: %s", label, mount, s.name, f)
+					}
 				}
 			}
 		}

@@ -370,6 +370,14 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		log.Warn("initial scoreboard compute failed", "error", err.Error())
 	}
 
+	// /api/v0 is a deprecated alias advertising a Sunset date. If that date has already
+	// passed while v0 is still mounted, warn loudly rather than serve silently past our own
+	// advertised sunset — an advertised date nobody tracks is worse than no date.
+	if cfg.V0SunsetPassed(time.Now()) {
+		log.Warn("the advertised /api/v0 Sunset date has passed but the v0 alias is still mounted; schedule its removal or move the date",
+			"sunset", cfg.APIV0Sunset.Format(time.RFC3339))
+	}
+
 	handler := httpserver.New(httpserver.Deps{
 		Log:           log,
 		Handlers:      h,
@@ -379,6 +387,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		CORSDevOrigin: cfg.CORSDevOrigin,
 		WSHandler:     hub.Handler(),
 		TrustProxy:    cfg.TrustProxy,
+		V0Sunset:      cfg.APIV0Sunset,
 	})
 
 	srv := &http.Server{

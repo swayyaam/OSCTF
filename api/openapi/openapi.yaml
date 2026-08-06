@@ -1,18 +1,35 @@
 openapi: 3.0.3
 info:
   title: OSCTF Platform API
-  version: 0.1.0
+  version: 1.0.0
   description: |
-    The OSCTF platform API (v0 — unstable until Phase 3 declares v1).
+    The OSCTF platform API. `/api/v1` is the canonical, **stable** surface;
+    `/api/v0` is a deprecated alias serving the identical handlers (see below).
 
-    Conventions (docs/v0.1/05-api.md):
-    - Session cookie `osctf_session` authenticates requests; no tokens in v0.1.
-    - Mutating requests must send an `Origin` (or `Referer`) header matching the
-      deployment's base URL (CSRF check). CLI users: `-H "Origin: <base-url>"`.
+    Stability policy (semver from v1; docs/v0.3/06-api-v1.md):
+    - No breaking change to `/api/v1` without a major bump. Breaking = removing or
+      renaming an endpoint, field, or enum value; tightening a type or validation;
+      changing status-code semantics; making an optional request field required.
+    - Additive changes (new endpoints, new optional request fields, new response
+      fields, new response-only enum values) are a minor bump and always safe.
+    - Deprecation before removal: a deprecated element carries `deprecated: true`
+      and (for endpoints) `Deprecation`/`Sunset` headers, surviving >= one minor
+      release before any major removes it. The CHANGELOG records each deprecation.
+    - The version is in the PATH (`/api/v1`), not a header. A future `/api/v2`
+      would be a parallel mount, never an in-place break.
+
+    `/api/v0` is the same handler set mounted under the old prefix; every v0
+    response carries `Deprecation: true` and a `Sunset` date, and v0 is removed no
+    earlier than v0.4 (announced in the CHANGELOG). New clients target `/api/v1`.
+
+    Conventions:
+    - Session cookie `osctf_session` authenticates browser requests. Mutating
+      requests must send an `Origin` (or `Referer`) header matching the deployment's
+      base URL (CSRF check). CLI users: `-H "Origin: <base-url>"`.
     - Errors are RFC 9457 problem+json (`application/problem+json`).
     - Timestamps are RFC 3339 UTC. IDs are UUID strings.
-    - The live scoreboard WebSocket at `GET /api/v0/ws` is documented in
-      docs/v0.1/05-api.md (WebSocket section); it is intentionally not modelled here.
+    - The live scoreboard WebSocket at `GET /api/v1/ws` (and the v0 alias
+      `GET /api/v0/ws`) is intentionally not modelled here.
   contact:
     name: OSCTF maintainers
     url: https://github.com/osctf/platform
@@ -21,8 +38,10 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
+  - url: /api/v1
+    description: Canonical, stable API surface (same-origin; the SPA and API share one origin).
   - url: /api/v0
-    description: Same-origin deployment (the SPA and API share one origin).
+    description: DEPRECATED alias of /api/v1 (identical handlers; carries Deprecation/Sunset). Removed no earlier than v0.4.
 
 tags:
   - name: auth

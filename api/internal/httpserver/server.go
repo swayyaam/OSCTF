@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -33,8 +34,11 @@ type Deps struct {
 	// Sessions is set). CORSDevOrigin optionally allows the Vite dev server.
 	BaseOrigin    string
 	CORSDevOrigin string
-	// WSHandler serves GET /api/v0/ws (the live scoreboard socket). Nil disables it.
+	// WSHandler serves GET /api/{v0,v1}/ws (the live scoreboard socket). Nil disables it.
 	WSHandler http.Handler
+	// V0Sunset is the date advertised in the /api/v0 Sunset header (RFC 8594). The zero
+	// value still emits a header (an ancient date); production passes cfg.APIV0Sunset.
+	V0Sunset time.Time
 	// TrustProxy mirrors OSCTF_TRUST_PROXY. When false the server warns once if it
 	// receives a forwarded header, since a proxy is likely in front but its client IPs
 	// are being ignored (every request would then key to the proxy IP).
@@ -100,7 +104,12 @@ func New(d Deps) http.Handler {
 	if d.Sessions != nil {
 		api = sessionMiddleware(d.Sessions)(api)
 	}
-	r.Mount("/api/v0", http.StripPrefix("/api/v0", api))
+	// /api/v1 is the canonical, semver-governed surface; /api/v0 is a DEPRECATED ALIAS that
+	// serves the exact same `api` handler value — there is no second handler set that could
+	// drift — and adds Deprecation/Sunset headers. Both strip their prefix before the shared
+	// handler, so the WS special-case (`/ws`) and every route resolve identically on each.
+	r.Mount("/api/v1", http.StripPrefix("/api/v1", api))
+	r.Mount("/api/v0", http.StripPrefix("/api/v0", deprecatedAlias(d.V0Sunset, api)))
 
 	// Anything under /api that didn't match the mount is a 404 problem, never SPA.
 	r.HandleFunc("/api/*", func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +126,19 @@ func New(d Deps) http.Handler {
 	r.Handle("/*", webdist.Handler())
 
 	return r
+}
+
+// deprecatedAlias wraps the /api/v0 mount so every response signals the deprecation:
+// `Deprecation: true` (the alias is deprecated in favour of /api/v1) and a `Sunset` date
+// (RFC 8594) after which v0 may be removed. The headers are set before the handler runs, so
+// they ride even error responses. /api/v1 is wrapped by nothing and carries neither.
+func deprecatedAlias(sunset time.Time, next http.Handler) http.Handler {
+	sunsetHeader := sunset.UTC().Format(http.TimeFormat)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Deprecation", "true")
+		w.Header().Set("Sunset", sunsetHeader)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func notImplemented(w http.ResponseWriter, r *http.Request) {

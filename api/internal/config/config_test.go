@@ -139,3 +139,35 @@ func TestIsHTTPS(t *testing.T) {
 		t.Errorf("PublicHost = %q", cfg.PublicHost)
 	}
 }
+
+func TestAPIV0SunsetDefaultAndPassed(t *testing.T) {
+	setRequired(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The default must be a concrete date the project can plausibly honour (>= v0.4, the
+	// earliest removal). Pinned so an accidental change to the default is a visible diff.
+	want := time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)
+	if !cfg.APIV0Sunset.Equal(want) {
+		t.Errorf("APIV0Sunset default = %v, want %v", cfg.APIV0Sunset, want)
+	}
+
+	// V0SunsetPassed drives the startup warning: false before the date, true after.
+	if cfg.V0SunsetPassed(want.Add(-time.Hour)) {
+		t.Error("V0SunsetPassed(before sunset) = true, want false")
+	}
+	if !cfg.V0SunsetPassed(want.Add(time.Hour)) {
+		t.Error("V0SunsetPassed(after sunset) = false, want true")
+	}
+
+	// An operator override is honoured (RFC 3339).
+	t.Setenv("OSCTF_V0_SUNSET", "2030-06-01T00:00:00Z")
+	cfg2, err := Load()
+	if err != nil {
+		t.Fatalf("Load with override: %v", err)
+	}
+	if got := cfg2.APIV0Sunset; !got.Equal(time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("APIV0Sunset override = %v, want 2030-06-01", got)
+	}
+}

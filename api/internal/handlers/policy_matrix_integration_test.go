@@ -173,7 +173,8 @@ func matrixServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Hand
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()),
 		SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})
-	return httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin})
+	return httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin,
+		V0Sunset: time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)})
 }
 
 func newMatrix(t *testing.T) *mtx {
@@ -227,7 +228,7 @@ func (m *mtx) seed() {
 
 	// A deployed shared-instance challenge for the admin single-instance routes.
 	m.sharedChalID, _ = createChallenge(t, m.srv, admin, sharedContainerBody("SharedInst"))
-	if rec := do(t, m.srv, admin, http.MethodPost, "/api/v0/admin/challenges/"+m.sharedChalID+"/instance", ""); rec.Code != http.StatusOK {
+	if rec := do(t, m.srv, admin, http.MethodPost, "/api/v1/admin/challenges/"+m.sharedChalID+"/instance", ""); rec.Code != http.StatusOK {
 		t.Fatalf("seed shared deploy = %d (%s)", rec.Code, rec.Body)
 	}
 	m.dummyAttID = uuid.NewString()
@@ -247,7 +248,7 @@ type meInfo struct{ userID, teamID string }
 
 func (m *mtx) getMe(id string) meInfo { return m.getMe2(m.jars[id]) }
 func (m *mtx) getMe2(jar *cookieJar) meInfo {
-	rec := do(m.t, m.srv, jar, http.MethodGet, "/api/v0/auth/me", "")
+	rec := do(m.t, m.srv, jar, http.MethodGet, "/api/v1/auth/me", "")
 	if rec.Code != http.StatusOK {
 		m.t.Fatalf("getMe = %d (%s)", rec.Code, rec.Body)
 	}
@@ -266,7 +267,7 @@ func (m *mtx) getMe2(jar *cookieJar) meInfo {
 }
 
 func (m *mtx) inviteCode(jar *cookieJar, teamID string) string {
-	rec := do(m.t, m.srv, jar, http.MethodGet, "/api/v0/teams/"+teamID, "")
+	rec := do(m.t, m.srv, jar, http.MethodGet, "/api/v1/teams/"+teamID, "")
 	var out struct {
 		InviteCode string `json:"invite_code"`
 	}
@@ -291,7 +292,7 @@ func (m *mtx) ban(email string) {
 }
 
 func (m *mtx) uploadAttachment(chalID string) string {
-	rec := uploadFile(m.t, m.srv, m.jars[idAdmin], "/api/v0/admin/challenges/"+chalID+"/attachments", "a"+m.uniq()+".bin", []byte("payload"))
+	rec := uploadFile(m.t, m.srv, m.jars[idAdmin], "/api/v1/admin/challenges/"+chalID+"/attachments", "a"+m.uniq()+".bin", []byte("payload"))
 	if rec.Code != http.StatusCreated {
 		m.t.Fatalf("upload attachment = %d (%s)", rec.Code, rec.Body)
 	}
@@ -305,7 +306,7 @@ func (m *mtx) uploadAttachment(chalID string) string {
 // cookieJar.joinViaInvite joins a team by invite code (used in seed for alice→Alpha).
 func (j *cookieJar) joinViaInvite(t *testing.T, srv http.Handler, code string) {
 	t.Helper()
-	if rec := do(t, srv, j, http.MethodPost, "/api/v0/teams/join", `{"invite_code":"`+code+`"}`); rec.Code != http.StatusOK {
+	if rec := do(t, srv, j, http.MethodPost, "/api/v1/teams/join", `{"invite_code":"`+code+`"}`); rec.Code != http.StatusOK {
 		t.Fatalf("join via invite = %d (%s)", rec.Code, rec.Body)
 	}
 }
@@ -353,7 +354,7 @@ func (m *mtx) throwawayChallenge() string {
 
 func (m *mtx) throwawaySharedDeployed() (chalID, instID string) {
 	chalID, _ = createChallenge(m.t, m.srv, m.jars[idAdmin], sharedContainerBody("Throw"+m.uniq()))
-	rec := do(m.t, m.srv, m.jars[idAdmin], http.MethodPost, "/api/v0/admin/challenges/"+chalID+"/instance", "")
+	rec := do(m.t, m.srv, m.jars[idAdmin], http.MethodPost, "/api/v1/admin/challenges/"+chalID+"/instance", "")
 	if rec.Code != http.StatusOK {
 		m.t.Fatalf("throwaway deploy = %d (%s)", rec.Code, rec.Body)
 	}
@@ -435,7 +436,7 @@ func sharedP(method string, path func(*mtx) string, body string) func(*mtx, stri
 
 func TestPolicyMatrixIntegration(t *testing.T) {
 	m := newMatrix(t)
-	P := "/api/v0"
+	P := "/api/v1"
 
 	routes := []mroute{
 		// --- public ---------------------------------------------------------
@@ -807,7 +808,7 @@ func (j *cookieJar) cookieHeader() string {
 }
 
 // TestPolicyMatrixWebSocketIntegration covers the one route the HTTP-status grid cannot:
-// the scoreboard WebSocket (/api/v0/ws). Its declared policy is public with NO
+// the scoreboard WebSocket (/api/v1/ws). Its declared policy is public with NO
 // per-connection auth (policy_test.go), so the assertion is that the upgrade is accepted
 // — and a hello frame delivered — for every identity (anonymous, a participant, a banned
 // live session, an admin) in every phase. A per-connection auth check regressing in would
@@ -852,7 +853,7 @@ func TestPolicyMatrixWebSocketIntegration(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `UPDATE users SET banned=true WHERE email='wsban@x.test'`); err != nil {
 		t.Fatalf("ban: %v", err)
 	}
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v0/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
 
 	for _, ph := range phases {
 		start, end, freeze := phaseWindow(ph)

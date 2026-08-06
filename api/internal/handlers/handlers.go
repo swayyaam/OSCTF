@@ -40,7 +40,7 @@ type Deps struct {
 	Scoreboard  *scoreboard.Service
 	Runtime     *runtime.Manager
 	Scheduler   *scheduler.Scheduler
-	Auth        auth.AuthProvider
+	Auth        *auth.Registry
 	Sessions    *auth.SessionStore
 	Limiter     *redisx.Limiter
 	Audit       *audit.Logger

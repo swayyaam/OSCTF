@@ -58,7 +58,7 @@ func fullyWiredServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.
 		Challenges:      challenges.New(q, newMemStore()),
 		Submissions:     submissions.New(pool, ev, clk, audit.New(q, discardLog())),
 		Scoreboard:      scoreboard.New(q, rdb, ev, clk),
-		Auth:            auth.NewEmailPasswordProvider(q, nil),
+		Auth:            auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)),
 		Sessions:        sessions,
 		Limiter:         redisx.NewLimiter(rdb),
 		Audit:           audit.New(q, discardLog()),

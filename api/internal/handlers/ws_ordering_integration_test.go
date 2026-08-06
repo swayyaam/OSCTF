@@ -61,7 +61,7 @@ func TestWSFrameOrderingIntegration(t *testing.T) {
 		Challenges: challenges.New(q, newMemStore()), Scoreboard: sb,
 		Submissions: submissions.New(pool, ev, clock.System(), audit.New(q, discardLog())),
 		Recompute:   func(ctx context.Context) { _ = sb.Recompute(ctx) },
-		Auth:        auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth:        auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	mux := httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler()})

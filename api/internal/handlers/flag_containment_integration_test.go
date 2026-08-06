@@ -202,7 +202,7 @@ func containmentServer(t *testing.T) *containment {
 		Submissions: submissions.New(pool, ev, clk, audit.New(q, log)),
 		Scoreboard:  sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
 		Runtime: mgr, Scheduler: sched,
-		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, log),
 		Log: log, SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})

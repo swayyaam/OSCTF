@@ -41,7 +41,7 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Han
 		Users:      usersSvc,
 		Teams:      teamsSvc,
 		Events:     events.New(q, clock.System()), // freeze hiding is a security control; always wire it
-		Auth:       provider,
+		Auth:       auth.NewRegistry(provider),
 		Sessions:   sessions,
 		Limiter:    redisx.NewLimiter(rdb),
 		Audit:      audit.New(q, discardLog()),

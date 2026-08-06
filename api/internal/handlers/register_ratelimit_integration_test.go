@@ -35,7 +35,7 @@ func registerServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, burst i
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4),
 		Events: events.New(q, clock.System()),
-		Auth:   auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth:   auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()),
 		SessionTTL:      time.Hour,
 		RegisterIPBurst: burst, RegisterIPWindow: window,

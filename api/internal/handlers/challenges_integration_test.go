@@ -80,7 +80,7 @@ func serverWithEvent(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, presta
 		Teams:           teams.New(pool, 4),
 		Events:          events.New(q, clk),
 		Challenges:      challenges.New(q, newMemStore()),
-		Auth:            auth.NewEmailPasswordProvider(q, nil),
+		Auth:            auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)),
 		Sessions:        sessions,
 		Limiter:         redisx.NewLimiter(rdb),
 		Audit:           audit.New(q, discardLog()),

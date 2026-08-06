@@ -343,7 +343,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				log.Warn("scoreboard recompute failed", "error", err.Error())
 			}
 		},
-		Auth:             provider,
+		Auth:             auth.NewRegistry(provider),
 		Sessions:         sessions,
 		Limiter:          limiter,
 		Audit:            auditLog,

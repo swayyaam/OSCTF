@@ -169,7 +169,7 @@ func matrixServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) http.Hand
 		Submissions: submissions.New(pool, ev, clk, audit.New(q, discardLog())),
 		Scoreboard:  sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
 		Runtime: mgr, Scheduler: sched,
-		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()),
 		SessionTTL: time.Hour, MaxAttachmentMB: 10,
 	})
@@ -836,7 +836,7 @@ func TestPolicyMatrixWebSocketIntegration(t *testing.T) {
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4), Events: ev,
 		Challenges: challenges.New(q, newMemStore()),
 		Scoreboard: sb, Recompute: func(ctx context.Context) { _ = sb.Recompute(ctx) },
-		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	mux := httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler()})

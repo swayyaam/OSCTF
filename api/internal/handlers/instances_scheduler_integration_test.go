@@ -52,7 +52,7 @@ func schedulerServer(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, quota 
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4),
 		Events: ev, Challenges: challenges.New(q, newMemStore()),
 		Runtime: mgr, Scheduler: sched,
-		Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	return httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin})

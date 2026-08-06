@@ -62,7 +62,7 @@ func TestWebSocketScoreboardIntegration(t *testing.T) {
 		Events: ev, Challenges: challenges.New(q, newMemStore()),
 		Submissions: submissions.New(pool, ev, clock.System(), audit.New(q, discardLog())), Scoreboard: sb,
 		Recompute: func(rctx context.Context) { _ = sb.Recompute(rctx) },
-		Auth:      auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth:      auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	mux := httpserver.New(httpserver.Deps{
@@ -166,7 +166,7 @@ func TestWebSocketAbruptClientDropReaped(t *testing.T) {
 		Challenges: challenges.New(q, newMemStore()), Scoreboard: sb,
 		Submissions: submissions.New(pool, ev, clock.System(), audit.New(q, discardLog())),
 		Recompute:   func(rctx context.Context) { _ = sb.Recompute(rctx) },
-		Auth:        auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Auth:        auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	}), Sessions: sessions, BaseOrigin: testOrigin, WSHandler: hub.Handler()})
 	ts := httptest.NewServer(mux)

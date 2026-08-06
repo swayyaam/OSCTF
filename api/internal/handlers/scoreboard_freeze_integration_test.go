@@ -111,7 +111,7 @@ func newSBHarness(t *testing.T, start, end time.Time, freeze *time.Time) *sbHarn
 		Submissions: submissions.New(pool, ev, clk, audit.New(q, discardLog())),
 		Scoreboard:  sb,
 		Recompute:   func(rctx context.Context) { _ = sb.Recompute(rctx) },
-		Auth:        auth.NewEmailPasswordProvider(q, nil),
+		Auth:        auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)),
 		Sessions:    sessions,
 		Limiter:     redisx.NewLimiter(rdb),
 		Audit:       audit.New(q, discardLog()),

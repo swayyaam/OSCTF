@@ -45,7 +45,7 @@ func TestInstanceLifecycleWithFakeRuntime(t *testing.T) {
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4),
 		Events: events.New(q, clock.System()), Challenges: challenges.New(q, newMemStore()),
-		Runtime: mgr, Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Runtime: mgr, Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	srv := httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin})
@@ -144,7 +144,7 @@ func TestDeployRejectsStandardChallenge(t *testing.T) {
 	h := handlers.New(handlers.Deps{
 		Users: users.New(q, sessions, true), Teams: teams.New(pool, 4),
 		Events: events.New(q, clock.System()), Challenges: challenges.New(q, newMemStore()),
-		Runtime: mgr, Auth: auth.NewEmailPasswordProvider(q, nil), Sessions: sessions,
+		Runtime: mgr, Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, discardLog()), SessionTTL: time.Hour,
 	})
 	srv := httpserver.New(httpserver.Deps{Log: discardLog(), Handlers: h, Sessions: sessions, BaseOrigin: testOrigin})

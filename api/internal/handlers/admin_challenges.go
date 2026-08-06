@@ -74,6 +74,9 @@ func (s *Server) AdminCreateChallenge(ctx context.Context, request apigen.AdminC
 	if b.Kind != nil {
 		in.Kind = string(*b.Kind)
 	}
+	if b.Type != nil {
+		in.Type = *b.Type
+	}
 	if b.FlagCaseInsensitive != nil {
 		in.FlagCaseInsensitive = *b.FlagCaseInsensitive
 	}
@@ -154,6 +157,9 @@ func (s *Server) AdminUpdateChallenge(ctx context.Context, request apigen.AdminU
 	if b.Scoring != nil {
 		sc := string(*b.Scoring)
 		in.Scoring = &sc
+	}
+	if b.Type != nil {
+		in.Type = b.Type
 	}
 	if b.PointsMin != nil {
 		in.SetPointsMin = true

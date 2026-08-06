@@ -188,6 +188,7 @@ func TestGoldenFull(t *testing.T) {
 		{"challenge_admin.full", apigen.ChallengeAdmin{
 			Id: uidN(3), Slug: "sqli", Title: "SQL Injection", Category: apigen.Category("web"),
 			Description: "desc", Difficulty: diffPtr(sptr("medium")), Kind: apigen.ChallengeKind("container"),
+			Type: "standard",
 			Flag: "osctf{x}", FlagCaseInsensitive: false, Scoring: apigen.ScoringMode("dynamic"),
 			PointsInitial: 500, PointsMin: iptr(100), Decay: iptr(50), MaxAttempts: iptr(10),
 			Visible: true, Image: sptr("img:1"), InternalPort: iptr(80), MemLimitMb: 256, CpuMillis: 500,
@@ -226,7 +227,7 @@ func TestGoldenFull(t *testing.T) {
 			Solves: []apigen.Solve{{ChallengeId: uidN(3), Slug: "sqli", Title: "SQL Injection", Category: apigen.Category("web"), Points: 100, SolvedAt: goldenTime}},
 		}},
 		{"challenge_admin_page.full", apigen.ChallengeAdminPage{
-			Items: []apigen.ChallengeAdmin{{Id: uidN(3), Slug: "sqli", Title: "T", Category: apigen.Category("web"), Description: "d", Kind: apigen.ChallengeKind("static"), Flag: "f", Scoring: apigen.ScoringMode("static"), PointsInitial: 100, MemLimitMb: 0, CpuMillis: 0, ContainerEnv: map[string]string{}, Instancing: apigen.Instancing("none"), FlagMode: apigen.FlagMode("static"), WritablePaths: []string{}, Attachments: []apigen.AttachmentAdmin{}, Solves: 0, CurrentPoints: 100, CreatedAt: goldenTime, UpdatedAt: goldenTime}},
+			Items: []apigen.ChallengeAdmin{{Id: uidN(3), Slug: "sqli", Title: "T", Category: apigen.Category("web"), Description: "d", Kind: apigen.ChallengeKind("static"), Type: "standard", Flag: "f", Scoring: apigen.ScoringMode("static"), PointsInitial: 100, MemLimitMb: 0, CpuMillis: 0, ContainerEnv: map[string]string{}, Instancing: apigen.Instancing("none"), FlagMode: apigen.FlagMode("static"), WritablePaths: []string{}, Attachments: []apigen.AttachmentAdmin{}, Solves: 0, CurrentPoints: 100, CreatedAt: goldenTime, UpdatedAt: goldenTime}},
 			Total: 1, Page: 1, PerPage: 20,
 		}},
 		{"team_admin_page.full", apigen.TeamAdminPage{

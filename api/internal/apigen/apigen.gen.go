@@ -333,6 +333,9 @@ type ChallengeAdmin struct {
 	// Title Display title.
 	Title string `json:"title"`
 
+	// Type Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs.
+	Type string `json:"type"`
+
 	// UpdatedAt Last update time.
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -413,6 +416,9 @@ type ChallengeAdminCreate struct {
 
 	// Title Display title.
 	Title string `json:"title"`
+
+	// Type Challenge-type id; defaults to the built-in 'standard'. Must be a registered type.
+	Type *string `json:"type,omitempty"`
 
 	// Visible Whether participants can see it (default false).
 	Visible *bool `json:"visible,omitempty"`
@@ -502,6 +508,9 @@ type ChallengeAdminUpdate struct {
 
 	// Title Display title.
 	Title *string `json:"title,omitempty"`
+
+	// Type Challenge-type id; omit to leave unchanged. Must be a registered type.
+	Type *string `json:"type,omitempty"`
 
 	// Visible Whether participants can see it.
 	Visible *bool `json:"visible,omitempty"`

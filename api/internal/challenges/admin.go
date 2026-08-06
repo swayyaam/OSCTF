@@ -22,6 +22,7 @@ type CreateInput struct {
 	Description         string
 	Difficulty          *string
 	Kind                string
+	Type                string // challenge-type id; "" defaults to the built-in "standard"
 	Flag                string
 	FlagCaseInsensitive bool
 	Scoring             string
@@ -54,6 +55,9 @@ type Full struct {
 func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, error) {
 	if in.Kind == "" {
 		in.Kind = "standard"
+	}
+	if in.Type == "" {
+		in.Type = "standard" // default to the built-in challenge type
 	}
 	if in.Scoring == "" {
 		in.Scoring = "dynamic"
@@ -103,7 +107,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 
 	params := gen.CreateChallengeParams{
 		ID: id, Slug: slug, Title: in.Title, Category: in.Category,
-		Description: in.Description, Difficulty: in.Difficulty, Kind: in.Kind,
+		Description: in.Description, Difficulty: in.Difficulty, Kind: in.Kind, Type: &in.Type,
 		Flag: in.Flag, FlagCaseInsensitive: in.FlagCaseInsensitive, Scoring: in.Scoring,
 		PointsInitial: clampI32(in.PointsInitial), Visible: in.Visible,
 		MemLimitMb: 256, CpuMillis: 500, ContainerEnv: envJSON,
@@ -201,6 +205,7 @@ type UpdateInput struct {
 	Flag                *string
 	FlagCaseInsensitive *bool
 	Scoring             *string
+	Type                *string // challenge-type id; nil leaves it unchanged
 	PointsInitial       *int
 	SetPointsMin        bool
 	PointsMin           *int
@@ -253,7 +258,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (gen
 		SetInternalPort: in.SetInternalPort, InternalPort: i32p(in.InternalPort),
 		MemLimitMb: i32p(in.MemLimitMB), CpuMillis: i32p(in.CPUMillis),
 		SetConnectionTemplate: in.SetConnectionTmpl, ConnectionTemplate: in.ConnectionTemplate,
-		Instancing: in.Instancing, FlagMode: in.FlagMode,
+		Instancing: in.Instancing, FlagMode: in.FlagMode, Type: in.Type,
 		SetInstanceTtlSeconds: in.SetInstanceTTL, InstanceTtlSeconds: i32p(in.InstanceTTLSeconds),
 		Egress: in.Egress,
 	}

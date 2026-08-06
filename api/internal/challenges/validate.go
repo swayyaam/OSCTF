@@ -1,6 +1,8 @@
 package challenges
 
 import (
+	"fmt"
+
 	"github.com/osctf/platform/internal/apperr"
 	"github.com/osctf/platform/internal/db/gen"
 )
@@ -22,6 +24,12 @@ func validateCreate(in CreateInput, slug string) error {
 	}
 	if in.Kind != "standard" && in.Kind != "container" {
 		v.Add("kind", "must be 'standard' or 'container'")
+	}
+	// Reject an unregistered challenge type at write time — an admin typo, or a challenge
+	// authored against a plugin this deployment lacks, must fail on create rather than
+	// storing a type nothing can resolve. The valid set is the runtime registry.
+	if !IsRegisteredType(in.Type) {
+		v.Add("type", fmt.Sprintf("unknown challenge type %q: no such type is registered", in.Type))
 	}
 	if len(in.Flag) < 1 {
 		v.Add("flag", "is required")
@@ -93,6 +101,11 @@ func validateInstancing(v *apperr.Validation, kind, instancing, flagMode string,
 // validateUpdate validates the row that would result from applying in to cur.
 func validateUpdate(cur gen.Challenge, in UpdateInput) error {
 	v := apperr.NewValidation()
+
+	// Same write-time rejection on update: a changed type must be registered.
+	if in.Type != nil && !IsRegisteredType(*in.Type) {
+		v.Add("type", fmt.Sprintf("unknown challenge type %q: no such type is registered", *in.Type))
+	}
 
 	scoring := cur.Scoring
 	if in.Scoring != nil {

@@ -61,6 +61,7 @@ func toChallengeAdmin(f challenges.Full) apigen.ChallengeAdmin {
 		Description:         c.Description,
 		Difficulty:          diffPtr(c.Difficulty),
 		Kind:                apigen.ChallengeKind(c.Kind),
+		Type:                c.Type,
 		Flag:                c.Flag,
 		FlagCaseInsensitive: c.FlagCaseInsensitive,
 		Scoring:             apigen.ScoringMode(c.Scoring),

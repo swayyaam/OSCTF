@@ -1205,6 +1205,8 @@ export interface components {
             /** @description Difficulty label, if set. */
             difficulty?: components["schemas"]["Difficulty"] | null;
             kind: components["schemas"]["ChallengeKind"];
+            /** @description Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs. */
+            type: string;
             /** @description The flag, verbatim. */
             flag: string;
             /** @description Case-insensitive matching. */
@@ -1272,6 +1274,11 @@ export interface components {
             description?: string;
             difficulty?: components["schemas"]["Difficulty"];
             kind?: components["schemas"]["ChallengeKind"];
+            /**
+             * @description Challenge-type id; defaults to the built-in 'standard'. Must be a registered type.
+             * @default standard
+             */
+            type: string;
             /** @description The flag, stored verbatim. */
             flag: string;
             /** @description Case-insensitive matching (default false). */
@@ -1321,6 +1328,8 @@ export interface components {
             category?: components["schemas"]["Category"];
             /** @description Markdown body. */
             description?: string;
+            /** @description Challenge-type id; omit to leave unchanged. Must be a registered type. */
+            type?: string;
             /** @description Set null to clear. */
             difficulty?: components["schemas"]["Difficulty"] | null;
             /** @description The flag, stored verbatim. */

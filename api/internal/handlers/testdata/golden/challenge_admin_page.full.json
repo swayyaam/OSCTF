@@ -30,6 +30,7 @@
       "slug": "sqli",
       "solves": 0,
       "title": "T",
+      "type": "standard",
       "updated_at": "2026-01-02T03:04:05Z",
       "visible": false,
       "writable_paths": []

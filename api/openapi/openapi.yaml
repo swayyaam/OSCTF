@@ -1562,7 +1562,7 @@ components:
       type: object
       description: Full challenge as stored, including the flag and container config.
       required:
-        [id, slug, title, category, description, kind, flag, flag_case_insensitive,
+        [id, slug, title, category, description, kind, type, flag, flag_case_insensitive,
          scoring, points_initial, visible, mem_limit_mb, cpu_millis, container_env,
          instancing, flag_mode, egress, writable_paths,
          attachments, solves, current_points, created_at, updated_at]
@@ -1578,6 +1578,7 @@ components:
           nullable: true
           description: Difficulty label, if set.
         kind: { $ref: "#/components/schemas/ChallengeKind" }
+        type: { type: string, description: "Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs." }
         flag: { type: string, description: "The flag, verbatim." }
         flag_case_insensitive: { type: boolean, description: Case-insensitive matching. }
         scoring: { $ref: "#/components/schemas/ScoringMode" }
@@ -1656,6 +1657,7 @@ components:
         description: { type: string, description: Markdown body. }
         difficulty: { $ref: "#/components/schemas/Difficulty" }
         kind: { $ref: "#/components/schemas/ChallengeKind" }
+        type: { type: string, default: standard, description: "Challenge-type id; defaults to the built-in 'standard'. Must be a registered type." }
         flag:
           type: string
           minLength: 1
@@ -1744,6 +1746,7 @@ components:
           description: Display title.
         category: { $ref: "#/components/schemas/Category" }
         description: { type: string, description: Markdown body. }
+        type: { type: string, description: "Challenge-type id; omit to leave unchanged. Must be a registered type." }
         difficulty:
           allOf:
             - $ref: "#/components/schemas/Difficulty"

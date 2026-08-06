@@ -222,6 +222,28 @@ func perInstanceBody(title string) string {
 	return fmt.Sprintf(`{"title":%q,"category":"web","kind":"container","flag":"OSCTF{placeholder}","image":"osctf/example:0.1","internal_port":8000,"connection_template":"http://{host}:{port}","scoring":"static","points_initial":100,"visible":true,"instancing":"per_team","flag_mode":"per_instance"}`, title)
 }
 
+// sentinelType is a challenge-type id unique enough to never collide with a legitimate
+// string in any response. The static challenge is created with it so the flag-containment
+// scanner can treat `type` as an admin-only field: it must appear on admin challenge views
+// but NEVER on a participant Challenge/ChallengeDetail. `type` is not a secret (it isn't a
+// flag), but the participant DTOs deliberately omit it, and a new column is exactly when
+// that omission gets accidentally widened — so this gives the live-path scanner the same
+// coverage the serialization goldens give the wire shape.
+const sentinelType = "probe-marker-type-9f3a2b"
+
+// probeType is a no-op challenge type registered only so a challenge can carry sentinelType
+// through validateCreate (which rejects unregistered types).
+type probeType struct{}
+
+func (probeType) ID() string                                           { return sentinelType }
+func (probeType) ValidateConfig(map[string]string) map[string][]string { return nil }
+
+// typedStaticBody is staticChallengeBody with an explicit challenge type spliced in.
+func typedStaticBody(title, flag, ctype string) string {
+	b := staticChallengeBody(title, flag)
+	return strings.TrimSuffix(b, "}") + `,"type":"` + ctype + `"}`
+}
+
 func meOf(t *testing.T, srv http.Handler, jar *cookieJar) (userID, teamID string) {
 	t.Helper()
 	rec := do(t, srv, jar, http.MethodGet, "/api/v0/auth/me", "")
@@ -301,8 +323,13 @@ func TestFlagContainmentIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	admin := makeAdmin(t, srv, c.pool, "root", "root@x.test")
+	// Register a sentinel challenge type and stamp the static challenge with it, so the
+	// scanner asserts `type` reaches admin views but never a participant DTO.
+	if err := challenges.RegisterType(sentinelType, probeType{}, false); err != nil {
+		t.Fatalf("register sentinel type: %v", err)
+	}
 	const staticFlag = "OSCTF{STATIC_never_leak_7a1b2c}"
-	statID, statSlug := createChallenge(t, srv, admin, staticChallengeBody("StaticChal", staticFlag))
+	statID, statSlug := createChallenge(t, srv, admin, typedStaticBody("StaticChal", staticFlag, sentinelType))
 	instID, instSlug := createChallenge(t, srv, admin, perInstanceBody("InstChal"))
 
 	owner := teamUp(t, srv, "owner", "owner@x.test", "Owners")
@@ -324,6 +351,9 @@ func TestFlagContainmentIntegration(t *testing.T) {
 	secrets := []secret{
 		{name: "static-flag", value: staticFlag, allowed: map[string]bool{"admin": true}},
 		{name: "per-instance-flag", value: perInstFlag, allowed: map[string]bool{"owner": true}},
+		// `type` is admin-visible, participant-omitted: it may appear on admin challenge
+		// views but must not ride any participant Challenge/ChallengeDetail response.
+		{name: "challenge-type", value: sentinelType, allowed: map[string]bool{"admin": true}},
 	}
 
 	// owner solves the static challenge (real solve data on the board) and its own

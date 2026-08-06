@@ -50,6 +50,7 @@ type Challenge struct {
 	InstanceTtlSeconds  *int32
 	Egress              bool
 	WritablePaths       []byte
+	Type                string
 }
 
 type ChallengeAttachment struct {

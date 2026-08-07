@@ -176,6 +176,7 @@ paths:
         so a leaked token cannot self-perpetuate past its own revocation.
       requestBody:
         required: true
+        description: Name, scopes, and optional lifetime for the new token.
         content:
           application/json:
             schema: { $ref: "#/components/schemas/TokenCreate" }
@@ -926,6 +927,7 @@ paths:
       tags: [admin]
       operationId: adminRevokeToken
       summary: Revoke any user's token
+      description: Revoke any user's API token by id (admin). Session auth only.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -1461,7 +1463,7 @@ components:
       required: [id, prefix, name, scopes, created_at]
       properties:
         id: { type: string, format: uuid }
-        prefix: { type: string, description: First chars of the token, for display. }
+        prefix: { type: string, description: "First chars of the token, for display." }
         name: { type: string, description: Human label. }
         scopes:
           type: array
@@ -1476,6 +1478,7 @@ components:
 
     TokenCreate:
       type: object
+      description: Payload to create an API token.
       required: [name, scopes]
       properties:
         name: { type: string, minLength: 1, maxLength: 100, description: Human label. }
@@ -1492,6 +1495,7 @@ components:
             is rejected. There is no never-expiring option.
 
     TokenCreated:
+      description: A created token, including its one-time plaintext.
       allOf:
         - $ref: "#/components/schemas/Token"
         - type: object
@@ -1502,6 +1506,7 @@ components:
               description: The plaintext token. Shown ONCE — store it now; it cannot be retrieved again.
 
     TokenAdmin:
+      description: A token with its owner (admin cross-user view).
       allOf:
         - $ref: "#/components/schemas/Token"
         - type: object
@@ -1511,6 +1516,7 @@ components:
 
     TokenAdminPage:
       type: object
+      description: A page of tokens across users (admin).
       required: [items, total, page, per_page]
       properties:
         items:

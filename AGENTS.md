@@ -80,12 +80,19 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
 - Never log flags, passwords, session tokens, or password hashes.
 - Generated code (`apigen/`, `db/gen/`, `dashboard/src/api/schema.d.ts`) is committed;
   CI fails on drift. Regenerate with `make generate`.
-- **Any `openapi.yaml` change must pass the dashboard CI job before "green": `cd dashboard
-  && npm run lint && npm run typecheck && npm run build`.** `schema.d.ts` is a generated
-  dashboard input, and a spec change can break the dashboard while the entire Go gate stays
-  green — e.g. adding `default:` to a request-body field makes openapi-typescript type it as
-  *required*, breaking `tsc`. The Go suite, vet-tags, and golangci-lint do NOT cover this
-  seam; the dashboard typecheck is a distinct CI job and must be run locally on any spec edit.
+- **Any `openapi.yaml` change must pass TWO CI jobs the Go gate does not cover, before
+  "green":**
+  1. **OpenAPI lint (`api-lint`):** `vacuum lint -r api/openapi/vacuum-ruleset.yaml -d
+     api/openapi/openapi.yaml` — a zero-warnings gate. It catches spec bugs `make generate`
+     silently swallows, e.g. an unquoted flow-scalar description containing a comma
+     (`{ ..., description: a, b }`) parses `b` as a bogus mapping key → invalid schema
+     (surfaced as a misleading "missing $ref"). Quote descriptions with commas/colons.
+  2. **Dashboard (`web`):** `cd dashboard && npm run lint && npm run typecheck && npm run
+     build`. `schema.d.ts` is a generated dashboard input; a spec change can break `tsc`
+     while the whole Go gate stays green — e.g. a request-body field with `default:` is
+     typed *required* by openapi-typescript.
+  The Go suite, vet-tags, and golangci-lint do NOT cover either seam. Run both locally on any
+  spec edit — a green Go gate is not a green CI.
 - Conventional Commits; no `TODO`/`FIXME` comments (lint enforces).
 
 ## Testing contract

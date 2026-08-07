@@ -1107,7 +1107,7 @@ type Token struct {
 	// Name Human label.
 	Name string `json:"name"`
 
-	// Prefix First chars of the token
+	// Prefix First chars of the token, for display.
 	Prefix string       `json:"prefix"`
 	Scopes []TokenScope `json:"scopes"`
 }
@@ -1124,7 +1124,7 @@ type TokenAdmin struct {
 	// Name Human label.
 	Name string `json:"name"`
 
-	// Prefix First chars of the token
+	// Prefix First chars of the token, for display.
 	Prefix string       `json:"prefix"`
 	Scopes []TokenScope `json:"scopes"`
 
@@ -1132,7 +1132,7 @@ type TokenAdmin struct {
 	User Member `json:"user"`
 }
 
-// TokenAdminPage defines model for TokenAdminPage.
+// TokenAdminPage A page of tokens across users (admin).
 type TokenAdminPage struct {
 	Items   []TokenAdmin `json:"items"`
 	Page    int          `json:"page"`
@@ -1140,7 +1140,7 @@ type TokenAdminPage struct {
 	Total   int          `json:"total"`
 }
 
-// TokenCreate defines model for TokenCreate.
+// TokenCreate Payload to create an API token.
 type TokenCreate struct {
 	// ExpiresInDays Lifetime in days. Omitted → the server default; a value above the server maximum is rejected. There is no never-expiring option.
 	ExpiresInDays *int `json:"expires_in_days"`
@@ -1162,7 +1162,7 @@ type TokenCreated struct {
 	// Name Human label.
 	Name string `json:"name"`
 
-	// Prefix First chars of the token
+	// Prefix First chars of the token, for display.
 	Prefix string       `json:"prefix"`
 	Scopes []TokenScope `json:"scopes"`
 

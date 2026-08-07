@@ -694,7 +694,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke any user's token */
+        /**
+         * Revoke any user's token
+         * @description Revoke any user's API token by id (admin). Session auth only.
+         */
         delete: operations["adminRevokeToken"];
         options?: never;
         head?: never;
@@ -1041,7 +1044,7 @@ export interface components {
         Token: {
             /** Format: uuid */
             id: string;
-            /** @description First chars of the token */
+            /** @description First chars of the token, for display. */
             prefix: string;
             /** @description Human label. */
             name: string;
@@ -1056,6 +1059,7 @@ export interface components {
             /** Format: date-time */
             expires_at?: string | null;
         };
+        /** @description Payload to create an API token. */
         TokenCreate: {
             /** @description Human label. */
             name: string;
@@ -1063,13 +1067,16 @@ export interface components {
             /** @description Lifetime in days. Omitted → the server default; a value above the server maximum is rejected. There is no never-expiring option. */
             expires_in_days?: number | null;
         };
+        /** @description A created token, including its one-time plaintext. */
         TokenCreated: components["schemas"]["Token"] & {
             /** @description The plaintext token. Shown ONCE — store it now; it cannot be retrieved again. */
             token: string;
         };
+        /** @description A token with its owner (admin cross-user view). */
         TokenAdmin: components["schemas"]["Token"] & {
             user: components["schemas"]["Member"];
         };
+        /** @description A page of tokens across users (admin). */
         TokenAdminPage: {
             items: components["schemas"]["TokenAdmin"][];
             total: number;
@@ -2034,6 +2041,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
+        /** @description Name, scopes, and optional lifetime for the new token. */
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TokenCreate"];

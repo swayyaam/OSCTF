@@ -80,19 +80,21 @@ Details in [`docs/v0.1/01-architecture.md`](docs/v0.1/01-architecture.md).
 - Never log flags, passwords, session tokens, or password hashes.
 - Generated code (`apigen/`, `db/gen/`, `dashboard/src/api/schema.d.ts`) is committed;
   CI fails on drift. Regenerate with `make generate`.
-- **Any `openapi.yaml` change must pass TWO CI jobs the Go gate does not cover, before
-  "green":**
-  1. **OpenAPI lint (`api-lint`):** `vacuum lint -r api/openapi/vacuum-ruleset.yaml -d
-     api/openapi/openapi.yaml` — a zero-warnings gate. It catches spec bugs `make generate`
-     silently swallows, e.g. an unquoted flow-scalar description containing a comma
-     (`{ ..., description: a, b }`) parses `b` as a bogus mapping key → invalid schema
-     (surfaced as a misleading "missing $ref"). Quote descriptions with commas/colons.
-  2. **Dashboard (`web`):** `cd dashboard && npm run lint && npm run typecheck && npm run
-     build`. `schema.d.ts` is a generated dashboard input; a spec change can break `tsc`
-     while the whole Go gate stays green — e.g. a request-body field with `default:` is
-     typed *required* by openapi-typescript.
-  The Go suite, vet-tags, and golangci-lint do NOT cover either seam. Run both locally on any
-  spec edit — a green Go gate is not a green CI.
+- **"Green" means `make ci-local` passed — nothing less.** It runs, from ONE definition per
+  job (the `ci-<job>` targets that CI itself invokes), every CI job that needs no
+  docker-compose stack: generate-drift, api-lint (golangci-lint + `vacuum`, zero warnings),
+  api-test, api-integration (integration + dockerint + soak + migrations), web (dashboard
+  lint/typecheck/test/build), plus vet-tags and the tag-coverage guard. `make ci-local-full`
+  adds the image/smoke/e2e tier. Do NOT reconstruct a subset from memory — every prior CI
+  miss (name-filtered tests, a job that ran nothing, an uncompiled build tag, a skipped
+  spec-guarding job) was a partial gate mistaken for the whole. `ci-sync-check` (run inside
+  ci-local) derives the job list from `.github/workflows/ci.yml` and fails if a job is not
+  runnable locally, so a new CI job can't be added without appearing in `make ci-local`.
+  - Why this matters for spec edits specifically: `make generate` silently swallows spec bugs
+    the Go gate can't see — a flow-scalar description with a comma (`{ ..., description: a, b }`)
+    parses `b` as a bogus key (vacuum catches it), and a request-body field with `default:`
+    is typed *required* by openapi-typescript (the dashboard `tsc` catches it). Both are in
+    `ci-local`; a green Go gate alone is not a green CI.
 - Conventional Commits; no `TODO`/`FIXME` comments (lint enforces).
 
 ## Testing contract

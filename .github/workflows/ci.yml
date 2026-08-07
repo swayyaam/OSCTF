@@ -1,5 +1,10 @@
 name: CI
 
+# Every job runs a `make ci-<job>` target — the SAME target `make ci-local` runs locally, so a
+# job cannot pass locally while running different commands here. `make ci-sync-check` (wired
+# into ci-local) fails if a job added here is not also runnable locally. Job commands live in
+# the Makefile / scripts, never inline, so there is one source of truth.
+
 on:
   push:
     branches: [main]
@@ -23,9 +28,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: make setup-tools
       - run: cd dashboard && npm ci
-      - run: make generate
-      - name: fail on uncommitted generated code
-        run: git diff --exit-code
+      - run: make ci-generate-drift
 
   api-lint:
     name: api lint
@@ -35,12 +38,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.12.2
-          working-directory: api
-      - run: go install github.com/daveshanley/vacuum@v0.17.0
-      - run: vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
+      - run: make setup-tools
+      - run: make ci-api-lint
 
   api-test:
     name: api test
@@ -50,12 +49,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      # Unit tier only. Integration/dockerint tests are behind build tags
-      # (integration, dockerint) and are excluded here — so membership is by tag,
-      # never by test-name matching (which silently dropped five tests before).
-      # -shuffle=on randomizes test order to surface inter-test state leakage
-      # (it looks like flakiness — a failure here is real, not a flake).
-      - run: cd api && go test ./... -race -shuffle=on
+      - run: make ci-api-test
 
   api-integration:
     name: api integration
@@ -65,39 +59,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: integration tests (testcontainers)
-        # Tag-selected, no -run name filter: every //go:build integration test runs.
-        run: cd api && go test ./... -race -shuffle=on -tags integration
-      - name: docker runtime tests (real daemon)
-        # Native-Linux runner: cross-network isolation MUST hold, so make the
-        # isolation assertions strict (they skip informatively on Docker Desktop).
-        run: cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
-      - name: 2-minute soak
-        shell: bash # -eo pipefail: a failed `go test` in the pipe must fail the step
-        # Full platform in-process (FakeRuntime on an accelerated clock) driven by
-        # 100 actors under seeded faults. Asserts the continuous invariants —
-        # including REST scoreboard == from-scratch recompute — WS convergence, and
-        # the event-end teardown (zero live instances, full port range reclaimed).
-        # No -race: this is a load/functional test; the unit and integration jobs
-        # own race coverage. Testcontainers provides Postgres+Redis.
-        #
-        # `-run TestSoak` selects by name, and `go test` exits 0 with "no tests to
-        # run" when nothing matches — the silent-pass that once dropped five tests.
-        # So assert the target was actually exercised: fail unless TestSoak PASSed.
-        run: |
-          cd api
-          go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee soak.out
-          grep -q '^--- PASS: TestSoak' soak.out \
-            || { echo '::error::soak produced no PASS for TestSoak — it exercised nothing'; exit 1; }
-      - name: migration up-down-up
-        run: |
-          docker run -d --name pg -e POSTGRES_PASSWORD=osctf -e POSTGRES_USER=osctf -e POSTGRES_DB=osctf -p 5432:5432 postgres:17-alpine
-          go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
-          for i in $(seq 1 30); do docker exec pg pg_isready -U osctf && break; sleep 1; done
-          export DSN="postgres://osctf:osctf@localhost:5432/osctf?sslmode=disable"
-          goose -dir api/internal/db/migrations postgres "$DSN" up
-          goose -dir api/internal/db/migrations postgres "$DSN" down-to 0
-          goose -dir api/internal/db/migrations postgres "$DSN" up
+      # integration (testcontainers) + dockerint (real daemon, strict isolation) + 2-min soak
+      # + migration up/down/up. See `ci-api-integration` in the Makefile.
+      - run: make ci-api-integration
 
   web:
     name: web
@@ -107,18 +71,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: cd dashboard && npm ci
-      - run: cd dashboard && npm run lint
-      - run: cd dashboard && npm run typecheck
-      - run: cd dashboard && npm test
-      - run: cd dashboard && npm run build
+      - run: make ci-web
 
   image:
     name: image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t osctf/platform:ci .
+      - run: make ci-image
 
   smoke:
     name: smoke
@@ -126,24 +86,10 @@ jobs:
     needs: [image]
     steps:
       - uses: actions/checkout@v4
-      - name: compose up
-        run: |
-          cp .env.example .env
-          # Grant the platform container the runner's docker socket group so it can
-          # reach the daemon and deploy instances (the .env.example default of 0 is
-          # only correct on Docker Desktop).
-          echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
-          docker compose up -d --build --wait
-      - name: smoke test
-        run: |
-          set -a; source .env; set +a
-          BASE_URL=http://localhost:8080 bash scripts/smoke.sh
+      - run: make ci-smoke
       - name: logs on failure
         if: failure()
         run: docker compose logs platform
-      - name: teardown
-        if: always()
-        run: docker compose down -v
 
   e2e:
     name: e2e
@@ -154,21 +100,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: build per-team example image (for the instance e2e flow)
-        run: docker build -t osctf/example-per-team-web:0.2 examples/challenges/per-team-web/src
-      - name: compose up
-        run: |
-          cp .env.example .env
-          # Grant the platform container the runner's docker socket group so it can
-          # reach the daemon and deploy per-team instances.
-          echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
-          docker compose up -d --build --wait
-      - name: playwright
-        run: |
-          cd dashboard && npm ci
-          npx playwright install --with-deps chromium
-          set -a; source ../.env; set +a
-          BASE_URL=http://localhost:8080 npm run e2e
+      - run: make ci-e2e
       - name: upload playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -179,6 +111,3 @@ jobs:
       - name: platform logs on failure
         if: failure()
         run: docker compose logs platform | tail -100
-      - name: teardown
-        if: always()
-        run: docker compose down -v

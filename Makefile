@@ -132,6 +132,86 @@ smoke: ## Build the stack, run the smoke test, tear down
 	BASE_URL=http://localhost:8080 bash scripts/smoke.sh; rc=$$?; \
 		docker compose down; exit $$rc
 
+# --- CI parity ----------------------------------------------------------------
+# The recurring failure has one shape: a local gate whose success is compatible with not
+# having run part of CI (tests dropped by name-filter, a job that exercised nothing, a build
+# tag never compiled, a spec-guarding job skipped). The fix is mechanical, not a checklist:
+#
+#   - ONE definition per CI job (the ci-<job> targets below); CI calls the SAME target, so a
+#     job cannot pass locally while running different commands in CI.
+#   - `make ci-local` runs every job that needs no docker-compose stack; `make ci-local-full`
+#     adds the image/smoke/e2e tier. "Green" means `ci-local` passed, not a remembered list.
+#   - `ci-sync-check` DERIVES the job list from .github/workflows/ci.yml and fails if any job
+#     is covered by neither target — so a new CI job can't be added without appearing locally.
+#     Same shape as the vet-tags tag-coverage guard and the policy-table route gate.
+CI_LOCAL_JOBS      := generate-drift api-lint api-test api-integration web
+CI_LOCAL_FULL_JOBS := image smoke e2e
+
+.PHONY: ci-sync-check
+ci-sync-check: ## Fail if any CI job is not runnable via ci-local / ci-local-full
+	@ci_jobs=$$(awk '/^jobs:/{j=1;next} j && /^  [a-z][a-z0-9-]+:[[:space:]]*$$/{sub(/:.*/,"");gsub(/ /,"");print}' .github/workflows/ci.yml); \
+	covered=" $(CI_LOCAL_JOBS) $(CI_LOCAL_FULL_JOBS) "; \
+	missing=""; for jb in $$ci_jobs; do case "$$covered" in *" $$jb "*) ;; *) missing="$$missing $$jb";; esac; done; \
+	stale=""; for jb in $(CI_LOCAL_JOBS) $(CI_LOCAL_FULL_JOBS); do printf '%s\n' $$ci_jobs | grep -qx "$$jb" || stale="$$stale $$jb"; done; \
+	if [ -n "$$missing" ]; then \
+	  echo "ci-sync-check: CI job(s) not runnable locally:$$missing"; \
+	  echo "  add each to CI_LOCAL_JOBS (no-compose tier) or CI_LOCAL_FULL_JOBS (compose tier) and wire a ci-<job> target"; \
+	  exit 1; fi; \
+	if [ -n "$$stale" ]; then \
+	  echo "ci-sync-check: declared job(s) no longer in ci.yml (stale, remove them):$$stale"; exit 1; fi; \
+	echo "ci-sync-check: all $$(printf '%s\n' $$ci_jobs | grep -c .) CI jobs are covered locally"
+
+.PHONY: ci-local
+ci-local: ci-sync-check vet-tags ci-generate-drift ci-api-lint ci-api-test ci-api-integration ci-web ## Run every CI job that needs no compose stack (the pre-push gate)
+	@echo "== ci-local PASS: matches CI jobs [$(CI_LOCAL_JOBS)] + vet-tags/tag-coverage =="
+
+.PHONY: ci-local-full
+ci-local-full: ci-local ci-image ci-smoke ci-e2e ## ci-local plus the image / smoke / e2e (docker-compose) tier
+	@echo "== ci-local-full PASS: all CI jobs run locally =="
+
+# One target per CI job — CI invokes these SAME targets (see .github/workflows/ci.yml), so a
+# job's commands cannot drift between local and CI.
+.PHONY: ci-generate-drift
+ci-generate-drift: generate ## CI job 'generate drift': regenerate + fail on any diff
+	git diff --exit-code
+
+.PHONY: ci-api-lint
+ci-api-lint: ## CI job 'api lint': golangci-lint + vacuum (zero warnings)
+	cd api && golangci-lint run
+	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
+
+.PHONY: ci-api-test
+ci-api-test: ## CI job 'api test': unit tier, race + shuffle (tag-selected, no -run filter)
+	cd api && go test ./... -race -shuffle=on
+
+.PHONY: ci-api-integration
+ci-api-integration: ## CI job 'api integration': integration + dockerint + soak + migrations
+	cd api && go test ./... -race -shuffle=on -tags integration
+	cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
+	@out=$$(mktemp); cd api && go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee $$out; \
+		grep -q '^--- PASS: TestSoak' $$out || { echo '::error:: soak produced no PASS for TestSoak — it exercised nothing'; rm -f $$out; exit 1; }; rm -f $$out
+	@bash scripts/ci-migrate-updownup.sh
+
+.PHONY: ci-web
+ci-web: ## CI job 'web': dashboard lint + typecheck + test + build
+	cd dashboard && npm ci
+	cd dashboard && npm run lint
+	cd dashboard && npm run typecheck
+	cd dashboard && npm test
+	cd dashboard && npm run build
+
+.PHONY: ci-image
+ci-image: ## CI job 'image': build the production image
+	docker build -t osctf/platform:ci .
+
+.PHONY: ci-smoke
+ci-smoke: ## CI job 'smoke': compose up, smoke.sh, tear down
+	@bash scripts/ci-compose-check.sh smoke
+
+.PHONY: ci-e2e
+ci-e2e: ## CI job 'e2e': compose up, playwright, tear down
+	@bash scripts/ci-compose-check.sh e2e
+
 # --- database -----------------------------------------------------------------
 .PHONY: migrate-new
 migrate-new: ## Create a new empty goose migration: make migrate-new name=<slug>

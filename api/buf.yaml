@@ -1,0 +1,21 @@
+version: v2
+modules:
+  - path: internal/plugin/proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # The ABI's service names are the plugin TYPES (Auth, Scoring, …), not *Service.
+    - SERVICE_SUFFIX
+    # Authenticate and Complete both return Identity by design; and the request/response names
+    # follow the settled ABI (e.g. Authenticate -> Identity), not the buf standard convention.
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    # The single ABI file lives co-located at internal/plugin/proto/, not a deep
+    # osctf/plugin/v1/ tree — there is one module, so the version suffix on the package is
+    # enough; the deep directory would add noise.
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE

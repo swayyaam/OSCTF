@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package osctf.plugin.v1;
+
+option go_package = "github.com/osctf/platform/internal/plugin/pluginpb;pluginpb";
+
+// The OSCTF plugin ABI. Transport is HashiCorp go-plugin: a handshake plus a local gRPC
+// server the plugin serves and the host dials. The ABI MAJOR is the go-plugin handshake
+// ProtocolVersion (in Go, not here); the MINOR is advertised per-plugin via Info.
+//
+// Security invariants this ABI encodes (all ENFORCED HOST-SIDE — see docs/v0.3/02-plugin-abi,
+// 03-plugin-loader, 04-plugin-interfaces):
+//   * No plugin ever receives a flag, a password hash, or a session token.
+//   * ChallengeType.CheckFlag receives the SUBMITTED guess + author config + instance
+//     metadata; the host never injects the challenge's flag column or the per-instance
+//     generated flag into `config`/`instance`.
+//   * Notification Event.data is non-secret AND non-PII (no email).
+//   * Auth.Authenticate's `secret` is the plaintext credential a user submitted for THIS
+//     provider — a deliberate, capability-gated exception (see the trust model). It is never
+//     the OSCTF password, a hash, or a token. A password-capability plugin sees plaintext a
+//     user typed; treat loading one as trusting that plugin with credentials usable elsewhere.
+//   * Request context: deadlines ride the gRPC context (host also enforces them and
+//     quarantines repeat-hangs); a request id rides gRPC metadata. There is no tenant/event
+//     id — OSCTF is single-event per deployment.
+
+enum PluginType {
+  PLUGIN_TYPE_UNSPECIFIED = 0;
+  PLUGIN_TYPE_AUTH = 1;
+  PLUGIN_TYPE_SCORING = 2;
+  PLUGIN_TYPE_NOTIFICATION = 3;
+  PLUGIN_TYPE_CHALLENGE_TYPE = 4;
+}
+
+// Info is served by every plugin and read at load time.
+message InfoRequest {}
+message InfoResponse {
+  string name = 1;                   // must match the manifest name
+  PluginType type = 2;
+  string abi = 3;                    // "1.<minor>"
+  string version = 4;                // the plugin's own semver, for display
+  repeated string capabilities = 5;  // optional feature flags within the type (e.g. "password")
+}
+
+// ------------------------------------------------------------------ Auth
+service Auth {
+  rpc Info(InfoRequest) returns (InfoResponse);
+  rpc Authenticate(AuthenticateRequest) returns (Identity); // capability "password"
+  rpc Begin(BeginRequest) returns (BeginResponse);          // capability "redirect"
+  rpc Complete(CompleteRequest) returns (Identity);         // capability "redirect"
+}
+
+message AuthenticateRequest {
+  string identifier = 1;
+  // Plaintext credential the user submitted FOR THIS PROVIDER (password capability only).
+  // Never the OSCTF password, a hash, or a token. See the trust model.
+  string secret = 2;
+}
+message BeginRequest { string redirect_uri = 1; }          // host's callback URL
+message BeginResponse {
+  string authorize_url = 1;
+  string state = 2;
+}
+message CompleteRequest {
+  map<string, string> params = 1;                          // callback query params
+  string state = 2;
+}
+// The external identity the plugin vouches for. `email` is the plugin's OUTPUT (its knowledge
+// of the subject, for host-side provisioning) — not host-provided PII. The host maps
+// subject -> local user, then issues its OWN session.
+message Identity {
+  string subject = 1;                                      // stable IdP-unique id
+  string email = 2;
+  string username = 3;                                     // suggested handle
+  map<string, string> claims = 4;
+}
+
+// ------------------------------------------------------------------ Scoring
+service Scoring {
+  rpc Info(InfoRequest) returns (InfoResponse);
+  rpc Value(ScoreRequest) returns (ScoreResponse);         // pure, deterministic
+}
+message ScoreRequest {
+  int32 initial = 1;
+  int32 min = 2;
+  int32 decay = 3;
+  int32 solves = 4;
+  map<string, string> params = 5;                          // extra curve knobs, from config
+}
+message ScoreResponse { int32 value = 1; }
+
+// ------------------------------------------------------------------ Notification
+service Notification {
+  rpc Info(InfoRequest) returns (InfoResponse);
+  rpc Subscriptions(InfoRequest) returns (SubscriptionList); // which events it wants
+  rpc Notify(Event) returns (NotifyAck);                     // fire-and-forget
+}
+message SubscriptionList { repeated string event_names = 1; } // "challenge.solved"; "*" = all
+message Event {
+  string name = 1;                                         // "challenge.solved"
+  string id = 2;                                           // unique event id (dedup)
+  string occurred_at = 3;                                  // RFC3339
+  map<string, string> data = 4;                            // flat, non-secret AND non-PII
+}
+message NotifyAck { bool handled = 1; }
+
+// ------------------------------------------------------------------ ChallengeType
+service ChallengeType {
+  rpc Info(InfoRequest) returns (InfoResponse);
+  rpc ValidateConfig(ValidateRequest) returns (ValidateResponse); // author-time
+  rpc CheckFlag(CheckRequest) returns (CheckResponse);            // capability "check"
+}
+message ValidateRequest { map<string, string> config = 1; }
+message ValidateResponse {
+  bool ok = 1;
+  map<string, string> field_errors = 2;
+  map<string, string> normalized = 3;
+}
+message CheckRequest {
+  string submitted = 1;                                    // the user's guess (never the flag)
+  map<string, string> config = 2;                          // author config (host injects no flag)
+  map<string, string> instance = 3;                        // per-instance metadata (no flag)
+}
+message CheckResponse { bool correct = 1; }

@@ -1,0 +1,15 @@
+version: v2
+inputs:
+  - directory: internal/plugin/proto
+plugins:
+  # Local (go-installed, version-pinned) codegen — see `make setup-tools` and the version
+  # assertion in `make proto-version-check`. The `module=` opt strips the module prefix from
+  # go_package so files land at internal/plugin/pluginpb/ (out is the api/ dir).
+  - local: protoc-gen-go
+    out: .
+    opt:
+      - module=github.com/osctf/platform
+  - local: protoc-gen-go-grpc
+    out: .
+    opt:
+      - module=github.com/osctf/platform

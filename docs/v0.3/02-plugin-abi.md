@@ -171,3 +171,25 @@ answers "is this submission correct for this config/instance." A plugin without 
   A plugin can't see other teams' flags, bypass rate limits, or skip the audit log.
 - **gRPC status → domain error mapping is fixed.** So plugin failures render as the same
   problem+json vocabulary as everything else.
+- **Minimal payloads — every field is a forever commitment.** No plugin ever receives a flag,
+  a password hash, or a session token. `CheckFlag` gets the submitted guess + author config +
+  instance metadata; the host never injects the challenge's flag column or the per-instance
+  generated flag. `Event.data` is non-secret AND non-PII (no email). The one deliberate,
+  capability-gated exception is `Auth.Authenticate.secret` — the plaintext credential a user
+  submitted for that provider (see the trust model in 04); adding a field later is a minor
+  bump, removing one is a major, so start small.
+- **`Identity.email` is plugin OUTPUT, not host PII.** The auth plugin returns its knowledge
+  of the external subject for host-side provisioning; the host chooses whether to act on it.
+  A plugin never *receives* an email from the host.
+- **Request context: deadline via the gRPC context, not a message field.** The host sets a
+  per-call deadline (gRPC propagates it, so a cooperative plugin can honour `ctx.Done()`) AND
+  enforces it host-side — abandoning the call on expiry (`DEADLINE_EXCEEDED` → 504) and
+  quarantining a plugin that repeatedly hangs. Cancellation is cooperative *and* host-side;
+  the host never trusts the plugin to cooperate. A request id rides gRPC **metadata**
+  (`x-osctf-request-id`) for log correlation, not a field on every message. There is **no
+  tenant or CTF-event id** — OSCTF is single-event per deployment; multi-event would be a
+  future major.
+- **Codegen determinism is asserted, not hoped for.** `buf` (pinned) compiles; `protoc-gen-go`
+  and `protoc-gen-go-grpc` (pinned) emit the Go. `make proto-version-check` fails loudly if any
+  of the three differs from the pinned version, so a developer's toolchain can't silently drift
+  the checked-in stubs before the generate-drift gate even runs.

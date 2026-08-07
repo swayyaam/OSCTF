@@ -115,6 +115,24 @@ source and supply chain the way you vet core, and do not load an auth plugin you
 merge into core. This is why auth is the one plugin type whose return path the core
 polices field by field rather than trusting.
 
+**And the blast radius reaches past OSCTF.** A plugin with the `password` capability receives,
+by design, the *plaintext credential a user typed* for that provider (`AuthenticateRequest.secret`
+— the host cannot validate a credential without giving it to the validator). Users reuse
+passwords across services, so a malicious password-capability plugin doesn't merely compromise
+this OSCTF instance — it **harvests credentials that work elsewhere** (the corporate directory,
+email, whatever the user reused). That is the concrete reason the "would you merge it into core"
+test is the right bar: you are handing the plugin the same plaintext your login form collects.
+Two consequences, both enforced:
+- **The `password` capability is made visible, not buried in a manifest.** The loader logs it at
+  startup (`plugin <name> loaded with the password capability — it will receive plaintext
+  credentials`) and the admin plugin view flags it, so trusting it is an *informed* decision, not
+  one that lives only in a YAML file someone read once.
+- **The host must not leak the credential either.** A submitted credential is a secret on the
+  host side of the boundary exactly like a flag or a token: it must never reach a log, an error
+  body, an audit row, or a metric on the plugin-auth path. The flag-containment scanner covers
+  it (a submitted credential is swept as a secret allowed to no one). The plugin sees it by
+  design; the host leaking it would be a bug.
+
 ## 2. Scoring — the registry is already there
 
 `scoring.Registry()` ([`scoring/engine.go:56`](../../api/internal/scoring/engine.go#L56))

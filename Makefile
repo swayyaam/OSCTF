@@ -10,6 +10,11 @@ SQLC_VERSION           := v1.28.0
 GOOSE_VERSION          := v3.24.1
 VACUUM_VERSION         := v0.17.0
 GOLANGCI_LINT_VERSION  := v2.12.2
+# Plugin ABI codegen (buf compiles; the two plugins emit the Go). Pinned + asserted
+# (proto-version-check) because a version mismatch silently drifts the checked-in stubs.
+BUF_VERSION                := v1.47.2
+PROTOC_GEN_GO_VERSION      := v1.36.6
+PROTOC_GEN_GO_GRPC_VERSION := v1.5.1
 
 GOBIN := $(shell go env GOPATH)/bin
 export PATH := $(GOBIN):$(PATH)
@@ -34,6 +39,9 @@ setup-tools: ## Install pinned Go codegen/lint tools via go install
 	go install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	go install github.com/daveshanley/vacuum@$(VACUUM_VERSION)
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 
 # --- dev ----------------------------------------------------------------------
 .PHONY: dev
@@ -65,10 +73,21 @@ dev-down: ## Stop dev services
 
 # --- codegen ------------------------------------------------------------------
 .PHONY: generate
-generate: ## Regenerate all committed generated code (oapi-codegen, sqlc, TS types)
+generate: proto-version-check ## Regenerate all committed generated code (proto/buf, oapi-codegen, sqlc, TS types)
+	cd api && buf generate
 	cd api && oapi-codegen -config openapi/oapi-codegen.yaml openapi/openapi.yaml
 	cd api && sqlc generate
 	cd dashboard && npm run generate:api
+
+.PHONY: proto-version-check
+proto-version-check: ## Fail LOUDLY if buf / codegen plugin versions differ from the pinned ones
+	@fail=0; \
+	chk() { g="$${2#v}"; w="$${3#v}"; if [ "$$g" != "$$w" ]; then echo "  $$1: have '$$2', want 'v$$w' — run 'make setup-tools'"; fail=1; fi; }; \
+	chk buf "$$(buf --version 2>/dev/null)" "$(BUF_VERSION)"; \
+	chk protoc-gen-go "$$(protoc-gen-go --version 2>/dev/null | awk '{print $$NF}')" "$(PROTOC_GEN_GO_VERSION)"; \
+	chk protoc-gen-go-grpc "$$(protoc-gen-go-grpc --version 2>/dev/null | awk '{print $$NF}')" "$(PROTOC_GEN_GO_GRPC_VERSION)"; \
+	if [ "$$fail" != 0 ]; then echo "proto toolchain version mismatch — the checked-in stubs would drift. Run 'make setup-tools'."; exit 1; fi; \
+	echo "proto-version-check: buf $(BUF_VERSION) / protoc-gen-go $(PROTOC_GEN_GO_VERSION) / protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION) OK"
 
 # --- quality ------------------------------------------------------------------
 .PHONY: lint

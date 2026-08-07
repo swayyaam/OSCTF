@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { queryKeys } from "../api/client";
+import { API_BASE, queryKeys } from "../api/client";
 
 /**
  * The WebSocket frame types the backend emits. Single source of truth is
@@ -66,7 +66,7 @@ class ScoreboardSocket {
   private connect() {
     this.closedByUs = false;
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${window.location.host}/api/v0/ws`;
+    const url = `${proto}://${window.location.host}${API_BASE}/ws`;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);

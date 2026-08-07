@@ -1,6 +1,6 @@
 import { useState, type SyntheticEvent } from "react";
 import { useChallenge, useSubmitFlag } from "../api/hooks";
-import { RequestError } from "../api/client";
+import { API_BASE, RequestError } from "../api/client";
 import { Markdown } from "../lib/markdown";
 import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
@@ -99,7 +99,7 @@ export function ChallengeDialog({ slug, onClose }: Props) {
                   <li key={a.id}>
                     <a
                       className="text-primary underline"
-                      href={`/api/v0/challenges/${slug}/attachments/${a.id}`}
+                      href={`${API_BASE}/challenges/${slug}/attachments/${a.id}`}
                     >
                       {a.filename} ({Math.round(a.size_bytes / 1024)} KB)
                     </a>

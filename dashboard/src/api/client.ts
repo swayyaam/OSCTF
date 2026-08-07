@@ -2,11 +2,20 @@ import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema";
 
 /**
+ * The canonical API base path. v1 is the stable surface; the old /api/v0 alias still works
+ * (and carries Deprecation/Sunset headers) but the dashboard targets v1. Every dashboard
+ * request — the openapi-fetch client below, raw fetches, attachment links, and the WebSocket
+ * — derives its prefix from this ONE constant, so a future /api/v2 is a one-line change and
+ * the raw URLs cannot drift from the client.
+ */
+export const API_BASE = "/api/v1";
+
+/**
  * The single API client. Same-origin in production; the Vite dev proxy forwards
  * /api to the Go server. Cookies (the session) ride along automatically.
  */
 export const api = createClient<paths>({
-  baseUrl: "/api/v0",
+  baseUrl: API_BASE,
   credentials: "same-origin",
 });
 

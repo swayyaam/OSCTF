@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, normalizeError, queryKeys, RequestError } from "./client";
+import { API_BASE, api, normalizeError, queryKeys, RequestError } from "./client";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -194,7 +194,7 @@ export function useUploadAttachment(id: string) {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`/api/v0/admin/challenges/${id}/attachments`, {
+      const res = await fetch(`${API_BASE}/admin/challenges/${id}/attachments`, {
         method: "POST",
         body: form,
         credentials: "same-origin",

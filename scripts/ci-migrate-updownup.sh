@@ -15,14 +15,22 @@ cid=$(docker run -d -e POSTGRES_PASSWORD=osctf -e POSTGRES_USER=osctf -e POSTGRE
   -p 127.0.0.1::5432 postgres:17-alpine)
 trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
 
-for _ in $(seq 1 30); do
-  docker exec "$cid" pg_isready -U osctf >/dev/null 2>&1 && break
+# Wait until Postgres logs "ready to accept connections" TWICE: the image starts a throwaway
+# server for initdb, then restarts to serve. pg_isready can pass on the throwaway, and
+# connecting to the published port mid-restart is reset — so match testcontainers' 2x wait.
+for _ in $(seq 1 60); do
+  [ "$(docker logs "$cid" 2>&1 | grep -c 'ready to accept connections')" -ge 2 ] && break
   sleep 1
 done
 
 port=$(docker port "$cid" 5432/tcp | head -1 | sed 's/.*://')
 dir="$(git rev-parse --show-toplevel)/api/internal/db/migrations"
 dsn="postgres://osctf:osctf@127.0.0.1:${port}/osctf?sslmode=disable"
+# Belt-and-suspenders: retry the first connection while the published port settles.
+for _ in $(seq 1 15); do
+  goose -dir "$dir" postgres "$dsn" status >/dev/null 2>&1 && break
+  sleep 1
+done
 goose -dir "$dir" postgres "$dsn" up
 goose -dir "$dir" postgres "$dsn" down-to 0
 goose -dir "$dir" postgres "$dsn" up

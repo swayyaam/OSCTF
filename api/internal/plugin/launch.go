@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ type conn struct {
 	pid         int                       // OS pid of the plugin process (0 for a fake launcher)
 	token       string                    // start-token carried in the process argv (for the boot sweep)
 	pidfilePath string                    // pidfile written for this launch ("" if none); removed on clean stop
+	inflight    atomic.Int64              // calls currently executing on THIS instance (drives drain-on-stop)
 }
 
 // launchFn launches the plugin process and returns a live conn, or an error if the process

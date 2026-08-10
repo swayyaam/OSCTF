@@ -157,6 +157,33 @@ var (
 		Name: "osctf_scoreboard_stale_served_total",
 		Help: "Scoreboard reads served stale because inline read-repair exceeded its budget.",
 	})
+
+	// PluginCallDuration observes host→plugin call latency by plugin and method. The failure
+	// mode is a TAIL (a plugin that is correct but slow), so the buckets resolve the region
+	// around the call timeout — DefBuckets tops out at 10 and is too coarse above 1s to see a
+	// consistently-4s plugin. Recorded for successful calls too, so a slow-but-never-failing
+	// plugin is visible here without reading logs.
+	PluginCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "osctf_plugin_call_duration_seconds",
+		Help:    "Host→plugin call duration in seconds by plugin and method (tail-resolving buckets).",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 10},
+	}, []string{"plugin", "method"})
+
+	// PluginInflight gauges concurrent host→plugin calls per plugin. It must return to 0 after
+	// every plugin drains — a value stuck above 0 after a stop/reload is a leaked in-flight slot
+	// (the port-leak shape), so alert on a nonzero idle value.
+	PluginInflight = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "osctf_plugin_inflight",
+		Help: "Current concurrent host→plugin calls, by plugin.",
+	}, []string{"plugin"})
+
+	// PluginInflightShed counts calls shed at an in-flight cap, by plugin and which cap fired:
+	// "per_plugin" (one plugin monopolising its own budget) vs "global" (all plugins collectively
+	// exhausting the shared budget) — different causes needing different operator responses.
+	PluginInflightShed = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_plugin_inflight_shed_total",
+		Help: "Host→plugin calls shed at an in-flight cap, by plugin and cap level (per_plugin, global).",
+	}, []string{"plugin", "level"})
 )
 
 // MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
@@ -173,6 +200,7 @@ func init() {
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
 		ScoreboardStaleReads, ScoreboardStaleServed,
+		PluginCallDuration, PluginInflight, PluginInflightShed,
 	)
 }
 

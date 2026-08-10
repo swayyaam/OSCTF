@@ -32,8 +32,9 @@ type superConfig struct {
 	baseBackoff  time.Duration // full-jitter exponential base (spec: 200ms)
 	maxBackoff   time.Duration // backoff cap (spec: 30s)
 	healthStable time.Duration // continuous-ready time that forgives prior failures (spec: 60s)
-	sleep        sleeper       // backoff wait (production realSleep; tests instantSleep)
-	now          clock.Clock   // time source for the stability window (injected like the scheduler)
+	drainTimeout time.Duration // grace for in-flight calls on reload/stop before the kill (spec: 30s)
+	sleep        sleeper       // backoff/drain wait (production realSleep; tests instantSleep)
+	now          clock.Clock   // time source for the stability + drain windows (injected like the scheduler)
 	log          *slog.Logger
 }
 
@@ -80,6 +81,9 @@ func newSupervisor(l *Loader, name string, launch launchFn, cfg superConfig) *su
 	}
 	if cfg.healthStable <= 0 {
 		cfg.healthStable = 60 * time.Second
+	}
+	if cfg.drainTimeout <= 0 {
+		cfg.drainTimeout = 30 * time.Second
 	}
 	return &supervisor{l: l, name: name, launch: launch, cfg: cfg, reloadCh: make(chan reloadReq), done: make(chan struct{})}
 }
@@ -297,7 +301,7 @@ func (s *supervisor) becomeReady(c *conn) {
 	if err := s.l.plugins[s.name].m.to(StateReady); err != nil {
 		s.cfg.log.Error("illegal plugin state transition", "plugin", s.name, "err", err)
 	}
-	s.l.plugins[s.name].client = c.client
+	s.l.plugins[s.name].cur = c
 	s.l.mu.Unlock()
 	s.readySince = s.cfg.now()
 	s.curPID.Store(int64(c.pid))
@@ -309,18 +313,33 @@ func (s *supervisor) becomeReady(c *conn) {
 // measures ITS uptime, not the old one's.
 func (s *supervisor) swapTo(c *conn) {
 	s.l.mu.Lock()
-	s.l.plugins[s.name].client = c.client
+	s.l.plugins[s.name].cur = c
 	s.l.mu.Unlock()
 	s.readySince = s.cfg.now()
 	s.curPID.Store(int64(c.pid))
 }
 
-// drainAndKill reaps an instance swapped out by a reload. In-flight draining up to
-// OSCTF_PLUGIN_DRAIN_TIMEOUT arrives with the call wrapper (P3-d); with no in-flight accounting
-// yet, the old instance — already unpublished by the swap, so receiving no new calls — is
-// killed immediately.
+// drainAndKill reaps an instance swapped out by a reload: drain its in-flight calls up to the
+// timeout, then kill. Already unpublished by the swap, it receives no new calls, so its in-flight
+// count only falls.
 func (s *supervisor) drainAndKill(c *conn) {
+	s.drain(c)
 	c.kill()
+}
+
+// drain waits up to drainTimeout for the instance's in-flight calls to finish, so a reload or
+// stop does not cut off work about to complete. Any call still running at the deadline is cut
+// off by the caller's subsequent kill — the broken connection returns it an error and its
+// deferred release frees the in-flight slot. So a plugin that ignores cancellation and outlasts
+// the drain cannot leak a slot across the timeout (the port-leak shape). Uses the injected
+// clock+sleeper so the poll is real in production and controllable in tests.
+func (s *supervisor) drain(c *conn) {
+	deadline := s.cfg.now().Add(s.cfg.drainTimeout)
+	for c.inflight.Load() > 0 && s.cfg.now().Before(deadline) {
+		if err := s.cfg.sleep(context.Background(), 10*time.Millisecond); err != nil {
+			return
+		}
+	}
 }
 
 // reload requests a hot-reload and blocks until it resolves: nil once the new instance is ready
@@ -359,7 +378,7 @@ func (s *supervisor) markUnhealthy() {
 	if err := s.l.plugins[s.name].m.to(StateUnhealthy); err != nil {
 		s.cfg.log.Error("illegal plugin state transition", "plugin", s.name, "err", err)
 	}
-	s.l.plugins[s.name].client = nil
+	s.l.plugins[s.name].cur = nil
 }
 
 // quarantine moves an unhealthy/launching plugin to terminal `failed` via the legal path and
@@ -375,7 +394,7 @@ func (s *supervisor) quarantine() {
 	if err := mg.m.to(StateFailed); err != nil {
 		s.cfg.log.Error("illegal plugin state transition", "plugin", s.name, "err", err)
 	}
-	mg.client = nil
+	mg.cur = nil
 }
 
 // teardown reaps a running plugin on a clean stop: ready → draining → stopped, killing the
@@ -383,12 +402,13 @@ func (s *supervisor) quarantine() {
 // state half.)
 func (s *supervisor) teardown(c *conn) {
 	s.transition(StateDraining)
+	s.drain(c)
 	c.kill()
 	s.l.mu.Lock()
 	if err := s.l.plugins[s.name].m.to(StateStopped); err != nil {
 		s.cfg.log.Error("illegal plugin state transition", "plugin", s.name, "err", err)
 	}
-	s.l.plugins[s.name].client = nil
+	s.l.plugins[s.name].cur = nil
 	s.l.mu.Unlock()
 	s.curPID.Store(0)
 	// Remove the pidfile so the next boot's sweep does not consider this cleanly-stopped

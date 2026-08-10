@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -17,11 +18,11 @@ func TestDispatchOnlyReachesReadyProcess(t *testing.T) {
 	}
 	for _, st := range all {
 		l := &Loader{plugins: map[string]*managed{
-			"p": {name: "p", client: "client-handle", m: machine{state: st}},
+			"p": {name: "p", cur: &conn{client: "client-handle"}, m: machine{state: st}},
 		}}
 
 		reached := false
-		err := l.dispatch("p", func(client any) error {
+		err := l.dispatch(context.Background(), "p", "Value", func(client any) error {
 			reached = true
 			if client != "client-handle" {
 				t.Errorf("state %s: dispatch passed the wrong client %v", st, client)
@@ -47,7 +48,7 @@ func TestDispatchOnlyReachesReadyProcess(t *testing.T) {
 func TestDispatchUnknownPluginIsNotReady(t *testing.T) {
 	l := &Loader{plugins: map[string]*managed{}}
 	reached := false
-	err := l.dispatch("nope", func(any) error { reached = true; return nil })
+	err := l.dispatch(context.Background(), "nope", "Value", func(any) error { reached = true; return nil })
 	if reached {
 		t.Fatal("dispatch reached a process for an unknown plugin")
 	}

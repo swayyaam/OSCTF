@@ -364,7 +364,7 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 
 	// The first Value kills crashafter mid-call: the in-flight call must resolve as an error,
 	// not a silent success or a hang.
-	if err := l.dispatch("crashafter", value); err == nil {
+	if err := l.dispatch(context.Background(), "crashafter", "Value", value); err == nil {
 		t.Error("crashafter Value returned nil though the process died mid-call")
 	}
 
@@ -372,7 +372,7 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 	// hits the dead connection or a deregistered entry, either answer is clean; a 2s wait means
 	// the host blocked on a dead process.
 	done := make(chan error, 1)
-	go func() { done <- l.dispatch("crashafter", value) }()
+	go func() { done <- l.dispatch(context.Background(), "crashafter", "Value", value) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -390,7 +390,7 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 // test can assert the plugin still serves after a reload.
 func value(t *testing.T, l *Loader, name string) error {
 	t.Helper()
-	return l.dispatch(name, func(client any) error {
+	return l.dispatch(context.Background(), name, "Value", func(client any) error {
 		r, err := client.(pluginpb.ScoringClient).Value(context.Background(),
 			&pluginpb.ScoreRequest{Initial: 500, Min: 100, Decay: 50, Solves: 3})
 		if err != nil {

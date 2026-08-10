@@ -334,6 +334,42 @@ These are fixed before the loader is built; each is a named test in the `plugins
 suites ([`09-testing-ci.md`](09-testing-ci.md)). They are never weakened to make a build go
 green.
 
+## In-flight budget & host-side concurrency
+
+Concurrent host→plugin calls are bounded at **two levels**: a **per-plugin** cap
+(`OSCTF_PLUGIN_MAX_INFLIGHT`, 64) so one slow plugin cannot monopolise the host, and a
+**global** cap (`OSCTF_PLUGIN_MAX_INFLIGHT_TOTAL`) so many plugins each at their cap cannot
+collectively exhaust it. A call acquires its per-plugin slot then the global slot, each waiting
+at most `OSCTF_PLUGIN_QUEUE_WAIT` (and the caller's own deadline) — mirroring the argon2 gate —
+then **sheds `503`**, counted in `osctf_plugin_inflight_shed_total{plugin,level}`. It **never
+blocks indefinitely**. The shed error and log name *which* cap fired — "at per-plugin in-flight
+cap" vs "global plugin budget exhausted" — because the two call for different operator
+responses (throttle/replace that plugin vs. raise the global budget / add capacity).
+
+**Shared fd accountant.** A blocked call pins its inbound request fd, so the global plugin cap
+draws from the *same* file-descriptor budget as WebSocket connections. The reserve for
+everything else (DB/Docker/Redis/HTTP) is taken **once**; the essential fixed consumer (plugin
+calls) claims first and is guaranteed its budget, the elastic one (WebSockets, degradable to
+polling) claims last and is clamped to the remainder. The derived split is logged at startup so
+an operator can see where the fds went. (Two consumers each sizing against the whole limit was
+the wrong arithmetic; the failure guarded against is precisely *collective* exhaustion.)
+
+**The cap bounds HOST-side concurrency, not plugin-side.** When a call's host-side deadline
+fires, the host stops waiting and frees the slot immediately — it does **not** hold the slot for
+a call the plugin is still executing. Holding it would let one hung plugin permanently consume
+its own budget and deadlock. The consequence, stated rather than assumed: a plugin that **ignores
+cancellation** keeps working after the host has moved on, so real plugin-side concurrency can
+exceed the cap. For a plugin holding a DB connection or upstream socket per call, the cap then
+does not bound the thing that matters. That is the plugin author's responsibility, and it is a
+stated contract in the author kit ([11-plugin-template.md](11-plugin-template.md)): **your
+plugin must honour `ctx` cancellation or it will accumulate work the host has stopped waiting
+for.**
+
+Per-plugin latency is `osctf_plugin_call_duration_seconds{plugin,method}`, a **histogram** with
+tail-resolving buckets (to 10s) — the failure mode is a tail, so a mean would smear it and the
+default buckets would bury a consistently-slow plugin above 1s. It is recorded for *successful*
+calls too, so a plugin that is slow but never errors is visible in metrics without reading logs.
+
 | Invariant | Pinned by (test to write) |
 |---|---|
 | **No orphaned plugin process survives core shutdown or crash.** Graceful shutdown reaps every child; after a simulated hard `SIGKILL` of the host, the child self-exits (parent-death) or the next boot's pidfile sweep kills it. | Launch a plugin, `SIGKILL` the host harness, assert the child is gone (directly or after a boot sweep). |
@@ -348,7 +384,10 @@ green.
 | **A challenge-type plugin outage never consumes a player's attempt.** A failed `CheckFlag` rolls back with no solve *and* no `max_attempts` decrement. | Fail a `regex-flag` plugin mid-`CheckFlag`; assert the submission errors, no solve is recorded, **and** the team's attempt count is unchanged. |
 | **The served scoreboard is always recomputable from the submission log** — whether the scoring fallback is off (default) or on. If it fired, the submission carries a `scored_by=fallback` marker so recompute is exact. | With the fallback off and on, force a scoring-plugin failure, then recompute the board from the log and assert it equals the served board (the v0.2 soak invariant, extended to the plugin path). |
 | **A dropped notification is always observable** — never silent. | Fail/hang a notification subscriber; assert the event is dropped, the originating action still commits, **and** `osctf_plugin_events_dropped_total{name,event}` + a log line record it. |
-| **A plugin cannot push the core past its resource budget.** Total plugin processes ≈ plugins loaded; concurrent in-flight host→plugin calls never exceed `OSCTF_PLUGIN_MAX_INFLIGHT` (over-cap sheds `503`). | Load N plugins, drive more concurrent calls than the cap; assert in-flight is bounded by the semaphore, excess sheds `503`, process count stays ≈ N, and the host stays responsive (the argon2-gate lesson). |
+| **A plugin cannot push the core past its resource budget, and a shed names which cap fired.** Concurrent in-flight calls never exceed the per-plugin or the global cap; over-cap calls shed `503` after the queue wait, and the per-plugin vs global cause is distinct in both the error and the metric. | `slow` at its per-plugin cap → a per-plugin `ShedError`; `slow` filling a small global cap → a global `ShedError`; assert distinct messages + `osctf_plugin_inflight_shed_total{level}`. **Pinned** (`inflight_test.go`). |
+| **A plugin at its per-plugin cap does not delay calls to other plugins.** The per-plugin (not single-global) cap isolates the blast radius of one slow plugin. | `slow` saturated at its cap alongside `goodscore`; assert the `goodscore` call still returns promptly. **Pinned** (`inflight_test.go`). |
+| **A slow-but-successful plugin is visible in metrics without logs.** Latency is a tail-resolving histogram, recorded for successful calls too. | Drive `slow` (4s, succeeds); assert the observation lands in the histogram's tail buckets, not a smeared mean. **Pinned** (`inflight_test.go`). |
+| **An in-flight slot is never leaked, including on the drain-timeout path.** A slow plugin holding its whole budget through a reload/stop that drains, times out, and kills still returns every slot — the release is tied to the call's lifetime, not the plugin's. | Fill the budget with `slow`, reload so the drain times out and kills; assert in-flight returns to 0, repeated across reloads (a one-per-reload leak is the port-leak shape). **Pinned** (`inflight_test.go`). |
 | **A registry swap is atomic from a reader's perspective.** The registries (auth / scoring / challenge-type) hold an atomic pointer to an immutable map; register/reload builds a new map and swaps the pointer. No reader ever observes a partially updated registry, and a lookup in flight during a swap resolves to either the old value or the new one — never nothing, never a torn map. | Hammer `Get(name)` from many goroutines while another goroutine registers/reloads; under `-race`, assert every lookup returns a valid provider (old or new), never `nil`/absent for a name that exists in both maps, and no torn read. |
 
 ## Trust model (documented limitation)
@@ -378,7 +417,9 @@ something core code can do to itself.
 | `OSCTF_PLUGIN_CALL_TIMEOUT` | `10s` (notify `2s`) | Per-call deadline; a hung call yields `DEADLINE_EXCEEDED`. Longer default for network round-trips (OIDC). |
 | `OSCTF_PLUGIN_DRAIN_TIMEOUT` | `30s` | Grace for a plugin's in-flight calls on reload/stop before the process is killed. Must be `≥` the call timeout; the `serve` shutdown budget is raised to cover it. |
 | `OSCTF_PLUGIN_RESTART_CAP` | `5` | Consecutive failed restarts before quarantine (`failed`). |
-| `OSCTF_PLUGIN_MAX_INFLIGHT` | `64` | Global cap on concurrent in-flight host→plugin calls (a semaphore); over-cap calls wait briefly then fail `503`. Bounds plugin-induced host load. |
+| `OSCTF_PLUGIN_MAX_INFLIGHT` | `64` | **Per-plugin** cap on concurrent in-flight host→plugin calls (a per-plugin semaphore), so one slow plugin cannot monopolise the host. |
+| `OSCTF_PLUGIN_MAX_INFLIGHT_TOTAL` | `256` (clamped) | **Global** cap across all plugins, so N plugins each at their per-plugin cap cannot collectively exhaust the host. A blocked call pins its inbound request fd, so this is claimed from the shared fd accountant (below) and clamped to the fd budget — the same treatment the WS cap gets. |
+| `OSCTF_PLUGIN_QUEUE_WAIT` | `1s` | How long a call queues at a full cap before it sheds `503` (also bounded by the caller's own deadline). A deeper queue means shed-now is kinder than a longer wait. |
 | `OSCTF_PLUGIN_SCORING_FALLBACK` | `false` | Opt-in: on a scoring-plugin failure, fall back to `static` (recorded per-submission) instead of erroring the submission. Availability over consistency. |
 | `OSCTF_RUNTIME_DIR` | (OS temp) | Where per-plugin pidfiles are written for the boot-time orphan sweep. |
 | `OSCTF_PLUGIN_<NAME>_<KEY>` | — | Per-plugin config/secret override (upper-snake of the manifest key). |

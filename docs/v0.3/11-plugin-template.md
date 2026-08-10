@@ -106,6 +106,12 @@ Human + agent readable, per the AI-native principle:
 - **Manifest reference** (`plugin.yaml` fields; ABI version meaning).
 - **Lifecycle & failure model:** your plugin may be killed and restarted; be stateless or
   idempotent; keep calls fast (the host bounds them). Health = your `Info` responding.
+  **You MUST honour `ctx` cancellation.** The host's in-flight cap bounds *host-side*
+  concurrency: when a call's deadline fires the host frees its slot and stops waiting, but it
+  does not kill your in-progress work. A plugin that ignores `ctx` keeps executing calls the
+  host has already given up on — accumulating work past the cap and holding whatever each call
+  holds (a DB connection, an upstream socket). Return promptly when `ctx` is done. The
+  `slow`-style contract test asserts this.
 - **Testing:** the `plugintest` harness; the boundary rule (no `internal/*` imports);
   determinism for scoring.
 - **Publishing:** in v0.3 you ship a directory (`make package`; the convention above). The

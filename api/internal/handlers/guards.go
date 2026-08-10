@@ -94,19 +94,35 @@ func (s *Server) freezeState(ctx context.Context) (frozen bool, freezeAt time.Ti
 // recompute triggers a count-guarded scoreboard recompute + broadcast (the solve path).
 func (s *Server) recompute(ctx context.Context) {
 	if s.d.Recompute != nil {
-		s.d.Recompute(ctx)
+		dctx, cancel := detachedRecomputeCtx(ctx)
+		defer cancel()
+		s.d.Recompute(dctx)
 	}
 }
 
 // recomputeForce triggers an unconditional recompute (admin mutations that can shrink
 // the board), falling back to the guarded recompute if no force hook is wired.
 func (s *Server) recomputeForce(ctx context.Context) {
-	switch {
-	case s.d.RecomputeForce != nil:
-		s.d.RecomputeForce(ctx)
-	case s.d.Recompute != nil:
-		s.d.Recompute(ctx)
+	dep := s.d.RecomputeForce
+	if dep == nil {
+		dep = s.d.Recompute
 	}
+	if dep != nil {
+		dctx, cancel := detachedRecomputeCtx(ctx)
+		defer cancel()
+		dep(dctx)
+	}
+}
+
+// detachedRecomputeCtx carries the caller's request-scoped values (auth, request id,
+// trace) but NOT its cancellation or deadline. The scoreboard recompute follows a solve
+// or admin mutation that is already committed, so it must run to completion even if the
+// request that triggered it is cancelled — a client disconnecting mid-request must not
+// abandon the board update and leave the served board disagreeing with the log until the
+// next tick. The bound keeps a stuck recompute from leaking a goroutine. Same lesson as
+// the background passes' bounded, request-independent contexts.
+func detachedRecomputeCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
 
 // requireUser returns the caller identity or ErrUnauthenticated.

@@ -177,6 +177,39 @@ Known coverage gaps (accepted and tracked — don't mistake green for covered):
   join (`bgWG` + `waitBounded`) is validated by that test's design and by the goleak-clean
   `handlers`/`scheduler` integration flows that drive the same workers.
 
+## Recurring bug pattern: a lock held across I/O
+
+**A mutex whose critical section contains I/O is a latency bug that only appears under
+load, and this codebase has shipped three of them — every one found late, by the soak,
+never by a unit test.** The tell: a lock held across a DB query, a Redis call, an
+HTTP/gRPC call, an argon2/bcrypt hash, or a container op.
+
+- **Scheduler mutex held across a ~120s container deploy** — every other team's schedule
+  op serialized behind one slow `docker run`.
+- **Unbounded argon2** — password hashing with no concurrency bound; a login burst
+  saturated every core and stalled unrelated requests.
+- **Scoreboard `s.mu` held across two DB reads + a Redis write** — under concurrent solves
+  recomputes serialized on the mutex and queued behind each other, so the served board's
+  worst-case lag grew with load. Fixed by computing outside the lock (guarded write on a
+  data-derived count). NB: this was a genuine latency bug found while triaging an
+  intermittent soak `scoreboard-mismatch`, but it was **not** that flake's cause — the
+  flake is a separate durability gap (best-effort per-solve recompute, no guaranteed
+  repair), issue #6. A reminder that "found a lock-across-I/O while chasing X" does not
+  mean the lock was X.
+
+Why they hide: functional tests run uncontended, so the critical section is fast and the
+bug is invisible. Under contention every holder serializes behind the *slowest* I/O in
+the section, so throughput collapses and latency grows with load while the suite stays
+green. Only a load test (the soak) or production surfaces it.
+
+The fix shape: hold the lock **only around the in-memory state transition**; do the I/O
+outside it. If that lets concurrent producers finish out of order, reconcile with a
+**data-derived** compare-and-set — order writes by something monotonic in the data
+itself (the scoreboard guards on the valid-solve-row count), never by wall-clock or an
+entry-sequence, which don't order the underlying reads. When reviewing, flag any
+`Lock()` whose matching `Unlock()` is on the far side of a call that touches the network,
+disk, or a CPU-bound hash.
+
 ## Gotchas
 
 - **Regenerate after editing `openapi.yaml` or the SQL schema**, or the build breaks

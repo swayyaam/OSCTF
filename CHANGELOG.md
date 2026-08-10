@@ -5,14 +5,47 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+### Changed (scoreboard reliability)
+
+The two changes below reduce how far and how long the served scoreboard can diverge from
+the solve log under load. They do **not** by themselves resolve the intermittent soak
+`scoreboard-mismatch` (a `rest=0 fromscratch=500`-shaped miss), which the soak still
+reproduces at roughly 1 in 8 two-minute runs — that is a separate design gap (the
+per-solve recompute is best-effort, with no durable retry between commit and recompute)
+tracked in [#6](https://github.com/swayam-mishra/OSCTF/issues/6) and fixed separately. No
+OpenAPI or database-schema change.
+
+- **Scoreboard recompute no longer holds the mutex across its DB reads and the Redis
+  write.** `Recompute` held `s.mu` across two DB reads plus the Redis write, so under
+  concurrent solving recomputes serialized on the lock and queued behind each other — the
+  third "lock held across I/O" bug in this codebase (see `AGENTS.md`), a real latency bug
+  that grows with load. `compute()` now runs outside the lock; the lock guards only the
+  write. Because recomputes can now finish out of order, the write is guarded on the
+  valid-solve-row **count** — a data-derived version, not wall time (a timestamp/sequence
+  guard is unsafe: the gap between reading the clock and the DB snapshot lets a
+  later-stamped recompute read fewer rows). A slow older recompute is dropped rather than
+  clobbering a newer board. Admin actions that legitimately shrink the board (hiding or
+  deleting a challenge) use a force path that writes unconditionally and immediately
+  re-runs a guarded recompute so a concurrent solve isn't lost.
+- **The submit- and admin-triggered recompute no longer runs on the request context.**
+  `Submit` commits its transaction before the handler calls recompute, so a client
+  disconnecting mid-request would cancel the recompute and abandon the board update for an
+  already-committed solve (repaired only by a later tick). It now runs on a detached,
+  bounded context that carries request-scoped values but not the caller's cancellation.
+
 ### CI
 
-- **The CI-pipeline no-op fixes landed after the `v0.2.2` tag** (commit `f2622e7`):
-  the soak step now asserts its own `--- PASS: TestSoak`, the dashboard `typecheck`
-  is no longer a zero-file no-op, and `vitest` fails on zero tests. The `v0.2.2` tag
-  therefore points at a commit whose CI config still contains those no-ops. The
-  shipped code is unaffected — do not check out `v0.2.2` and trust its pipeline to
-  have exercised what it claims; use `main`.
+- **The Go module/build cache never worked.** `setup-go` looked for `go.sum` at the repo
+  root, but ours is `api/go.sum`, so every job on every run re-downloaded every dependency
+  and recompiled the `setup-tools` toolchain (buf, golangci-lint, protoc-gen-*) cold. It is
+  now keyed on `api/go.sum` with the Go version read from `api/go.mod`; the shared cache
+  also warms the tool builds. All GitHub Actions were bumped off the deprecated Node 20
+  runtime (`v4`/`v5` → `v7`).
+- **The CI-pipeline no-op fixes landed after the `v0.2.2` tag** (commit `f2622e7`): the
+  soak step now asserts its own `--- PASS: TestSoak`, the dashboard `typecheck` is no
+  longer a zero-file no-op, and `vitest` fails on zero tests. The `v0.2.2` tag therefore
+  points at a commit whose CI config still contains those no-ops — do not check out
+  `v0.2.2` and trust its pipeline to have exercised what it claims; use `main` or `v0.2.3`.
 
 ## v0.2.2 — Concurrency hardening
 

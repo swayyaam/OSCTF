@@ -103,7 +103,14 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 VET_TAGS := integration dockerint soak
 # embed_spa: compiled only in the image build — it embeds the built SPA (webdist/static),
 # absent in a plain checkout, so vetting it here would fail on the missing embed.
-TAG_ALLOWLIST := embed_spa
+# linux/darwin: GOOS constraints (the plugin loader's SysProcAttr split — Pdeathsig exists
+# only in Linux's syscall package). These are NOT covered by -tags; the CROSS_GOOS build
+# below compiles the tree for each supported GOOS, so both files are always checked and the
+# partial-compile gap the guard guards against stays closed for platform files too.
+TAG_ALLOWLIST := embed_spa linux darwin
+# The GOOS targets whose platform-specific files must compile (host-independent: CI is linux,
+# dev is darwin, and each must check the OTHER's files).
+CROSS_GOOS := linux darwin
 
 .PHONY: vet-tags
 vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered tag
@@ -118,6 +125,10 @@ vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered
 	fi; \
 	echo "vet-tags: all tree build tags covered ($$(echo $$present | tr '\n' ' '))"
 	cd api && go vet -tags "$(VET_TAGS)" ./...
+	@for os in $(CROSS_GOOS); do \
+	  echo "vet-tags: cross-compiling api for GOOS=$$os (platform-specific files)"; \
+	  (cd api && GOOS=$$os go build ./...) || exit 1; \
+	done
 
 .PHONY: test
 test: vet-tags ## Type-check every build tag, then run unit tests (Go -short + web)

@@ -30,6 +30,25 @@ type Loader struct {
 	plugins map[string]*managed
 }
 
+// newLoader returns an empty loader. Boot discovery (#1) populates it by calling track for
+// each validated manifest and attaching a supervisor; until then callers add entries
+// explicitly (the lifecycle tests do this directly).
+func newLoader() *Loader {
+	return &Loader{plugins: map[string]*managed{}}
+}
+
+// track records a newly discovered plugin in `discovered` state and returns its entry. The
+// supervisor that owns the entry then drives it through launch → ready (or → failed). Writing
+// the map is guarded by the same lock dispatch reads under, so a routing call can never
+// observe a half-initialised entry.
+func (l *Loader) track(name string) *managed {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	mg := &managed{name: name, m: machine{state: StateDiscovered}}
+	l.plugins[name] = mg
+	return mg
+}
+
 // dispatch runs call against the plugin's client ONLY if the plugin is `ready`; otherwise
 // it returns ErrNotReady without touching the client — invariant #2. The readiness check
 // and the client read happen under the lock so a concurrent state change can't let a call

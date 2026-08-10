@@ -109,7 +109,7 @@ func (s *Server) AdminCreateChallenge(ctx context.Context, request apigen.AdminC
 	if err != nil {
 		return nil, err
 	}
-	s.recompute(ctx)
+	s.recompute(ctx) // a new challenge has no solves — the count can't shrink, so guard is fine
 	return apigen.AdminCreateChallenge201JSONResponse(toChallengeAdmin(full)), nil
 }
 
@@ -210,7 +210,7 @@ func (s *Server) AdminUpdateChallenge(ctx context.Context, request apigen.AdminU
 	if err != nil {
 		return nil, err
 	}
-	s.recompute(ctx)
+	s.recomputeForce(ctx)
 	return apigen.AdminUpdateChallenge200JSONResponse(toChallengeAdmin(full)), nil
 }
 
@@ -233,7 +233,7 @@ func (s *Server) AdminDeleteChallenge(ctx context.Context, request apigen.AdminD
 		return nil, err
 	}
 	s.d.Audit.Log(ctx, actor.ID, "challenge.delete", "challenge", request.Id.String(), nil)
-	s.recompute(ctx)
+	s.recomputeForce(ctx)
 	return apigen.AdminDeleteChallenge204Response{}, nil
 }
 

@@ -69,7 +69,7 @@ func TestComputeRanksTiebreaksBansAndDynamicValue(t *testing.T) {
 		},
 	}
 
-	snap, err := compute(context.Background(), store, now)
+	snap, _, err := compute(context.Background(), store, now)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestComputeNameTiebreakAmongScorelessTeams(t *testing.T) {
 		{ID: z1, Name: "Zeta"},
 		{ID: z2, Name: "Aardvark"},
 	}}
-	snap, err := compute(context.Background(), store, now)
+	snap, _, err := compute(context.Background(), store, now)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestComputeNameTiebreakAmongScorelessTeams(t *testing.T) {
 // TestComputeEmptyBoardIsNonNilSlice guards the "[] not null" invariant that keeps
 // WebSocket/API clients reading standings.length from crashing.
 func TestComputeEmptyBoardIsNonNilSlice(t *testing.T) {
-	snap, err := compute(context.Background(), fakeStore{}, time.Now())
+	snap, _, err := compute(context.Background(), fakeStore{}, time.Now())
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}

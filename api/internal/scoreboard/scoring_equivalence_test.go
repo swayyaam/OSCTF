@@ -47,7 +47,7 @@ func TestScoringRegistryStandingsEquivalence(t *testing.T) {
 		},
 	}
 
-	snap, err := compute(context.Background(), store, now)
+	snap, _, err := compute(context.Background(), store, now)
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}

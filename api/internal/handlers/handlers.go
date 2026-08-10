@@ -52,8 +52,14 @@ type Deps struct {
 	TokenMaxTTL     time.Duration
 
 	// Recompute triggers a scoreboard recompute + broadcast; wired in M5/M6.
-	// Nil is a no-op, so earlier milestones compile and run.
+	// Nil is a no-op, so earlier milestones compile and run. This is the SOLVE-path
+	// recompute — count-guarded, so a slow older compute can't clobber a newer board.
 	Recompute func(context.Context)
+
+	// RecomputeForce is the recompute for admin mutations that can legitimately SHRINK
+	// the board (a hidden or deleted challenge drops its solves): it writes
+	// unconditionally, bypassing the count guard that Recompute uses. Nil is a no-op.
+	RecomputeForce func(context.Context)
 
 	// Log is used for safety-net logging (e.g. serving cached freeze state when the
 	// events read fails). Nil falls back to slog.Default().

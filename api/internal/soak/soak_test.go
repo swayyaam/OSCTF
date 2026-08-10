@@ -198,6 +198,11 @@ func TestSoak(t *testing.T) {
 				_ = sb.Recompute(rctx)
 			}
 		},
+		RecomputeForce: func(rctx context.Context) {
+			if !*fBreakSB {
+				_ = sb.RecomputeForce(rctx)
+			}
+		},
 		Auth: auth.NewRegistry(auth.NewEmailPasswordProvider(q, nil)), Sessions: sessions,
 		Limiter: redisx.NewLimiter(rdb), Audit: audit.New(q, testsupport.DiscardLogger()),
 		Log: testsupport.DiscardLogger(), SessionTTL: time.Hour, MaxAttachmentMB: 100,
@@ -253,7 +258,8 @@ func TestSoak(t *testing.T) {
 	endOfRunTeardown(ctx, t, sc, sched, pool)
 
 	// Quiesced (no new solves): a couple of final recomputes flush the throttled
-	// broadcast to the still-connected WS clients, which must then match REST.
+	// broadcast to the still-connected WS clients, which must then match REST. Guarded
+	// is fine here — no actors remain, so the final count is the max and always writes.
 	for i := 0; i < 3; i++ {
 		_ = sb.Recompute(ctx)
 		time.Sleep(600 * time.Millisecond)

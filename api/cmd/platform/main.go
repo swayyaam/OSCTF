@@ -351,6 +351,11 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				log.Warn("scoreboard recompute failed", "error", err.Error())
 			}
 		},
+		RecomputeForce: func(rctx context.Context) {
+			if err := scoreboardSvc.RecomputeForce(rctx); err != nil {
+				log.Warn("scoreboard force-recompute failed", "error", err.Error())
+			}
+		},
 		Auth:               authRegistry,
 		EmailLoginDisabled: !cfg.AuthEmailLogin,
 		Sessions:           sessions,

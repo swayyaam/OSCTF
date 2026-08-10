@@ -91,9 +91,20 @@ func (s *Server) freezeState(ctx context.Context) (frozen bool, freezeAt time.Ti
 	return fr, at, true
 }
 
-// recompute triggers a scoreboard recompute + broadcast when wired (M5/M6).
+// recompute triggers a count-guarded scoreboard recompute + broadcast (the solve path).
 func (s *Server) recompute(ctx context.Context) {
 	if s.d.Recompute != nil {
+		s.d.Recompute(ctx)
+	}
+}
+
+// recomputeForce triggers an unconditional recompute (admin mutations that can shrink
+// the board), falling back to the guarded recompute if no force hook is wired.
+func (s *Server) recomputeForce(ctx context.Context) {
+	switch {
+	case s.d.RecomputeForce != nil:
+		s.d.RecomputeForce(ctx)
+	case s.d.Recompute != nil:
 		s.d.Recompute(ctx)
 	}
 }

@@ -24,12 +24,16 @@ type Broadcaster func(Snapshot)
 
 // Service computes, caches, and serves standings, and manages the freeze snapshot.
 type Service struct {
-	q      *gen.Queries
+	// q is the read surface compute needs (scoreStore). *gen.Queries satisfies it in
+	// production; a test can inject a store that blocks or counts concurrency to pin
+	// that compute() runs OUTSIDE the mutex.
+	q      scoreStore
 	rdb    *redis.Client
 	events *events.Service
 	clock  clock.Clock
 
 	mu        sync.Mutex
+	lastCount int // valid-solve-row count of the newest board written to keyCurrent (monotonic write guard)
 	broadcast Broadcaster
 }
 
@@ -41,26 +45,68 @@ func New(q *gen.Queries, rdb *redis.Client, ev *events.Service, c clock.Clock) *
 // SetBroadcaster wires the WS hub (M6). Called once at startup after construction.
 func (s *Service) SetBroadcaster(b Broadcaster) { s.broadcast = b }
 
-// Recompute rebuilds standings from the DB and writes the live cache, then
-// broadcasts the public snapshot (frozen data during a freeze so WS consumers,
-// who have no per-connection auth, never see live standings). The compute+write
-// is serialized by a per-process mutex; the broadcast runs after the lock is
-// released (Current may take the lock via the freeze path).
-func (s *Service) Recompute(ctx context.Context) error {
-	s.mu.Lock()
-	snap, err := compute(ctx, s.q, s.clock())
+// Recompute rebuilds standings from the DB and writes the live cache for the SOLVE
+// path (a correct submission). compute() runs OUTSIDE the mutex — it is the slow part
+// (two DB reads), and holding s.mu across it serialized every recompute behind one
+// in-flight compute, so under load (100+ concurrent solves) recomputes queued on the
+// mutex faster than they drained and the served board lagged the log by the queue-drain
+// time, a window the soak caught crossing its 600ms re-read.
+//
+// With compute() outside the lock, recomputes can finish out of order, so the write is
+// guarded on the valid-solve-row COUNT (a data-derived version, not wall time): the
+// solve log is append-only, so a board built from more rows is strictly newer, and a
+// slow older recompute that finishes late is dropped rather than clobbering it. Keying
+// the guard on a timestamp or entry-sequence would NOT be safe — the gap between
+// reading the clock and Postgres taking the ListValidSolves snapshot lets a later-
+// stamped recompute read fewer rows, so time does not order the data.
+func (s *Service) Recompute(ctx context.Context) error { return s.recompute(ctx, false, true) }
+
+// RecomputeForce is ONLY for admin actions that legitimately SHRINK the log — hiding or
+// deleting a challenge drops its solves, a lower count the count guard would otherwise
+// reject as stale. It runs in two steps: an unconditional write that lands the shrink and
+// resets the guard baseline, then an immediately following GUARDED recompute. The force
+// bypasses the guard, so it can clobber a solve that landed during its compute; the
+// guarded re-run reads the current count and picks that solve straight back up, bounding
+// the miss to one compute rather than "until the next solve" — production has no periodic
+// recompute (the 15s ticker recomputes only on a phase change), so the next solve is not
+// guaranteed to follow. Everything else (the solve path, the ticker, startup) stays
+// guarded: a guarded recompute never clobbers a newer board.
+//
+// The force write suppresses its broadcast so WS clients don't briefly see a concurrent
+// solve blink out; the guarded re-run broadcasts the settled board.
+func (s *Service) RecomputeForce(ctx context.Context) error {
+	if err := s.recompute(ctx, true, false); err != nil {
+		return err
+	}
+	return s.recompute(ctx, false, true)
+}
+
+func (s *Service) recompute(ctx context.Context, force, broadcast bool) error {
+	snap, count, err := compute(ctx, s.q, s.clock())
 	if err != nil {
-		s.mu.Unlock()
 		return err
 	}
 	snap.Frozen = s.frozen(ctx)
+
+	if hook := afterComputeHook; hook != nil {
+		hook() // test seam: sequence concurrent recomputes between the read and the write
+	}
+
+	s.mu.Lock()
+	if !force && count < s.lastCount {
+		s.mu.Unlock() // an already-published board reflects more solves; don't regress it
+		return nil
+	}
 	werr := s.write(ctx, keyCurrent, snap)
+	if werr == nil {
+		s.lastCount = count
+	}
 	s.mu.Unlock()
 	if werr != nil {
 		return werr
 	}
 
-	if s.broadcast != nil {
+	if broadcast && s.broadcast != nil {
 		pub, perr := s.Current(ctx, false)
 		if perr != nil {
 			return perr
@@ -69,6 +115,11 @@ func (s *Service) Recompute(ctx context.Context) error {
 	}
 	return nil
 }
+
+// afterComputeHook, when set by a test, runs in recompute() after compute() has read
+// the DB and before the guarded write — the seam that makes the out-of-order
+// concurrent-recompute race deterministic. It is nil in production.
+var afterComputeHook func()
 
 // Current returns the standings snapshot for a caller. Non-admins during a freeze
 // get the frozen snapshot; admins always get live data (with frozen=true so their
@@ -104,8 +155,9 @@ func (s *Service) Current(ctx context.Context, isAdmin bool) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if !ok {
-		// Cache miss: compute, store, return.
-		snap, err = compute(ctx, s.q, s.clock())
+		// Cache miss: compute, store, return. keyCurrent never expires, so this only
+		// runs before the first Recompute — it does not race the count guard.
+		snap, _, err = compute(ctx, s.q, s.clock())
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -147,7 +199,7 @@ func (s *Service) MaybeSnapshotFreeze(ctx context.Context) error {
 	if exists > 0 {
 		return nil
 	}
-	snap, err := compute(ctx, s.q, s.clock())
+	snap, _, err := compute(ctx, s.q, s.clock())
 	if err != nil {
 		return err
 	}

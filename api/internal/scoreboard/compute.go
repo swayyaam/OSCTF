@@ -44,15 +44,20 @@ type scoreStore interface {
 	ListValidSolves(ctx context.Context) ([]gen.ListValidSolvesRow, error)
 }
 
-// compute runs the one true standings algorithm against the current DB state.
-func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, error) {
+// compute runs the one true standings algorithm against the current DB state. It also
+// returns the number of valid-solve rows it read — a data-derived version the caller
+// uses as a monotonic write guard: the solve log is append-only, so a board built from
+// more rows is strictly newer, and an older recompute that finishes late can be dropped
+// rather than clobbering it. (Admin actions that shrink the log — a hidden or deleted
+// challenge — go through RecomputeForce, which bypasses the guard.)
+func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, int, error) {
 	teamRows, err := q.ListScoreboardTeams(ctx)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("scoreboard: listing teams: %w", err)
+		return Snapshot{}, 0, fmt.Errorf("scoreboard: listing teams: %w", err)
 	}
 	solveRows, err := q.ListValidSolves(ctx)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("scoreboard: listing solves: %w", err)
+		return Snapshot{}, 0, fmt.Errorf("scoreboard: listing solves: %w", err)
 	}
 
 	// Step 2: solve count per challenge, counting non-banned teams only.
@@ -154,5 +159,5 @@ func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, error)
 	return Snapshot{
 		GeneratedAt: now,
 		Standings:   standings,
-	}, nil
+	}, len(solveRows), nil
 }

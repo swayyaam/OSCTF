@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -17,6 +18,17 @@ import (
 	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/plugin/pluginpb"
 )
+
+// openFDCount returns the number of open file descriptors for this process (Linux, via
+// /proc/self/fd) or -1 where that is unavailable (macOS dev), so the fd-leak assertion runs on
+// the Linux CI runner and is skipped elsewhere.
+func openFDCount() int {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return -1
+	}
+	return len(entries)
+}
 
 // goPluginBackgroundGoroutines are grpc/go-plugin's long-lived in-process goroutines that
 // persist across dials; they are not per-instance leaks. Same set the plugintest residue guard
@@ -357,6 +369,60 @@ func TestReloadConcurrentConvergesToOneInstance(t *testing.T) {
 	cancel()
 	<-s.done
 	waitProcessDead(t, cur, 3*time.Second)
+}
+
+// loadServeStop runs one full lifecycle — launch a real goodscore, serve a call, then stop —
+// and returns the pid, asserting the process is reaped and the plugin ends `stopped`. The unit
+// the residue guard repeats to prove nothing accumulates per cycle.
+func loadServeStop(t *testing.T, bin string) int {
+	t.Helper()
+	l := newLoader()
+	l.track("goodscore")
+	launch := realLaunch(launchSpec{bin: bin, key: KeyScoring, startTimeout: 10 * time.Second, pollInterval: 50 * time.Millisecond})
+	s := newSupervisor(l, "goodscore", launch, superConfig{sleep: instantSleep, now: clock.System()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.start(ctx)
+	waitForState(t, s, StateReady, 15*time.Second)
+	pid := s.currentPID()
+	if err := value(t, l, "goodscore"); err != nil {
+		cancel()
+		t.Fatalf("serve: %v", err)
+	}
+
+	cancel()
+	<-s.done
+	if st := s.state(); st != StateStopped {
+		t.Errorf("state after stop = %s; want stopped", st)
+	}
+	waitProcessDead(t, pid, 3*time.Second) // child killed AND reaped — no zombie
+	return pid
+}
+
+// Invariant #7 (full-stop cleanup): no goroutine, socket, or child outlives a stopped plugin.
+// goleak (deferred, after the last stop) proves the actor + watcher + gRPC-client goroutines
+// are gone; the per-cycle reap proves no child/zombie; the fd count across repeated cycles
+// proves no socket/pipe accumulates (the residue guard, extended to plugins). A warmup cycle
+// establishes gRPC's shared background before the baseline so it is not counted as growth.
+func TestFullStopReclaimsGoroutinesFDsAndChild(t *testing.T) {
+	defer goleak.VerifyNone(t, goPluginBackgroundGoroutines()...)
+
+	bin := buildDouble(t, "goodscore")
+
+	loadServeStop(t, bin) // warmup: establish gRPC's shared background goroutines/fds
+	baseline := openFDCount()
+
+	const cycles = 3
+	for i := 0; i < cycles; i++ {
+		loadServeStop(t, bin)
+	}
+	after := openFDCount()
+
+	// -1 means non-Linux (no /proc); the fd assertion only runs where the count is available.
+	if baseline >= 0 && after > baseline+4 {
+		t.Errorf("open fds grew across %d load→serve→stop cycles: baseline=%d after=%d — a socket/pipe leaked per stop",
+			cycles, baseline, after)
+	}
 }
 
 // fakeClock is a hand-advanced clock, used to make a plugin's "ready duration" exact without

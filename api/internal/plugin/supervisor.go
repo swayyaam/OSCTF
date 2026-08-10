@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -390,6 +391,12 @@ func (s *supervisor) teardown(c *conn) {
 	s.l.plugins[s.name].client = nil
 	s.l.mu.Unlock()
 	s.curPID.Store(0)
+	// Remove the pidfile so the next boot's sweep does not consider this cleanly-stopped
+	// instance an orphan. An UNclean stop (host crash) skips this, leaving the pidfile for the
+	// sweep — which is the whole point.
+	if c.pidfilePath != "" {
+		_ = os.Remove(c.pidfilePath)
+	}
 }
 
 // state reads the plugin's current state under the loader lock.

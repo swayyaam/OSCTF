@@ -2,7 +2,9 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	hclog "github.com/hashicorp/go-hclog"
@@ -14,10 +16,12 @@ import (
 // process) and wait (block until the process exits). It is created by a launchFn and is the
 // only handle to the child; the supervisor is the sole owner and closes it via kill.
 type conn struct {
-	client any                       // dispensed client (pluginpb.ScoringClient, …); read by dispatch
-	kill   func()                    // reap the process (idempotent; go-plugin's Client.Kill)
-	wait   func(ctx context.Context) // blocks until the process has exited or ctx is done
-	pid    int                       // OS pid of the plugin process (0 for a fake launcher)
+	client      any                       // dispensed client (pluginpb.ScoringClient, …); read by dispatch
+	kill        func()                    // reap the process (idempotent; go-plugin's Client.Kill)
+	wait        func(ctx context.Context) // blocks until the process has exited or ctx is done
+	pid         int                       // OS pid of the plugin process (0 for a fake launcher)
+	token       string                    // start-token carried in the process argv (for the boot sweep)
+	pidfilePath string                    // pidfile written for this launch ("" if none); removed on clean stop
 }
 
 // launchFn launches the plugin process and returns a live conn, or an error if the process
@@ -60,6 +64,18 @@ type launchSpec struct {
 	key          string
 	startTimeout time.Duration
 	pollInterval time.Duration
+
+	// Boot-sweep identity. token is carried into the plugin's argv so the sweep can positively
+	// identify the child; when pidfileDir is set, a {pid, token} pidfile named after `name` is
+	// written after launch and removed on clean stop.
+	token      string
+	pidfileDir string
+	name       string
+
+	// noPdeathsig forces the macOS process attributes (Setpgid only, no kernel parent-death)
+	// even on Linux, so the orphan-sweep test can reproduce the developer-path orphan window on
+	// the Linux CI runner. Production leaves this false (Pdeathsig on Linux).
+	noPdeathsig bool
 }
 
 // realLaunch returns a launchFn that starts the plugin as a real subprocess over the OSCTF
@@ -67,12 +83,20 @@ type launchSpec struct {
 // parent-death (Linux) + a process group; go-plugin sets neither on its own.
 func realLaunch(spec launchSpec) launchFn {
 	return func(context.Context) (*conn, error) {
+		args := spec.args
+		if spec.token != "" {
+			args = append(append([]string(nil), args...), tokenArg(spec.token))
+		}
 		// context.Background, not the launch ctx: go-plugin owns the process lifecycle and reaps
 		// it via Client.Kill (the supervisor's conn.kill), so the process must NOT also be tied to
 		// an exec context that could SIGKILL it from under go-plugin. Same pattern as the harness.
 		//nolint:gosec // G204: launches a configured plugin binary (path from the validated manifest).
-		cmd := exec.CommandContext(context.Background(), spec.bin, spec.args...)
-		cmd.SysProcAttr = procAttr()
+		cmd := exec.CommandContext(context.Background(), spec.bin, args...)
+		if spec.noPdeathsig {
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // simulate the macOS path (no parent-death)
+		} else {
+			cmd.SysProcAttr = procAttr()
+		}
 
 		st := spec.startTimeout
 		if st <= 0 {
@@ -106,10 +130,21 @@ func realLaunch(spec launchSpec) launchFn {
 		if cmd.Process != nil {
 			pid = cmd.Process.Pid
 		}
+		pidfilePath := ""
+		if spec.pidfileDir != "" {
+			p, werr := writePidfile(spec.pidfileDir, spec.name, pid, spec.token)
+			if werr != nil {
+				client.Kill()
+				return nil, fmt.Errorf("write pidfile: %w", werr)
+			}
+			pidfilePath = p
+		}
 		return &conn{
-			client: raw,
-			kill:   client.Kill,
-			pid:    pid,
+			client:      raw,
+			kill:        client.Kill,
+			pid:         pid,
+			token:       spec.token,
+			pidfilePath: pidfilePath,
 			// go-plugin v1.8.0 exposes no exit channel — only Exited() — so the watcher polls.
 			// The poll interval is the crash-detection gap: a dispatch in that window hits a
 			// dead client and gets a mapped UNAVAILABLE (invariant #4's crash-gap facet), never

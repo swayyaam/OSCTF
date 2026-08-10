@@ -1,12 +1,15 @@
 package plugin
 
 import (
+	"bufio"
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -40,16 +43,6 @@ func goPluginBackgroundGoroutines() []goleak.Option {
 	}
 }
 
-// processAlive reports whether an OS process exists (signal 0 probes without delivering). A
-// reaped child returns ESRCH; EPERM means it exists but isn't ours (treated as alive).
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
 // waitProcessDead polls until pid is reaped or the deadline passes.
 func waitProcessDead(t *testing.T, pid int, within time.Duration) {
 	t.Helper()
@@ -74,6 +67,190 @@ func recordingLaunch(base launchFn, pids *[]int, mu *sync.Mutex) launchFn {
 			mu.Unlock()
 		}
 		return c, err
+	}
+}
+
+// TestMain doubles as the "orphan host" for the boot-sweep test: when OSCTF_ORPHAN_HOST is set,
+// this test binary re-execs itself as a minimal plugin host (launch a plugin, write its pidfile,
+// block) so the parent can SIGKILL it and observe the child orphaned. The self-exec pattern
+// keeps the host inside package plugin, with access to realLaunch/writePidfile, and needs no
+// separate binary. Otherwise it just runs the tests.
+func TestMain(m *testing.M) {
+	if os.Getenv("OSCTF_ORPHAN_HOST") == "1" {
+		runOrphanHost() // blocks forever; the parent SIGKILLs us
+		return
+	}
+	os.Exit(m.Run())
+}
+
+// runOrphanHost launches a plugin the way the loader does but with parent-death DISABLED
+// (noPdeathsig — the macOS path, forced here even on Linux), writes its pidfile, prints
+// "READY <pid>", and blocks. When the parent hard-kills this process, the plugin child is
+// orphaned exactly as it would be if the platform crashed on macOS/Docker-Desktop.
+func runOrphanHost() {
+	launch := realLaunch(launchSpec{
+		bin:          os.Getenv("OSCTF_ORPHAN_PLUGIN_BIN"),
+		key:          KeyScoring,
+		name:         "goodscore",
+		token:        os.Getenv("OSCTF_ORPHAN_TOKEN"),
+		pidfileDir:   os.Getenv("OSCTF_ORPHAN_PIDDIR"),
+		noPdeathsig:  true,
+		startTimeout: 15 * time.Second,
+		pollInterval: time.Second,
+	})
+	c, err := launch(context.Background())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "orphan-host launch:", err)
+		os.Exit(2)
+	}
+	// Stdout (not slog) because the parent reads this exact line from our stdout pipe.
+	fmt.Fprintf(os.Stdout, "READY %d\n", c.pid)
+	select {} // block until SIGKILLed by the parent
+}
+
+// containsInt reports whether v is in s.
+func containsInt(s []int, v int) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// readLineWithin reads one newline-terminated line from r, failing if none arrives in time.
+func readLineWithin(t *testing.T, r *bufio.Reader, within time.Duration) string {
+	t.Helper()
+	type res struct {
+		s   string
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { s, err := r.ReadString('\n'); ch <- res{s, err} }()
+	select {
+	case rr := <-ch:
+		if rr.err != nil {
+			t.Fatalf("reading orphan-host output: %v", rr.err)
+		}
+		return strings.TrimSpace(rr.s)
+	case <-time.After(within):
+		t.Fatalf("timed out after %s waiting for the orphan host's READY line", within)
+		return ""
+	}
+}
+
+// Invariant #1 (boot orphan-sweep as the SOLE mechanism on the no-parent-death path): with
+// Pdeathsig disabled (the macOS/Docker-Desktop reality), a hard host crash leaves the plugin
+// child ALIVE — nothing in go-plugin reaps it — and only the next boot's pidfile sweep reclaims
+// it. This is the dev-path truth, tested end to end with a real orphaned goodscore.
+func TestBootSweepReclaimsOrphanedChild(t *testing.T) {
+	bin := buildDouble(t, "goodscore")
+	dir := t.TempDir()
+	token, err := newStartToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:gosec // G204: re-execs THIS test binary as the orphan host (see TestMain).
+	host := exec.Command(os.Args[0])
+	host.Env = append(os.Environ(),
+		"OSCTF_ORPHAN_HOST=1",
+		"OSCTF_ORPHAN_PLUGIN_BIN="+bin,
+		"OSCTF_ORPHAN_PIDDIR="+dir,
+		"OSCTF_ORPHAN_TOKEN="+token,
+	)
+	host.Stderr = os.Stderr
+	stdout, err := host.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	line := readLineWithin(t, bufio.NewReader(stdout), 30*time.Second) // includes the plugin launch
+	fields := strings.Fields(line)
+	if len(fields) != 2 || fields[0] != "READY" {
+		t.Fatalf("orphan host said %q; want \"READY <pid>\"", line)
+	}
+	pluginPid, err := strconv.Atoi(fields[1])
+	if err != nil {
+		t.Fatalf("bad pid in %q: %v", line, err)
+	}
+
+	// Belt-and-braces cleanup: never leak the host or the child if an assertion fails.
+	t.Cleanup(func() {
+		_ = host.Process.Kill()
+		_, _ = host.Process.Wait()
+		if processAlive(pluginPid) {
+			_ = syscall.Kill(pluginPid, syscall.SIGKILL)
+		}
+	})
+
+	if !processAlive(pluginPid) {
+		t.Fatalf("plugin %d not alive after host READY", pluginPid)
+	}
+
+	// Hard-crash the host: SIGKILL, no graceful teardown runs.
+	if err := host.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = host.Process.Wait() // reap the host
+
+	// THE CRUX: with no parent-death, the child OUTLIVES its host. If this fails, either
+	// go-plugin grew parent-death or the platform did — and the sweep would be redundant, not
+	// load-bearing. It is load-bearing.
+	time.Sleep(500 * time.Millisecond)
+	if !processAlive(pluginPid) {
+		t.Fatalf("plugin child %d died with its host — expected an orphan (no parent-death on this path)", pluginPid)
+	}
+
+	// The next boot's sweep is the ONLY thing that reclaims it.
+	reclaimed, err := sweepOrphans(dir, nil)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if !containsInt(reclaimed, pluginPid) {
+		t.Errorf("sweep did not reclaim orphan %d (reclaimed=%v)", pluginPid, reclaimed)
+	}
+	waitProcessDead(t, pluginPid, 3*time.Second)
+	if _, statErr := os.Stat(filepath.Join(dir, "goodscore.pid")); !os.IsNotExist(statErr) {
+		t.Errorf("pidfile not removed after reclaim: %v", statErr)
+	}
+}
+
+// Invariant #1 (safety): the sweep kills ONLY a positively-identified child. A pidfile pointing
+// at a live pid whose command line does NOT carry the token — a pid recycled by an unrelated
+// process — must be refused, never killed. This is what makes token matching load-bearing
+// rather than a blind kill-by-pid.
+func TestBootSweepRefusesReusedPid(t *testing.T) {
+	dir := t.TempDir()
+
+	// A live, unrelated process with no OSCTF token in its command line.
+	//nolint:gosec // G204: fixed command, test-controlled.
+	victim := exec.Command("sleep", "30")
+	if err := victim.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = victim.Process.Kill(); _, _ = victim.Process.Wait() })
+	pid := victim.Process.Pid
+
+	if _, err := writePidfile(dir, "ghost", pid, "osctf-token-that-is-not-in-sleep-argv"); err != nil {
+		t.Fatal(err)
+	}
+
+	reclaimed, err := sweepOrphans(dir, nil)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if containsInt(reclaimed, pid) {
+		t.Errorf("sweep killed reused pid %d despite the token mismatch", pid)
+	}
+	if !processAlive(pid) {
+		t.Errorf("sweep killed the unrelated process %d — a token mismatch must be refused", pid)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "ghost.pid")); !os.IsNotExist(statErr) {
+		t.Errorf("stale pidfile not cleared")
 	}
 }
 

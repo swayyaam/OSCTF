@@ -15,11 +15,12 @@ import "testing"
 //
 // Pinned NOW lives in doubles_test.go (transport + subprocess doubles). Inv 12 (reader-atomic
 // registry swap) is already pinned by P1's registry contention tests. Inv 2 (non-ready never
-// serves) is pinned by state_test.go + routing_test.go; Inv 4 (crash-loop cap/quarantine, the
-// crash-detection gap, and the sustained-health reset), Inv 5 (reload idempotent — process
-// replaced, old reaped, one entry, no leak, converges under concurrency), and Inv 7 (full-stop
-// cleanup — goleak + reap + fd count over load→serve→stop) by supervisor_test.go — all in the
-// plugin package (P3-c).
+// serves) is pinned by state_test.go + routing_test.go; and the rest of P3-c by
+// supervisor_test.go — Inv 4 (crash-loop cap/quarantine, the crash-detection gap, the
+// sustained-health reset), Inv 5 (reload idempotent — process replaced, old reaped, one entry,
+// no leak, converges under concurrency), Inv 7 (full-stop cleanup — goleak + reap + fd count
+// over load→serve→stop), and Inv 1 (boot orphan-sweep — a Pdeathsig-disabled child survives a
+// host SIGKILL and only the sweep reclaims it, refusing a reused pid). P3-c is complete.
 
 type pendingInvariant struct {
 	id     string // spec invariant number + short name
@@ -34,11 +35,12 @@ var knownPhases = map[string]bool{"P3-c": true, "P3-d": true, "P3-e": true}
 // to become a real passing test and be DELETED from pendingInvariants. This IS P3-c's exit
 // gate: flip "P3-c" on, migrate every P3-c entry to a real test + remove it, green again.
 var completedPhases = map[string]bool{
-	// "P3-c": true,
+	"P3-c": true, // loader lifecycle landed: state machine + routing (#2), crash-loop
+	// quarantine (#4), reload (#5), full-stop cleanup (#7), boot orphan-sweep (#1) — all pinned
+	// by real tests in the plugin package; no P3-c entry may remain below.
 }
 
 var pendingInvariants = []pendingInvariant{
-	{"1 boot orphan-sweep", "P3-c", "needs the loader's boot reconciliation (pidfile sweep); graceful-reap half is pinned now"},
 	{"3 registry-never-holds-stopped", "P3-e", "needs loader stop AND registry wiring (revert-before-death)"},
 	{"8 challenge-type attempt untouched", "P3-e", "needs challenge-type registry + submissions tx"},
 	{"9 scoreboard recomputable", "P3-e", "needs scoring wiring + scoreboard (fallback off/on)"},

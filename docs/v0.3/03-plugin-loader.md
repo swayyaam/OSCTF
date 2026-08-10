@@ -155,6 +155,15 @@ Legal transitions (anything not listed is a bug the tests reject):
 State is exposed at `GET /api/v1/admin/plugins` and as an `osctf_plugin_state{name,state}`
 gauge, so the current state and the last transition are always observable.
 
+**The crash-detection gap.** A process dies asynchronously; the crash-watcher's `procExited`
+event, which drives the `ready → unhealthy/restarting` transition and the deregistration,
+arrives *after* the process is already gone. In that window a `dispatch` can still see
+`ready` and route a call to the dead client. This is safe **by isolation, not by luck**: the
+call hits a broken gRPC connection and returns **`UNAVAILABLE`** (mapped to `502`), and the
+per-call deadline is a second bound — never a host panic, never a hang. The caller gets a
+clean mapped error and re-initiates; the supervisor then deregisters. Pinned directly with
+the `crashafter` double (call *during* the gap → assert a mapped error and a host still up).
+
 ### In-flight calls when a plugin dies or reloads — per type
 
 The acceptable answer differs by plugin type, because their correctness requirements differ.
@@ -218,14 +227,36 @@ process and one registry entry, never a duplicate registration or a leaked old p
 - **Cap:** after **5** consecutive failed attempts the plugin goes `failed` and **stops
   retrying** — quarantined, never retried forever, never thrashing. Configurable via
   `OSCTF_PLUGIN_RESTART_CAP`; the 30 s ceiling only binds if the cap is raised past ~8.
+- **The counter resets only after *sustained* health, not on merely reaching `ready`.** A
+  plugin that reaches `ready`, then crashes 10 s later, then relaunches to `ready`, then
+  crashes again — forever — would *never* quarantine if the counter reset on every `ready`,
+  yet it is exactly the slow crash-loop nobody notices because the plugin *appears* to work.
+  So the consecutive-failure counter is reset **only after the plugin has been continuously
+  `ready` for `OSCTF_PLUGIN_HEALTH_STABLE` (default 60 s)** — a stability timer armed on
+  entering `ready` and cancelled by any exit before it fires. A plugin that crashes on a
+  fixed interval shorter than that window accumulates failures across restarts and reaches
+  `failed` in bounded time; one stable for ≥ 60 s is treated as recovered. Pinned by the
+  crash-interval invariant below.
 - **Total wall-clock an operator experiences, first crash → quarantine:** the ~3 s of
   cumulative backoff **plus** the time to detect each of the 5 failures. A launch/handshake
   crash is detected in milliseconds, so a launch-crash loop quarantines in **~3–5 s**; a
   plugin that serves for `T` seconds before crashing each time takes ~`5·T` longer (it runs,
   then dies, five times). Either way it reaches a stable `failed` in bounded time — seconds
   for a fast crash, not minutes and never forever.
-- **On quarantine**, the registry slot falls back to the built-in default where one exists
-  (scoring/challenge-type) or returns a clear error on use (auth, which has no fallback).
+- **On quarantine (and on any exit from `ready`), the registry entry is handled per type —
+  fail-closed by default, never a silent revert to a built-in scorer/checker**, because
+  scoring and challenge-type were decided fail-closed (silently re-scoring under `static` or
+  re-checking with a built-in is the behaviour we rejected):
+
+  | Type | Registry action on leaving `ready` | A new call then… |
+  |---|---|---|
+  | **auth** | entry **removed** | that provider errors clearly; other providers (incl. built-in `email`) unaffected |
+  | **scoring** | entry **removed** (fail closed) — *unless* `OSCTF_PLUGIN_SCORING_FALLBACK=true`, then reverted to `static` **with a `scored_by=fallback` marker** | submission errors (default), or is scored `static` and marked (opt-in) |
+  | **challenge-type** | entry **removed** (fail closed) | `CheckFlag` errors, tx rolls back, **attempt not consumed** — never accept-anything, never reject-anything |
+  | **notification** | subscription **removed** | event dropped, **counted + logged** (fails open, but observable) |
+
+  Only scoring's explicit opt-in reverts to a built-in; every other case removes the entry
+  so the call fails closed. "Revert to built-in" is **not** the default for any type.
 - **Operator visibility:** `GET /api/v1/admin/plugins` shows `state=failed` with the
   restart count, last error, and last-attempt time; `osctf_plugin_errors_total` and the
   `osctf_plugin_state` gauge reflect it; a loud `WARN` names the plugin. The **only** way
@@ -248,20 +279,32 @@ swept it* — so ownership is explicit. **When a plugin leaves `draining`/`faile
 5. **the child process** — killed (`go-plugin.Kill`) and **reaped** (`wait`), so no zombie.
 
 **If the core crashes first** (a hard `SIGKILL`, where graceful teardown never runs) a
-plugin child can be orphaned. Two mechanisms, named:
+plugin child can be orphaned. **go-plugin (v1.8.0) provides no parent-death of its own** —
+verified in its source: no `prctl`/`Pdeathsig`, no process group, and the plugin's
+`plugin.Serve` loop watches neither stdin nor the RPC connection, so a child does **not**
+self-exit when the host dies. The host reaps the child on a graceful `Kill`; on a host
+*crash* nothing in go-plugin reclaims it. So the loader sets it up itself:
 
-- **Primary — go-plugin parent-death detection.** The plugin's `plugin.Serve` watches the
-  RPC connection to the host and exits when it closes; a `SIGKILL`ed host drops that
-  connection, so a well-behaved plugin self-terminates. This is the common case and needs
-  no extra machinery.
+- **Kernel parent-death (Linux) — `SysProcAttr.Pdeathsig = SIGKILL`.** The loader sets it on
+  the `exec.Cmd` it hands go-plugin, so the kernel `SIGKILL`s the child the moment the host
+  process dies. Reliable, needs no plugin cooperation — the **primary on the Linux deploy
+  target.**
+- **Process group — `SysProcAttr.Setpgid = true`** on every platform, so an external
+  supervisor (systemd/compose) can kill the whole group as a second line.
 - **Backstop — pidfile + boot-time orphan sweep.** Each launch writes a per-plugin
-  **pidfile** (`$OSCTF_RUNTIME_DIR/plugins/<name>.pid`) recording the child PID and a start
-  token. On the next `serve` boot, before relaunching, the loader reads any stale pidfiles
-  and kills a surviving process whose start token doesn't match a live child — a **boot
-  reconciliation** that reclaims what a dead core left behind. This is the direct analogue
-  of the stale-instance reaper that fixed the port leak: don't trust graceful teardown to
-  have run; sweep orphaned resources on boot. (Plugins are also launched in their own
-  process group so a supervisor — systemd/compose — can kill the group as a third line.)
+  **pidfile** (`$OSCTF_RUNTIME_DIR/plugins/<name>.pid`) recording `{pid, start-token}`, and
+  the child is launched with that token in its argv. On the next `serve` boot, before
+  relaunching, the loader reads any stale pidfile, checks the PID is alive, and kills it
+  **only if that PID's current command line still carries our token** — positive
+  identification, so a recycled PID (a different process) is never killed; on any ambiguity
+  (dead PID, unreadable cmdline, no token) it refuses and logs. This is the stale-instance
+  reaper's discipline: reconcile on boot, and only act on what you can positively identify.
+
+- **Platform gap (stated, not assumed away):** `Pdeathsig` is Linux-only. On **macOS /
+  Docker Desktop (the developer path)** there is no kernel parent-death, so a hard host
+  crash leaves an orphaned child until the **next boot sweep** reclaims it — the sweep is
+  **load-bearing there, not a rare backstop**. Noted here beside the no-sandbox isolation
+  caveat so the dev-path window is a known limitation, not a surprise.
 
 ### Resource budget — a plugin can't push the core past its own limits
 
@@ -297,8 +340,10 @@ green.
 | **A plugin in any non-`ready` state never serves a request.** Routing dispatches only to `ready`; every other state gets the per-type fallback-or-error, never a call to the process. | State-machine table test + a routing test that drives each state and asserts no call reaches a non-`ready` process. |
 | **A registry never holds an entry for a stopped plugin.** Stop reverts/removes the entry atomically before the process dies; a lookup after stop yields the built-in or "not found". | Stop-then-lookup test; removing all plugins leaves a registry byte-identical to v0.2. |
 | **A crash-looping plugin cannot exhaust process or fd limits.** The cap + quarantine bound total children/sockets; a launch-crash plugin reaches `failed` in ≤ 5 attempts and stops spawning. | A crash-on-launch double; assert ≤ 5 processes/sockets ever created and a terminal `failed`. |
+| **A plugin that crashes on a fixed interval indefinitely eventually quarantines.** The consecutive-failure counter resets only after `OSCTF_PLUGIN_HEALTH_STABLE` of continuous `ready`, so a slow crash-loop (reach `ready`, crash before the stability window, repeat) still accumulates to `failed` — the "appears to work" crash-loop is not immortal. | A double that serves then crashes on a fixed interval shorter than the stability window (injected clock); assert it reaches `failed` after the cap rather than resetting forever. |
 | **Reload is idempotent.** Reloading a healthy plugin twice yields one live process and one registry entry — no duplicate registration, no leaked old process. | Reload ×2; assert one PID + one registry entry + no goroutine/socket growth. |
 | **The core never blocks indefinitely on a hung plugin call.** Every host→plugin call is deadline-bounded; a plugin that never returns yields `DEADLINE_EXCEEDED` within the per-call timeout and the host stays responsive. | A hung-plugin double; assert the call returns within the deadline and other requests are unaffected. |
+| **A call in the crash-detection gap fails cleanly.** A call routed to a plugin that just died (before `procExited` deregisters it) returns a mapped `UNAVAILABLE`/`502`, never a host panic or a hang. | The `crashafter` double: call during the gap and assert the caller gets a mapped error and the host stays up. |
 | **No goroutine, socket, or child outlives a `stopped` plugin.** The per-plugin context cancels all of them on stop. | `goleak` + an fd/PID count around a load→serve→stop cycle (the residue guard, extended to plugins). |
 | **A challenge-type plugin outage never consumes a player's attempt.** A failed `CheckFlag` rolls back with no solve *and* no `max_attempts` decrement. | Fail a `regex-flag` plugin mid-`CheckFlag`; assert the submission errors, no solve is recorded, **and** the team's attempt count is unchanged. |
 | **The served scoreboard is always recomputable from the submission log** — whether the scoring fallback is off (default) or on. If it fired, the submission carries a `scored_by=fallback` marker so recompute is exact. | With the fallback off and on, force a scoring-plugin failure, then recompute the board from the log and assert it equals the served board (the v0.2 soak invariant, extended to the plugin path). |

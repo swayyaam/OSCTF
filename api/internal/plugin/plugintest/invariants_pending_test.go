@@ -1,50 +1,61 @@
 package plugintest_test
 
-// Invariant coverage map — which of the 12 loader invariants (docs/v0.3/03-plugin-loader.md,
-// "Invariants the tests pin") are pinned NOW vs. blocked on a later sub-step, and WHY. Written
-// from the spec before the loader exists, so the loader is built to satisfy these, not the
-// tests shaped to match whatever the loader turns out to do. The blocked ones cannot yet be
-// written even as a failing test: the assertion would call a loader API (Load/state/route/
-// reload/stop/boot-sweep) or a domain path that does not exist, so the test would not compile
-// — sketching that API now is exactly the implementation-shaping this ordering avoids.
+import "testing"
+
+// Pending-invariant MANIFEST — the spec invariants (docs/v0.3/03-plugin-loader.md, "Invariants
+// the tests pin") not yet pinned by a real test, each tagged with the sub-step that unblocks
+// it. Written from the spec before the loader exists, so the loader is built to satisfy these
+// (P3-c's framing: make them pass one at a time), not the tests shaped to match it.
 //
-// PINNED NOW (doubles_test.go — P3-a transport + real subprocess doubles):
-//   - The core never blocks indefinitely on a hung call: the host-side deadline fires (hung +
-//     slow doubles). [partial — the semaphore/load-shed half is P3-d]
-//   - ABI-major mismatch refused pre-call (wrongabi).
-//   - A crash-on-launch plugin never serves (crashlaunch); a mid-call crash errors (crashafter).
-//   - A malformed/error response surfaces as a mapped gRPC error, not a silent wrong value.
-//   - Kill reaps the child, including a plugin that ignores SIGTERM — no leaked process.
-//   - No goroutine outlives a dial->Kill cycle (residue guard, transport scope).
+// THIS IS A MANIFEST, NOT COVERAGE. The entries below are DATA, not tests — nothing here
+// exercises an invariant, and nothing counts them as tests that ran. The only test in this
+// file is the self-emptying guard, which is a real, passing test WHILE entries are legitimately
+// pending and FAILS the moment a landed phase still lists an unimplemented invariant. That is
+// the forcing function: a "what isn't tested yet" list is only useful while something shrinks it.
 //
-// ALREADY PINNED (P1):
-//   - Inv 12 "a registry swap is atomic from a reader's perspective" — the auth/scoring/
-//     challenge-type registries already carry reader-atomic contention tests under -race
-//     (internal/{auth,scoring,challenges}). P3-e's plugin registration reuses those registries;
-//     P3-e adds a plugin-driven contention case.
-//
-// BLOCKED ON P3-c (the loader) — no loader API to compile against yet:
-//   - Inv 1  orphan reclamation: the graceful-reap half is pinned now; the pidfile BOOT-SWEEP
-//            backstop needs the loader's boot reconciliation. Double: any (SIGKILL the harness).
-//   - Inv 2  "a non-ready state never serves": needs the state machine + routing.
-//   - Inv 4  crash-loop cap/quarantine: needs the restart cap (crashlaunch/crashafter -> <=5
-//            attempts -> terminal `failed`, bounded processes/sockets).
-//   - Inv 5  reload idempotent: needs reload (reload x2 -> one PID, one entry, no leak).
-//   - Inv 7  full stop cleanup: dial->Kill scope is pinned now; the load->serve->stop lifecycle
-//            with the per-plugin context (goleak + fd/PID) needs the loader.
-//
-// BLOCKED ON P3-d (failure isolation):
-//   - Inv 11 resource budget: needs the global in-flight semaphore (OSCTF_PLUGIN_MAX_INFLIGHT)
-//            — N slow-double calls beyond the cap shed 503, in-flight bounded, host responsive.
-//            Per-plugin latency as a METRIC (osctf_plugin_call_duration) is recorded on the
-//            loader's call wrapper, so "consistently slow is observable" lands there too.
-//
-// BLOCKED ON P3-e (registries + bus) — need the wired domain paths:
-//   - Inv 3  registry-never-holds-stopped (revert-before-death) — needs the loader (stop) AND
-//            the registry wiring.
-//   - Inv 8  challenge-type outage never consumes an attempt — needs the challenge-type
-//            registry + the submissions tx (fail CheckFlag; no solve, no attempt decrement).
-//   - Inv 9  scoreboard recomputable from the log (fallback off/on) — needs scoring wiring +
-//            the scoreboard (force a scoring failure; recompute == served; scored_by=fallback).
-//   - Inv 10 dropped notification observable — needs the event bus (fail/hang a subscriber;
-//            event dropped + counted + logged, originating action still commits).
+// Pinned NOW lives in doubles_test.go (transport + subprocess doubles). Inv 12 (reader-atomic
+// registry swap) is already pinned by P1's registry contention tests.
+
+type pendingInvariant struct {
+	id     string // spec invariant number + short name
+	phase  string // the sub-step that unblocks it (see knownPhases)
+	reason string // why it can't be written even as a failing test yet
+}
+
+var knownPhases = map[string]bool{"P3-c": true, "P3-d": true, "P3-e": true}
+
+// completedPhases marks the sub-steps whose loader/isolation/wiring now EXISTS. When a phase
+// lands, add it here — the guard then fails for every entry still tagged with it, forcing each
+// to become a real passing test and be DELETED from pendingInvariants. This IS P3-c's exit
+// gate: flip "P3-c" on, migrate every P3-c entry to a real test + remove it, green again.
+var completedPhases = map[string]bool{
+	// "P3-c": true,
+}
+
+var pendingInvariants = []pendingInvariant{
+	{"1 boot orphan-sweep", "P3-c", "needs the loader's boot reconciliation (pidfile sweep); graceful-reap half is pinned now"},
+	{"2 non-ready never serves", "P3-c", "needs the state machine + routing"},
+	{"4 crash-loop cap/quarantine", "P3-c", "needs the restart cap (crashlaunch/crashafter -> <=5 -> failed)"},
+	{"5 reload idempotent", "P3-c", "needs reload (x2 -> one PID, one entry, no leak)"},
+	{"7 full stop cleanup", "P3-c", "needs the per-plugin context lifecycle (goleak + fd/PID over load->serve->stop)"},
+	{"3 registry-never-holds-stopped", "P3-e", "needs loader stop AND registry wiring (revert-before-death)"},
+	{"8 challenge-type attempt untouched", "P3-e", "needs challenge-type registry + submissions tx"},
+	{"9 scoreboard recomputable", "P3-e", "needs scoring wiring + scoreboard (fallback off/on)"},
+	{"10 notification-drop observable", "P3-e", "needs the event bus"},
+	{"11 in-flight budget + latency metric", "P3-d", "needs the call wrapper + OSCTF_PLUGIN_MAX_INFLIGHT semaphore"},
+}
+
+// TestPendingInvariantsSelfEmpty forces the manifest to shrink. It also catches a typo'd phase
+// (one that could never be marked complete and so would never be forced out).
+func TestPendingInvariantsSelfEmpty(t *testing.T) {
+	for _, p := range pendingInvariants {
+		if !knownPhases[p.phase] {
+			t.Errorf("pending invariant %q has unknown phase %q — use one of P3-c/P3-d/P3-e", p.id, p.phase)
+			continue
+		}
+		if completedPhases[p.phase] {
+			t.Errorf("invariant %q is still pending but %s has LANDED — implement it as a real passing test and delete this manifest entry (%s)",
+				p.id, p.phase, p.reason)
+		}
+	}
+}

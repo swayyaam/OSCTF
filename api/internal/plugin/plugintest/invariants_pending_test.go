@@ -15,9 +15,10 @@ import "testing"
 //
 // Pinned NOW lives in doubles_test.go (transport + subprocess doubles). Inv 12 (reader-atomic
 // registry swap) is already pinned by P1's registry contention tests. Inv 2 (non-ready never
-// serves) is pinned by state_test.go + routing_test.go, and Inv 4 (crash-loop cap/quarantine,
-// the crash-detection gap, and the sustained-health reset) by supervisor_test.go — both in the
-// plugin package (P3-c).
+// serves) is pinned by state_test.go + routing_test.go; Inv 4 (crash-loop cap/quarantine, the
+// crash-detection gap, and the sustained-health reset) and Inv 5 (reload idempotent — process
+// replaced, old reaped, one entry, no leak, converges under concurrency) by supervisor_test.go
+// — all in the plugin package (P3-c).
 
 type pendingInvariant struct {
 	id     string // spec invariant number + short name
@@ -37,7 +38,6 @@ var completedPhases = map[string]bool{
 
 var pendingInvariants = []pendingInvariant{
 	{"1 boot orphan-sweep", "P3-c", "needs the loader's boot reconciliation (pidfile sweep); graceful-reap half is pinned now"},
-	{"5 reload idempotent", "P3-c", "needs reload (x2 -> one PID, one entry, no leak)"},
 	{"7 full stop cleanup", "P3-c", "needs the per-plugin context lifecycle (goleak + fd/PID over load->serve->stop)"},
 	{"3 registry-never-holds-stopped", "P3-e", "needs loader stop AND registry wiring (revert-before-death)"},
 	{"8 challenge-type attempt untouched", "P3-e", "needs challenge-type registry + submissions tx"},

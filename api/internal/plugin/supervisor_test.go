@@ -2,17 +2,68 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 
 	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/plugin/pluginpb"
 )
+
+// goPluginBackgroundGoroutines are grpc/go-plugin's long-lived in-process goroutines that
+// persist across dials; they are not per-instance leaks. Same set the plugintest residue guard
+// ignores.
+func goPluginBackgroundGoroutines() []goleak.Option {
+	return []goleak.Option{
+		goleak.IgnoreTopFunction("google.golang.org/grpc.(*ccBalancerWrapper).watcher"),
+		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/grpcsync.(*CallbackSerializer).run"),
+	}
+}
+
+// processAlive reports whether an OS process exists (signal 0 probes without delivering). A
+// reaped child returns ESRCH; EPERM means it exists but isn't ours (treated as alive).
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// waitProcessDead polls until pid is reaped or the deadline passes.
+func waitProcessDead(t *testing.T, pid int, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("process %d still alive after %s — a reloaded-away instance leaked", pid, within)
+}
+
+// recordingLaunch wraps a launchFn to record the pid of every process it spawns, so a test can
+// assert exactly one of them is alive at the end (no leaked old instance).
+func recordingLaunch(base launchFn, pids *[]int, mu *sync.Mutex) launchFn {
+	return func(ctx context.Context) (*conn, error) {
+		c, err := base(ctx)
+		if c != nil {
+			mu.Lock()
+			*pids = append(*pids, c.pid)
+			mu.Unlock()
+		}
+		return c, err
+	}
+}
 
 // buildDouble compiles a plugintest double to a temp binary WITHOUT importing the plugintest
 // package — plugintest imports THIS package, so an internal (package plugin) test importing it
@@ -144,6 +195,168 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 
 	// The host is still alive and responsive — this line executing at all proves no host panic.
 	_ = s.state()
+}
+
+// value dispatches a Value call to a scoring plugin and checks the deterministic result, so a
+// test can assert the plugin still serves after a reload.
+func value(t *testing.T, l *Loader, name string) error {
+	t.Helper()
+	return l.dispatch(name, func(client any) error {
+		r, err := client.(pluginpb.ScoringClient).Value(context.Background(),
+			&pluginpb.ScoreRequest{Initial: 500, Min: 100, Decay: 50, Solves: 3})
+		if err != nil {
+			return err
+		}
+		if got := r.GetValue(); got != 350 { // 500 - 3*50
+			t.Errorf("Value = %d after reload; want 350", got)
+		}
+		return nil
+	})
+}
+
+// Invariant #5 (reload idempotent): reloading a healthy plugin replaces its process and reaps
+// the old one — one live process, one registry entry, no leak — and the plugin keeps serving
+// across the swap. Real goodscore subprocesses; pids prove the process actually changed and the
+// old one died.
+func TestReloadReplacesProcessAndReapsOld(t *testing.T) {
+	defer goleak.VerifyNone(t, goPluginBackgroundGoroutines()...)
+
+	bin := buildDouble(t, "goodscore")
+	l := newLoader()
+	l.track("goodscore")
+	var mu sync.Mutex
+	var pids []int
+	launch := recordingLaunch(
+		realLaunch(launchSpec{bin: bin, key: KeyScoring, startTimeout: 10 * time.Second, pollInterval: 50 * time.Millisecond}),
+		&pids, &mu)
+	s := newSupervisor(l, "goodscore", launch, superConfig{sleep: instantSleep, now: clock.System()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.start(ctx)
+	waitForState(t, s, StateReady, 15*time.Second)
+
+	pid0 := s.currentPID()
+	if pid0 <= 0 {
+		t.Fatalf("no live pid after ready")
+	}
+
+	// Two reloads in a row: each must swap in a new process and reap the previous one.
+	if err := s.reload(ctx); err != nil {
+		t.Fatalf("reload 1: %v", err)
+	}
+	pid1 := s.currentPID()
+	if pid1 == pid0 {
+		t.Errorf("reload 1 did not replace the process (pid still %d)", pid0)
+	}
+	waitProcessDead(t, pid0, 3*time.Second)
+	if s.state() != StateReady {
+		t.Errorf("state after reload 1 = %s; want ready (no capability gap)", s.state())
+	}
+
+	if err := s.reload(ctx); err != nil {
+		t.Fatalf("reload 2: %v", err)
+	}
+	pid2 := s.currentPID()
+	if pid2 == pid1 {
+		t.Errorf("reload 2 did not replace the process (pid still %d)", pid1)
+	}
+	waitProcessDead(t, pid1, 3*time.Second)
+
+	// One registry entry, and the plugin still serves the correct value across the swaps.
+	l.mu.Lock()
+	n := len(l.plugins)
+	l.mu.Unlock()
+	if n != 1 {
+		t.Errorf("registry has %d entries after reloads; want 1", n)
+	}
+	if err := value(t, l, "goodscore"); err != nil {
+		t.Errorf("dispatch after reloads: %v", err)
+	}
+
+	// Exactly one of every process we launched is still alive — the current one.
+	mu.Lock()
+	spawned := append([]int(nil), pids...)
+	mu.Unlock()
+	alive := 0
+	for _, p := range spawned {
+		if processAlive(p) {
+			alive++
+		}
+	}
+	if alive != 1 {
+		t.Errorf("%d of %d launched processes still alive; want exactly 1 (no leaked old process)", alive, len(spawned))
+	}
+	if !processAlive(pid2) {
+		t.Errorf("the current pid %d is not alive", pid2)
+	}
+
+	cancel()
+	<-s.done
+	waitProcessDead(t, pid2, 3*time.Second)
+}
+
+// Invariant #5 (idempotent under concurrency): many reloads fired at once still converge to ONE
+// live process and one registry entry — the actor serialises them, so there is no window where
+// two instances survive.
+func TestReloadConcurrentConvergesToOneInstance(t *testing.T) {
+	defer goleak.VerifyNone(t, goPluginBackgroundGoroutines()...)
+
+	bin := buildDouble(t, "goodscore")
+	l := newLoader()
+	l.track("goodscore")
+	var mu sync.Mutex
+	var pids []int
+	launch := recordingLaunch(
+		realLaunch(launchSpec{bin: bin, key: KeyScoring, startTimeout: 10 * time.Second, pollInterval: 50 * time.Millisecond}),
+		&pids, &mu)
+	s := newSupervisor(l, "goodscore", launch, superConfig{sleep: instantSleep, now: clock.System()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.start(ctx)
+	waitForState(t, s, StateReady, 15*time.Second)
+
+	const k = 5
+	var wg sync.WaitGroup
+	errs := make([]error, k)
+	for i := 0; i < k; i++ {
+		wg.Add(1)
+		go func(i int) { defer wg.Done(); errs[i] = s.reload(ctx) }(i)
+	}
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Errorf("concurrent reload %d: %v", i, e)
+		}
+	}
+
+	cur := s.currentPID()
+	if cur <= 0 || !processAlive(cur) {
+		t.Fatalf("no live current process after concurrent reloads (pid=%d)", cur)
+	}
+	// Every other process we spawned must be reaped — no two instances survive a reload race.
+	mu.Lock()
+	spawned := append([]int(nil), pids...)
+	mu.Unlock()
+	for _, p := range spawned {
+		if p != cur {
+			waitProcessDead(t, p, 3*time.Second)
+		}
+	}
+	l.mu.Lock()
+	n := len(l.plugins)
+	l.mu.Unlock()
+	if n != 1 {
+		t.Errorf("registry has %d entries; want 1", n)
+	}
+	if err := value(t, l, "goodscore"); err != nil {
+		t.Errorf("dispatch after concurrent reloads: %v", err)
+	}
+
+	cancel()
+	<-s.done
+	waitProcessDead(t, cur, 3*time.Second)
 }
 
 // fakeClock is a hand-advanced clock, used to make a plugin's "ready duration" exact without

@@ -17,6 +17,7 @@ type conn struct {
 	client any                       // dispensed client (pluginpb.ScoringClient, …); read by dispatch
 	kill   func()                    // reap the process (idempotent; go-plugin's Client.Kill)
 	wait   func(ctx context.Context) // blocks until the process has exited or ctx is done
+	pid    int                       // OS pid of the plugin process (0 for a fake launcher)
 }
 
 // launchFn launches the plugin process and returns a live conn, or an error if the process
@@ -101,9 +102,14 @@ func realLaunch(spec launchSpec) launchFn {
 		if pi <= 0 {
 			pi = 250 * time.Millisecond
 		}
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
 		return &conn{
 			client: raw,
 			kill:   client.Kill,
+			pid:    pid,
 			// go-plugin v1.8.0 exposes no exit channel — only Exited() — so the watcher polls.
 			// The poll interval is the crash-detection gap: a dispatch in that window hits a
 			// dead client and gets a mapped UNAVAILABLE (invariant #4's crash-gap facet), never

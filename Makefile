@@ -103,31 +103,32 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 VET_TAGS := integration dockerint soak
 # embed_spa: compiled only in the image build — it embeds the built SPA (webdist/static),
 # absent in a plain checkout, so vetting it here would fail on the missing embed.
-# linux/darwin: GOOS constraints (the plugin loader's SysProcAttr split — Pdeathsig exists
-# only in Linux's syscall package). These are NOT covered by -tags; the CROSS_GOOS build
-# below compiles the tree for each supported GOOS, so both files are always checked and the
-# partial-compile gap the guard guards against stays closed for platform files too.
-TAG_ALLOWLIST := embed_spa linux darwin
-# The GOOS targets whose platform-specific files must compile (host-independent: CI is linux,
-# dev is darwin, and each must check the OTHER's files).
+TAG_ALLOWLIST := embed_spa
+# GOOS constraints (the plugin loader's SysProcAttr split — Pdeathsig exists only in Linux's
+# syscall package) are covered NOT by -tags but by cross-compiling the whole api module for
+# each GOOS in CROSS_GOOS. The tag guard counts a CROSS_GOOS entry as covered, so a GOOS build
+# tag can satisfy the guard ONLY by actually being cross-built here — a new GOOS split (e.g.
+# //go:build windows anywhere in the tree) keeps failing vet-tags until its GOOS is added to
+# CROSS_GOOS AND thus compiled. That coupling is why linux/darwin live here, not in the
+# allowlist: allowlisting would satisfy the guard while covering less (the vacuous shape).
 CROSS_GOOS := linux darwin
 
 .PHONY: vet-tags
 vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered tag
 	@present=$$(grep -rhoE '^//go:build .*' api --include='*.go' | sed 's|//go:build||' | grep -oE '[a-z_][a-z0-9_]*' | sort -u); \
-	known=" $(VET_TAGS) $(TAG_ALLOWLIST) "; \
+	known=" $(VET_TAGS) $(TAG_ALLOWLIST) $(CROSS_GOOS) "; \
 	missing=""; \
 	for t in $$present; do case "$$known" in *" $$t "*) ;; *) missing="$$missing $$t" ;; esac; done; \
 	if [ -n "$$missing" ]; then \
-	  echo "vet-tags: build tag(s) present in the tree but covered by neither VET_TAGS nor TAG_ALLOWLIST:$$missing"; \
-	  echo "  add each to VET_TAGS (to compile it here) or TAG_ALLOWLIST (with a reason) in the Makefile"; \
+	  echo "vet-tags: build tag(s) present in the tree but covered by none of VET_TAGS / TAG_ALLOWLIST / CROSS_GOOS:$$missing"; \
+	  echo "  a GOOS tag -> CROSS_GOOS (cross-compiled here); a feature tag -> VET_TAGS (compiled here) or TAG_ALLOWLIST (with a reason)"; \
 	  exit 1; \
 	fi; \
 	echo "vet-tags: all tree build tags covered ($$(echo $$present | tr '\n' ' '))"
 	cd api && go vet -tags "$(VET_TAGS)" ./...
 	@for os in $(CROSS_GOOS); do \
 	  echo "vet-tags: cross-compiling api for GOOS=$$os (platform-specific files)"; \
-	  (cd api && GOOS=$$os go build ./...) || exit 1; \
+	  (cd api && CGO_ENABLED=0 GOOS=$$os go build ./...) || exit 1; \
 	done
 
 .PHONY: test
@@ -211,7 +212,7 @@ ci-api-lint: ## CI job 'api lint': golangci-lint + vacuum (zero warnings)
 	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
 .PHONY: ci-api-test
-ci-api-test: ## CI job 'api test': unit tier, race + shuffle (tag-selected, no -run filter)
+ci-api-test: vet-tags ## CI job 'api test': tag/GOOS build coverage, then unit tier, race + shuffle
 	cd api && go test ./... -race -shuffle=on
 
 .PHONY: ci-api-integration

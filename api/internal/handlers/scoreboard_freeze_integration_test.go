@@ -419,10 +419,14 @@ func readScoreboardData(t *testing.T, c *websocket.Conn) []byte {
 func assertSameScoreboardData(t *testing.T, a, b []byte) {
 	t.Helper()
 	norm := func(raw []byte) string {
-		var v any
+		var v map[string]any
 		if err := json.Unmarshal(raw, &v); err != nil {
 			t.Fatalf("unmarshal %s: %v", raw, err)
 		}
+		// solve_count is the internal read-repair version marker on the stored snapshot; it
+		// is deliberately not on the wire (ToScoreboard drops it), so ignore it when
+		// comparing the served board to the raw stored snapshot.
+		delete(v, "solve_count")
 		out, _ := json.Marshal(v)
 		return string(out)
 	}

@@ -19,7 +19,10 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
   fallback and every stale detection). The served-equals-log invariant now holds *by
   construction* rather than by how fast a recompute happens to run. A slow reconciling tick
   remains only as a backstop for the nobody-is-reading case (WS clients get broadcasts, not
-  reads). No OpenAPI or database-schema change (one new read-only query).
+  reads). Proven by a negative control (`-break-readrepair`): with read-repair removed the
+  mismatch reappears at ~the pre-fix rate; with it on the invariant cannot fail by
+  construction. No OpenAPI or database-schema change (one new read-only query). New metrics:
+  `osctf_scoreboard_stale_reads_total` and `osctf_scoreboard_stale_served_total`.
 
 ### Changed (scoreboard reliability)
 

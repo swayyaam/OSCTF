@@ -260,20 +260,28 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	var bgWG sync.WaitGroup
 
 	hub := ws.NewHub(log)
-	// A live WS connection is a socket fd; a global cap above RLIMIT_NOFILE would hit
-	// "accept: too many open files" — taking down HTTP, Postgres, and Docker together —
-	// before admission control sheds WS load. Clamp the cap to the fd budget and warn.
-	wsMaxConns := cfg.WSMaxConns
+	// WebSocket connections and in-flight plugin calls each hold an fd, so both draw from ONE fd
+	// accountant: the DB/Docker/Redis/HTTP reserve is taken once, plugins (essential) claim their
+	// budget first, WebSockets (elastic) absorb the remainder. A cap above the fd budget would
+	// hit "accept: too many open files" — taking down HTTP, Postgres, and Docker together —
+	// before admission control sheds. Derive the split, log it, and warn if WS was clamped.
 	var rlim syscall.Rlimit
+	var fdSoft uint64
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim); err != nil {
-		log.Warn("could not read RLIMIT_NOFILE; leaving the WebSocket connection cap unchecked", "error", err.Error())
-	} else if eff, clamped := ws.SafeGlobalCap(cfg.WSMaxConns, uint64(rlim.Cur)); clamped {
-		log.Warn("OSCTF_WS_MAX_CONNS exceeds the file-descriptor headroom — clamping to avoid fd exhaustion. Raise the process ulimit (RLIMIT_NOFILE) for large events; see docs/v0.1/10-deployment.md.",
-			"configured", cfg.WSMaxConns, "effective", eff, "rlimit_nofile_soft", rlim.Cur)
-		wsMaxConns = eff
+		log.Warn("could not read RLIMIT_NOFILE; treating the fd budget as unbounded", "error", err.Error())
+	} else {
+		fdSoft = uint64(rlim.Cur)
 	}
+	rb := deriveResourceBudget(fdSoft, cfg)
+	log.Info("fd budget apportioned across WebSockets and plugins", "split", rb.acct.String())
+	if rb.wsMaxConns < cfg.WSMaxConns {
+		log.Warn("OSCTF_WS_MAX_CONNS clamped to the file-descriptor headroom (after the plugin reserve) — raise the process ulimit (RLIMIT_NOFILE) for large events; see docs/v0.1/10-deployment.md.",
+			"configured", cfg.WSMaxConns, "effective", rb.wsMaxConns, "rlimit_nofile_soft", rlim.Cur)
+	}
+	// rb.pluginGlobal is claimed here so the WS cap above already accounts for it; the plugin
+	// loader consumes it (with OSCTF_PLUGIN_MAX_INFLIGHT) when discovery wires it (rest of P3-e).
 	hub.SetLimits(ws.Limits{
-		MaxConns:        wsMaxConns,
+		MaxConns:        rb.wsMaxConns,
 		MaxConnsPerKey:  cfg.WSMaxConnsPerConn,
 		HandshakeBurst:  cfg.WSHandshakeBurst,
 		HandshakeWindow: cfg.WSHandshakeWindow,

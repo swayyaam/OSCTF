@@ -20,7 +20,10 @@ import "testing"
 // sustained-health reset), Inv 5 (reload idempotent — process replaced, old reaped, one entry,
 // no leak, converges under concurrency), Inv 7 (full-stop cleanup — goleak + reap + fd count
 // over load→serve→stop), and Inv 1 (boot orphan-sweep — a Pdeathsig-disabled child survives a
-// host SIGKILL and only the sweep reclaims it, refusing a reused pid). P3-c is complete.
+// host SIGKILL and only the sweep reclaims it, refusing a reused pid). P3-c is complete. Inv 11
+// (two-level in-flight budget, shed-names-cap, isolation, tail histogram, drain-timeout release)
+// is pinned by inflight_test.go, plus cmd/platform/budget_test.go for the shared fd accountant
+// wired into the composition root. P3-d is complete.
 
 type pendingInvariant struct {
 	id     string // spec invariant number + short name
@@ -38,6 +41,10 @@ var completedPhases = map[string]bool{
 	"P3-c": true, // loader lifecycle landed: state machine + routing (#2), crash-loop
 	// quarantine (#4), reload (#5), full-stop cleanup (#7), boot orphan-sweep (#1) — all pinned
 	// by real tests in the plugin package; no P3-c entry may remain below.
+	"P3-d": true, // in-flight budget landed (#11): two-level cap + shed-names-cap + isolation +
+	// tail histogram + drain-timeout release (inflight_test.go), and the shared fd accountant
+	// wired into the composition root (cmd/platform budget_test.go asserts the reserve is counted
+	// exactly once). No P3-d entry may remain below.
 }
 
 var pendingInvariants = []pendingInvariant{
@@ -45,7 +52,6 @@ var pendingInvariants = []pendingInvariant{
 	{"8 challenge-type attempt untouched", "P3-e", "needs challenge-type registry + submissions tx"},
 	{"9 scoreboard recomputable", "P3-e", "needs scoring wiring + scoreboard (fallback off/on)"},
 	{"10 notification-drop observable", "P3-e", "needs the event bus"},
-	{"11 in-flight budget + latency metric", "P3-d", "needs the call wrapper + OSCTF_PLUGIN_MAX_INFLIGHT semaphore"},
 }
 
 // TestPendingInvariantsSelfEmpty forces the manifest to shrink. It also catches a typo'd phase

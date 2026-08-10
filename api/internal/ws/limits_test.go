@@ -112,35 +112,6 @@ func TestAdmissionKeyOfDefaultAndResolver(t *testing.T) {
 	}
 }
 
-// TestSafeGlobalCap: the global cap is clamped to the fd budget (with a reserve for
-// non-WS consumers), an unlimited (0) cap is made concrete, and an unknown/unlimited fd
-// limit leaves the configured value untouched.
-func TestSafeGlobalCap(t *testing.T) {
-	cases := []struct {
-		name       string
-		configured int
-		fdSoft     uint64
-		wantCap    int
-		wantClamp  bool
-	}{
-		{"under budget passes through", 500, 4096, 500, false},
-		{"over budget clamps to fd-reserve", 20000, 4096, 3072, true}, // 4096 - 1024
-		{"1024 fd host clamps 20000", 20000, 1024, 768, true},         // 1024 - 256 (min reserve)
-		{"unlimited config made concrete", 0, 4096, 3072, true},       // 0 → supported
-		{"unknown fd limit untouched", 20000, 0, 20000, false},        // Getrlimit failed / 0
-		{"infinite fd limit untouched", 20000, 1 << 40, 20000, false}, // RLIM_INFINITY
-		{"generous host keeps config", 20000, 65536, 20000, false},    // 65536 - 16384 = 49152 >= 20000
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			eff, clamped := SafeGlobalCap(c.configured, c.fdSoft)
-			if eff != c.wantCap || clamped != c.wantClamp {
-				t.Errorf("SafeGlobalCap(%d, %d) = (%d, %v), want (%d, %v)", c.configured, c.fdSoft, eff, clamped, c.wantCap, c.wantClamp)
-			}
-		})
-	}
-}
-
 // TestAdmissionsZeroDisables: zero limits disable each check (unlimited).
 func TestAdmissionsZeroDisables(t *testing.T) {
 	a := newAdmissions(Limits{}) // all zero

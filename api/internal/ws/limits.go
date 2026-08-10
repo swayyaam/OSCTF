@@ -20,8 +20,9 @@ import (
 // Per-key keying keyed on the user is bypassable: an attacker who registers N accounts
 // gets N × MaxConnsPerKey connections. Registration limits bound N only loosely (and issue
 // #1 wants those raised for shared-IP venues), so the per-key cap is a fairness limit, not
-// the DoS backstop. The GLOBAL cap (MaxConns, itself clamped to the file-descriptor budget
-// by SafeGlobalCap) is the real backstop against process exhaustion.
+// the DoS backstop. The GLOBAL cap (MaxConns, clamped to the shared file-descriptor budget by
+// the fd accountant — internal/fdbudget — at startup) is the real backstop against process
+// exhaustion.
 type Limits struct {
 	MaxConns        int           // global cap on live connections (0 = unlimited)
 	MaxConnsPerKey  int           // cap on live connections per admission key (0 = unlimited)
@@ -162,32 +163,4 @@ func (a *admissions) liveTotal() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.total
-}
-
-// SafeGlobalCap clamps a configured global connection cap to what the process's
-// file-descriptor limit can actually support. Each live WebSocket connection consumes a
-// socket fd; if the global cap exceeds RLIMIT_NOFILE the server hits "accept: too many
-// open files" — which takes down HTTP, Postgres, and Docker calls together — before
-// admission control ever sheds WS load. It reserves a quarter of the fd budget (at least
-// 256) for those other consumers (DB pool, Docker, Redis, S3, HTTP) and returns the
-// effective cap plus whether the configured value had to be reduced, so the caller can
-// warn loudly. fdSoftLimit==0 or an "unlimited" value leaves the configured cap untouched.
-func SafeGlobalCap(configured int, fdSoftLimit uint64) (effective int, clamped bool) {
-	const unlimited = 1 << 31 // treat implausibly large / RLIM_INFINITY as "no fd constraint"
-	if fdSoftLimit == 0 || fdSoftLimit >= unlimited {
-		return configured, false
-	}
-	reserve := fdSoftLimit / 4
-	if reserve < 256 {
-		reserve = 256
-	}
-	supported := 1
-	if fdSoftLimit > reserve {
-		supported = int(fdSoftLimit - reserve)
-	}
-	// A configured cap of 0 means "unlimited"; the fd budget makes that concrete.
-	if configured <= 0 || configured > supported {
-		return supported, true
-	}
-	return configured, false
 }

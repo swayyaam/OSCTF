@@ -104,6 +104,15 @@ type Config struct {
 	WSHandshakeBurst  int           `env:"OSCTF_WS_HANDSHAKE_BURST" envDefault:"600"`      // handshakes per client per window
 	WSHandshakeWindow time.Duration `env:"OSCTF_WS_HANDSHAKE_WINDOW" envDefault:"60s"`
 
+	// Plugin in-flight budget. PerPlugin bounds one plugin; Total is the global cap claimed from
+	// the shared fd accountant (a blocked call pins its inbound fd), so WebSockets and plugins
+	// divide one fd budget with the reserve counted once. QueueWait is how long a call queues at
+	// a full cap before it sheds 503.
+	PluginMaxInflight      int           `env:"OSCTF_PLUGIN_MAX_INFLIGHT" envDefault:"64"`
+	PluginMaxInflightTotal int           `env:"OSCTF_PLUGIN_MAX_INFLIGHT_TOTAL" envDefault:"256"`
+	PluginQueueWait        time.Duration `env:"OSCTF_PLUGIN_QUEUE_WAIT" envDefault:"1s"`
+	PluginDrainTimeout     time.Duration `env:"OSCTF_PLUGIN_DRAIN_TIMEOUT" envDefault:"30s"`
+
 	// API-token rate limit, keyed by TOKEN IDENTITY (not IP or account). Automation traffic
 	// is legitimately unlike a browser's, and the venue-NAT lesson (issue #1) applies to bots:
 	// an IP-keyed limit throttles a CI runner or many tokens behind one egress IP. Generous by
@@ -183,6 +192,9 @@ func (c *Config) finalize() error {
 	}
 	if c.MaxAttachmentMB < 1 {
 		problems = append(problems, "OSCTF_MAX_ATTACHMENT_MB must be >= 1")
+	}
+	if c.PluginMaxInflight < 1 || c.PluginMaxInflightTotal < 1 {
+		problems = append(problems, "OSCTF_PLUGIN_MAX_INFLIGHT / OSCTF_PLUGIN_MAX_INFLIGHT_TOTAL must be >= 1 (a plugin needs at least one in-flight slot)")
 	}
 	if c.WSMaxConns < 0 || c.WSMaxConnsPerConn < 0 || c.WSHandshakeBurst < 0 {
 		problems = append(problems, "OSCTF_WS_MAX_CONNS / OSCTF_WS_MAX_CONNS_PER_CLIENT / OSCTF_WS_HANDSHAKE_BURST must be >= 0 (0 disables that limit)")

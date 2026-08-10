@@ -5,6 +5,14 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+## v0.2.3 — Scoreboard consistency by construction
+
+A patch release closing an intermittent scoreboard-versus-log divergence
+([#6](https://github.com/swayam-mishra/OSCTF/issues/6)) by making the served-equals-log
+invariant structural rather than timing-dependent, plus two supporting reliability fixes
+found while triaging it and the CI-tooling fixes accumulated since `v0.2.2`. **No operator
+action on upgrade;** one new read-only query, no OpenAPI or database-schema change.
+
 ### Fixed
 
 - **The served scoreboard could intermittently disagree with the solve log**

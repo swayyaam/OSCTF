@@ -4,6 +4,11 @@ name: CI
 # job cannot pass locally while running different commands here. `make ci-sync-check` (wired
 # into ci-local) fails if a job added here is not also runnable locally. Job commands live in
 # the Makefile / scripts, never inline, so there is one source of truth.
+#
+# Go setup is cached: go-version comes from api/go.mod (single source of truth) and the module
+# + build cache is keyed on api/go.sum (which lives in api/, NOT the repo root — the default
+# path never found it, so caching had silently no-op'd on every run). This also warms the build
+# cache the `setup-tools` installs (buf, golangci-lint, protoc-gen-*) reuse.
 
 on:
   push:
@@ -11,7 +16,6 @@ on:
   pull_request:
 
 env:
-  GO_VERSION: "1.25"
   NODE_VERSION: "22"
 
 jobs:
@@ -19,11 +23,12 @@ jobs:
     name: generate drift
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.GO_VERSION }}
-      - uses: actions/setup-node@v4
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: make setup-tools
@@ -34,10 +39,11 @@ jobs:
     name: api lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
       - run: make setup-tools
       - run: make ci-api-lint
 
@@ -45,20 +51,22 @@ jobs:
     name: api test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
       - run: make ci-api-test
 
   api-integration:
     name: api integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
       # integration (testcontainers) + dockerint (real daemon, strict isolation) + 2-min soak
       # + migration up/down/up. See `ci-api-integration` in the Makefile.
       - run: make ci-api-integration
@@ -67,8 +75,8 @@ jobs:
     name: web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: make ci-web
@@ -77,7 +85,7 @@ jobs:
     name: image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make ci-image
 
   smoke:
@@ -85,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [image]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make ci-smoke
       - name: logs on failure
         if: failure()
@@ -96,18 +104,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [image]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: make ci-e2e
       - name: upload playwright artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-results
           path: dashboard/test-results
           retention-days: 7
-      - name: platform logs on failure
-        if: failure()
-        run: docker compose logs platform | tail -100

@@ -32,6 +32,23 @@ WHERE s.correct
   )
 ORDER BY s.created_at ASC;
 
+-- name: CountValidSolves :one
+-- The read-repair version marker: the number of valid-solve rows the board is computed
+-- from (identical filter to ListValidSolves, count only). A served snapshot records the
+-- count it was built from; if this has moved past it, the board is stale and Current()
+-- recomputes before serving. Same data-derived "newer" as the write guard (docs/v0.3).
+SELECT count(*) FROM submissions s
+JOIN teams t ON t.id = s.team_id
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.visible
+  AND NOT t.hidden
+  AND EXISTS (
+      SELECT 1 FROM team_members tm
+      JOIN users u ON u.id = tm.user_id
+      WHERE tm.team_id = t.id AND NOT u.hidden
+  );
+
 -- name: ListScoreboardTeams :many
 -- Every non-hidden team appears on the board from creation (zero-solve teams too).
 SELECT t.id, t.name, t.banned FROM teams t WHERE NOT t.hidden ORDER BY t.created_at ASC;

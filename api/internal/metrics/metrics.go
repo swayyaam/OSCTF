@@ -140,6 +140,23 @@ var (
 	ReconcileLastSuccess = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reconcile_last_success_timestamp_seconds", Help: "Unix time the reconcile pass last completed."})
 	ExpiryLastSuccess    = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_expiry_last_success_timestamp_seconds", Help: "Unix time the TTL-expiry pass last completed."})
 	ReapLastSuccess      = prometheus.NewGauge(prometheus.GaugeOpts{Name: "osctf_reap_last_success_timestamp_seconds", Help: "Unix time the stale-row reaper last completed."})
+
+	// ScoreboardStaleReads counts reads that found the cached board behind the solve log
+	// and recomputed before serving (the read-repair path). "How often is the board
+	// behind" is this number, not a soak flake. A high rate means the per-solve recompute
+	// often isn't landing.
+	ScoreboardStaleReads = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_scoreboard_stale_reads_total",
+		Help: "Scoreboard reads that detected a stale cache and recomputed before serving.",
+	})
+
+	// ScoreboardStaleServed counts reads that detected staleness but served the stale
+	// board because inline repair exceeded its budget (the bounded fallback). Any nonzero
+	// value is a board briefly served behind the log — alert on it.
+	ScoreboardStaleServed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_scoreboard_stale_served_total",
+		Help: "Scoreboard reads served stale because inline read-repair exceeded its budget.",
+	})
 )
 
 // MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
@@ -155,6 +172,7 @@ func init() {
 		TeamInstances, InstanceSpawns, InstanceExpiries, InstanceCleanups, FlagSharingSignals,
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
+		ScoreboardStaleReads, ScoreboardStaleServed,
 	)
 }
 

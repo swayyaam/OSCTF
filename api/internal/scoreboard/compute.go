@@ -30,11 +30,15 @@ type Entry struct {
 	TeamID      uuid.UUID  `json:"team_id"`
 }
 
-// Snapshot is a full standings snapshot (serialized to Redis and the API).
+// Snapshot is a full standings snapshot (serialized to Redis and the API). SolveCount is
+// the valid-solve-row count the board was computed from — the read-repair version marker:
+// Current() recomputes before serving if the log has moved past it. It is internal (not
+// mapped onto the wire by handlers.ToScoreboard).
 type Snapshot struct {
 	Frozen      bool      `json:"frozen"`
 	GeneratedAt time.Time `json:"generated_at"`
 	Standings   []Entry   `json:"standings"`
+	SolveCount  int       `json:"solve_count"`
 }
 
 // scoreStore is the read surface compute needs. *gen.Queries satisfies it; a fake
@@ -42,6 +46,8 @@ type Snapshot struct {
 type scoreStore interface {
 	ListScoreboardTeams(ctx context.Context) ([]gen.ListScoreboardTeamsRow, error)
 	ListValidSolves(ctx context.Context) ([]gen.ListValidSolvesRow, error)
+	// CountValidSolves is the cheap read-repair marker (count with ListValidSolves's filter).
+	CountValidSolves(ctx context.Context) (int64, error)
 }
 
 // compute runs the one true standings algorithm against the current DB state. It also
@@ -159,5 +165,6 @@ func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, int, e
 	return Snapshot{
 		GeneratedAt: now,
 		Standings:   standings,
+		SolveCount:  len(solveRows),
 	}, len(solveRows), nil
 }

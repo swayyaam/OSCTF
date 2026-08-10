@@ -31,6 +31,11 @@ type Querier interface {
 	CountTeamsAdmin(ctx context.Context, q_ *string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountUsersAdmin(ctx context.Context, arg CountUsersAdminParams) (int64, error)
+	// The read-repair version marker: the number of valid-solve rows the board is computed
+	// from (identical filter to ListValidSolves, count only). A served snapshot records the
+	// count it was built from; if this has moved past it, the board is stale and Current()
+	// recomputes before serving. Same data-derived "newer" as the write guard (docs/v0.3).
+	CountValidSolves(ctx context.Context) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
 	CreateAttachment(ctx context.Context, arg CreateAttachmentParams) (ChallengeAttachment, error)
 	CreateChallenge(ctx context.Context, arg CreateChallengeParams) (Challenge, error)

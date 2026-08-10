@@ -24,6 +24,9 @@ func (f fakeStore) ListScoreboardTeams(context.Context) ([]gen.ListScoreboardTea
 func (f fakeStore) ListValidSolves(context.Context) ([]gen.ListValidSolvesRow, error) {
 	return f.solves, nil
 }
+func (f fakeStore) CountValidSolves(context.Context) (int64, error) {
+	return int64(len(f.solves)), nil
+}
 
 func i32p(v int32) *int32 { return &v }
 

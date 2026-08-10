@@ -968,13 +968,22 @@ func (m *collector) oneInvariantPass(ctx context.Context, pool *pgxpool.Pool, q 
 	// background recompute interval, so a one-shot mismatch is lag; re-read after a
 	// pause longer than that interval, and a mismatch that survives is a real stale-
 	// cache / broken-recompute divergence.
+	// Count-consistent (read-repaired): a mismatch is a real bug, not timing lag, so a
+	// single detection is a violation. The re-read only guards against a rare read-gap in
+	// the content branch (a solve landing between CountValidSolves and independentStandings
+	// inside scoreboardMatches); the staleness branch is unfailable by construction.
 	if ok, _ := scoreboardMatches(ctx, q, sb); !ok {
-		time.Sleep(600 * time.Millisecond) // > the 400ms background recompute interval
 		if ok2, d2 := scoreboardMatches(ctx, q, sb); !ok2 {
-			m.recordViol("scoreboard-mismatch", d2) // survived a full recompute cycle → real
+			m.recordViol("scoreboard-mismatch", d2)
 		} else {
 			m.invLag.Add(1)
 		}
+	}
+	// Read-repair must never fall back to serving a stale board: in the soak recomputes
+	// finish in milliseconds, so the 1s inline budget is never exceeded. A nonzero counter
+	// means a repair ran long — a real regression, not a timing artifact.
+	if metrics.CounterValue(metrics.ScoreboardStaleServed) > 0 {
+		m.recordViol("scoreboard-stale-served", "inline read-repair exceeded its budget and served a stale board")
 	}
 	// No flag on a participant surface, points non-negative.
 	if snap, err := sb.Current(ctx, false); err == nil {
@@ -992,19 +1001,40 @@ func (m *collector) oneInvariantPass(ctx context.Context, pool *pgxpool.Pool, q 
 	}
 }
 
-// scoreboardMatches reports whether the scoreboard REST SERVES (sb.Current — the
-// cached snapshot, no forced recompute) equals an independent from-scratch
-// recompute of the solve log, and a detail string for the first discrepancy. It
-// records nothing — the caller decides (after a delayed re-read) whether a
-// mismatch is a confirmed stale-cache violation or ordinary lag.
+// scoreboardMatches checks the scoreboard invariant against what REST SERVES (sb.Current,
+// read-repaired). It is count-consistent, which is what read-repair makes possible:
+//
+//  1. Staleness (the durability invariant, unfailable by construction if read-repair
+//     works): read the log's valid-solve count BEFORE the served board. Current() is read
+//     after, and read-repair guarantees it reflects the log at read time, so its SolveCount
+//     must be >= that earlier count. A served board with fewer solves is genuinely behind
+//     the log — the exact bug (#6) read-repair exists to prevent.
+//
+//  2. Content: compare the served board to a from-scratch recompute only when both reflect
+//     the SAME log state (equal solve counts). If a solve landed between the two reads the
+//     counts differ and the boards are not comparable — dynamic scoring makes points
+//     non-monotonic across log states, so comparing different states is meaningless, not a
+//     bug. This replaces the old want-then-got timing comparison, which under read-repair
+//     (Current is now always fresh) would flag every read-gap solve as a spurious mismatch.
 func scoreboardMatches(ctx context.Context, q *gen.Queries, sb *scoreboard.Service) (bool, string) {
-	want, err := independentStandings(ctx, q)
+	before, err := q.CountValidSolves(ctx)
 	if err != nil {
 		return true, ""
 	}
-	snap, err := sb.Current(ctx, false)
+	snap, err := sb.Current(ctx, false) // read-repaired: reflects the log as of this read
 	if err != nil {
 		return true, ""
+	}
+	if snap.SolveCount < int(before) {
+		return false, fmt.Sprintf("served board behind the log: solveCount=%d < %d valid solves read before it", snap.SolveCount, before)
+	}
+
+	want, wantCount, err := independentStandings(ctx, q)
+	if err != nil {
+		return true, ""
+	}
+	if wantCount != snap.SolveCount {
+		return true, "" // log moved between the reads; different states aren't comparable
 	}
 	got := map[uuid.UUID]int{}
 	for _, e := range snap.Standings {
@@ -1012,12 +1042,12 @@ func scoreboardMatches(ctx context.Context, q *gen.Queries, sb *scoreboard.Servi
 	}
 	for tid, pts := range want {
 		if got[tid] != pts {
-			return false, fmt.Sprintf("team %s: rest=%d fromscratch=%d", tid, got[tid], pts)
+			return false, fmt.Sprintf("team %s at %d solves: rest=%d fromscratch=%d", tid, wantCount, got[tid], pts)
 		}
 	}
 	for tid, pts := range got {
 		if pts != 0 && want[tid] != pts {
-			return false, fmt.Sprintf("overcount team %s: rest=%d fromscratch=%d", tid, pts, want[tid])
+			return false, fmt.Sprintf("overcount team %s at %d solves: rest=%d fromscratch=%d", tid, wantCount, pts, want[tid])
 		}
 	}
 	return true, ""
@@ -1027,10 +1057,10 @@ func scoreboardMatches(ctx context.Context, q *gen.Queries, sb *scoreboard.Servi
 // and the pure scoring engine, replicating compute()'s rules (per-challenge value
 // from the non-banned solve count) without touching the scoreboard service's
 // snapshot/cache/broadcast path — so a stale cache or broadcast divergence shows.
-func independentStandings(ctx context.Context, q *gen.Queries) (map[uuid.UUID]int, error) {
+func independentStandings(ctx context.Context, q *gen.Queries) (map[uuid.UUID]int, int, error) {
 	solves, err := q.ListValidSolves(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	type cp struct {
 		mode string
@@ -1061,7 +1091,7 @@ func independentStandings(ctx context.Context, q *gen.Queries) (map[uuid.UUID]in
 	for _, r := range solves {
 		pts[r.TeamID] += value[r.ChallengeID]
 	}
-	return pts, nil
+	return pts, len(solves), nil
 }
 
 // ---------------- WebSocket convergence ----------------

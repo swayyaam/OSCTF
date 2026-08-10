@@ -95,6 +95,31 @@ func (q *Queries) CountTeamAttempts(ctx context.Context, arg CountTeamAttemptsPa
 	return count, err
 }
 
+const countValidSolves = `-- name: CountValidSolves :one
+SELECT count(*) FROM submissions s
+JOIN teams t ON t.id = s.team_id
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.visible
+  AND NOT t.hidden
+  AND EXISTS (
+      SELECT 1 FROM team_members tm
+      JOIN users u ON u.id = tm.user_id
+      WHERE tm.team_id = t.id AND NOT u.hidden
+  )
+`
+
+// The read-repair version marker: the number of valid-solve rows the board is computed
+// from (identical filter to ListValidSolves, count only). A served snapshot records the
+// count it was built from; if this has moved past it, the board is stale and Current()
+// recomputes before serving. Same data-derived "newer" as the write guard (docs/v0.3).
+func (q *Queries) CountValidSolves(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countValidSolves)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSubmission = `-- name: CreateSubmission :one
 INSERT INTO submissions (id, challenge_id, team_id, user_id, provided, correct, ip)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

@@ -482,6 +482,13 @@ func runTickers(ctx context.Context, log *slog.Logger, ev *events.Service, sb *s
 			if err := sb.MaybeSnapshotFreeze(tctx); err != nil {
 				log.Warn("freeze snapshot failed", "error", err.Error())
 			}
+			// Slow reconciling backstop: read-repair keeps served reads consistent, but
+			// WS clients receive broadcasts, not reads, so a per-solve recompute missed
+			// with no HTTP read to trigger a repair would leave them behind until now. A
+			// no-op (no recompute, no broadcast) unless the cache is actually behind.
+			if rerr := sb.ReconcileIfBehind(tctx); rerr != nil {
+				log.Warn("periodic scoreboard reconcile failed", "error", rerr.Error())
+			}
 			if e, err := ev.Get(tctx); err == nil {
 				phase := string(ev.Phase(e))
 				if lastPhase != "" && phase != lastPhase {

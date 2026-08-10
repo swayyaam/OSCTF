@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/db/gen"
 	"github.com/osctf/platform/internal/events"
+	"github.com/osctf/platform/internal/metrics"
 )
 
 const (
@@ -107,7 +109,9 @@ func (s *Service) recompute(ctx context.Context, force, broadcast bool) error {
 	}
 
 	if broadcast && s.broadcast != nil {
-		pub, perr := s.Current(ctx, false)
+		// served(repair=false): we just computed keyCurrent, and read-repair here would
+		// recurse into another recompute under continuous solves.
+		pub, perr := s.served(ctx, false, false)
 		if perr != nil {
 			return perr
 		}
@@ -121,10 +125,22 @@ func (s *Service) recompute(ctx context.Context, force, broadcast bool) error {
 // concurrent-recompute race deterministic. It is nil in production.
 var afterComputeHook func()
 
-// Current returns the standings snapshot for a caller. Non-admins during a freeze
-// get the frozen snapshot; admins always get live data (with frozen=true so their
-// UI can still show the banner).
+// staleRepairBudget bounds an inline read-repair recompute. Past it, the read serves the
+// stale board and counts it (ScoreboardStaleServed) rather than hanging the request.
+const staleRepairBudget = time.Second
+
+// Current returns the standings snapshot for a participant read, read-repaired: if the
+// served board is behind the solve log it is recomputed before it is returned, so a read
+// can never serve a board older than the log (the read side of the data-derived guard).
+// Non-admins during a freeze get the frozen snapshot; admins always get live data (with
+// frozen=true so their UI can still show the banner).
 func (s *Service) Current(ctx context.Context, isAdmin bool) (Snapshot, error) {
+	return s.served(ctx, isAdmin, true)
+}
+
+// served is Current with read-repair optional: the WS broadcast passes repair=false
+// because it just recomputed and repairing there would recurse under continuous solves.
+func (s *Service) served(ctx context.Context, isAdmin, repair bool) (Snapshot, error) {
 	frozen := s.frozen(ctx)
 
 	if frozen && !isAdmin {
@@ -154,9 +170,10 @@ func (s *Service) Current(ctx context.Context, isAdmin bool) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if !ok {
-		// Cache miss: compute, store, return. keyCurrent never expires, so this only
-		// runs before the first Recompute — it does not race the count guard.
+	switch {
+	case !ok:
+		// Cache miss: compute fresh (already the newest) and store. keyCurrent never
+		// expires, so this only runs before the first Recompute.
 		snap, _, err = compute(ctx, s.q, s.clock())
 		if err != nil {
 			return Snapshot{}, err
@@ -164,9 +181,75 @@ func (s *Service) Current(ctx context.Context, isAdmin bool) (Snapshot, error) {
 		if werr := s.write(ctx, keyCurrent, snap); werr != nil {
 			return Snapshot{}, werr
 		}
+	case repair:
+		if fresh, repaired, rerr := s.readRepair(ctx, snap); rerr != nil {
+			return Snapshot{}, rerr
+		} else if repaired {
+			snap = fresh
+		}
 	}
 	snap.Frozen = frozen
 	return snap, nil
+}
+
+// readRepair returns a fresher snapshot when the cached board is behind the solve log.
+// The served board records the valid-solve count it was computed from (snap.SolveCount);
+// if CountValidSolves has moved past it the board must not be served stale, so it is
+// recomputed inline, bounded by staleRepairBudget. On timeout the stale board is served
+// and counted — a bounded read latency in exchange for never an unbounded one. The result
+// is served regardless of whether the cache write below succeeds, so THIS read is always
+// fresh; the guarded write just spares the next reader the same repair.
+func (s *Service) readRepair(ctx context.Context, snap Snapshot) (Snapshot, bool, error) {
+	live, err := s.q.CountValidSolves(ctx)
+	if err != nil {
+		return snap, false, nil // count failed — serve what we have; the next read/tick retries
+	}
+	if int(live) <= snap.SolveCount {
+		return snap, false, nil // not behind the log
+	}
+	metrics.ScoreboardStaleReads.Inc()
+
+	rctx, cancel := context.WithTimeout(ctx, staleRepairBudget)
+	defer cancel()
+	fresh, count, cerr := compute(rctx, s.q, s.clock())
+	if cerr != nil {
+		metrics.ScoreboardStaleServed.Inc()
+		return snap, false, nil // bounded fallback: serve stale (counted)
+	}
+
+	// Publish under the write guard so a concurrent newer write is not clobbered.
+	s.mu.Lock()
+	if count >= s.lastCount {
+		if werr := s.write(ctx, keyCurrent, fresh); werr == nil {
+			s.lastCount = count
+		}
+	}
+	s.mu.Unlock()
+	return fresh, true, nil
+}
+
+// ReconcileIfBehind recomputes (and broadcasts) only when the cached board is behind the
+// solve log. It is the SLOW backstop the periodic ticker calls — read-repair is the
+// correctness mechanism for served reads, but nothing else covers WS clients (they get
+// broadcasts, not reads) when a per-solve recompute was missed and no HTTP read triggered
+// a repair. The version check keeps it a no-op — no recompute, no redundant broadcast —
+// while the board is up to date.
+func (s *Service) ReconcileIfBehind(ctx context.Context) error {
+	snap, ok, err := s.read(ctx, keyCurrent)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return s.Recompute(ctx) // no cache yet — establish it
+	}
+	live, err := s.q.CountValidSolves(ctx)
+	if err != nil {
+		return err
+	}
+	if int(live) > snap.SolveCount {
+		return s.Recompute(ctx) // behind the log — refresh the cache and broadcast
+	}
+	return nil
 }
 
 // MaybeSnapshotFreeze writes the frozen snapshot once, when the freeze point has

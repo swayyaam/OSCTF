@@ -5,33 +5,40 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+### Fixed
+
+- **The served scoreboard could intermittently disagree with the solve log**
+  ([#6](https://github.com/swayam-mishra/OSCTF/issues/6); a rare `rest=0 fromscratch=500`
+  miss the soak reproduced at ~1 in 8 two-minute runs). The root cause was a **durability
+  gap**, not a race: the board's consistency rested on a single best-effort per-solve
+  recompute, and nothing guaranteed it followed the committed solve — no outbox, no retry,
+  and no periodic recompute in production — so a missed, slow, or preempted recompute left
+  the board stale until an unrelated tick. Fixed by **read-repair**: a served snapshot
+  records the valid-solve count it was computed from, and a read that finds the log has
+  moved past it recomputes before returning (bounded inline; a metric counts the rare
+  fallback and every stale detection). The served-equals-log invariant now holds *by
+  construction* rather than by how fast a recompute happens to run. A slow reconciling tick
+  remains only as a backstop for the nobody-is-reading case (WS clients get broadcasts, not
+  reads). No OpenAPI or database-schema change (one new read-only query).
+
 ### Changed (scoreboard reliability)
 
-The two changes below reduce how far and how long the served scoreboard can diverge from
-the solve log under load. They do **not** by themselves resolve the intermittent soak
-`scoreboard-mismatch` (a `rest=0 fromscratch=500`-shaped miss), which the soak still
-reproduces at roughly 1 in 8 two-minute runs — that is a separate design gap (the
-per-solve recompute is best-effort, with no durable retry between commit and recompute)
-tracked in [#6](https://github.com/swayam-mishra/OSCTF/issues/6) and fixed separately. No
-OpenAPI or database-schema change.
+Two supporting improvements found while triaging #6, each independently justified:
 
 - **Scoreboard recompute no longer holds the mutex across its DB reads and the Redis
   write.** `Recompute` held `s.mu` across two DB reads plus the Redis write, so under
   concurrent solving recomputes serialized on the lock and queued behind each other — the
   third "lock held across I/O" bug in this codebase (see `AGENTS.md`), a real latency bug
   that grows with load. `compute()` now runs outside the lock; the lock guards only the
-  write. Because recomputes can now finish out of order, the write is guarded on the
-  valid-solve-row **count** — a data-derived version, not wall time (a timestamp/sequence
-  guard is unsafe: the gap between reading the clock and the DB snapshot lets a
-  later-stamped recompute read fewer rows). A slow older recompute is dropped rather than
-  clobbering a newer board. Admin actions that legitimately shrink the board (hiding or
-  deleting a challenge) use a force path that writes unconditionally and immediately
-  re-runs a guarded recompute so a concurrent solve isn't lost.
+  write, keyed on the valid-solve-row **count** — the same data-derived "newer" the
+  read-repair uses — so a slow older recompute is dropped rather than clobbering a newer
+  board. Admin actions that legitimately shrink the board (hiding or deleting a challenge)
+  use a force path that re-runs a guarded recompute so a concurrent solve isn't lost.
 - **The submit- and admin-triggered recompute no longer runs on the request context.**
   `Submit` commits its transaction before the handler calls recompute, so a client
   disconnecting mid-request would cancel the recompute and abandon the board update for an
-  already-committed solve (repaired only by a later tick). It now runs on a detached,
-  bounded context that carries request-scoped values but not the caller's cancellation.
+  already-committed solve. It now runs on a detached, bounded context that carries
+  request-scoped values but not the caller's cancellation.
 
 ### CI
 

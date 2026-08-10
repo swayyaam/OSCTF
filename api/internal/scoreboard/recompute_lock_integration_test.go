@@ -45,6 +45,10 @@ func (b *barrierStore) ListScoreboardTeams(ctx context.Context) ([]gen.ListScore
 	return b.inner.ListScoreboardTeams(ctx)
 }
 
+func (b *barrierStore) CountValidSolves(ctx context.Context) (int64, error) {
+	return b.inner.CountValidSolves(ctx)
+}
+
 func (b *barrierStore) ListValidSolves(ctx context.Context) ([]gen.ListValidSolvesRow, error) {
 	n := b.cur.Add(1)
 	for { // record the high-water mark of concurrent compute()s
@@ -237,6 +241,45 @@ func TestRecomputeGuardKeepsNewerBoardWhenOlderFinishesLast(t *testing.T) {
 	}
 	if p := h.points(bravo); p != 100 {
 		t.Fatalf("older recompute clobbered the newer board: Bravo=%d, want 100 — guard is not data-derived", p)
+	}
+}
+
+// TestCurrentReadRepairServesFreshWhenCacheBehind pins the read-repair invariant by
+// construction (no timing): when the cached board is behind the solve log — the durability
+// gap where a per-solve recompute never landed — a read must recompute and serve the fresh
+// board, never the stale one. This is what makes the soak's served==log invariant true
+// structurally rather than by how fast a recompute happens to run.
+func TestCurrentReadRepairServesFreshWhenCacheBehind(t *testing.T) {
+	h := newBoardHarness(t, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), clock.System())
+	ctx := context.Background()
+	alpha, bravo := h.team("Alpha"), h.team("Bravo")
+
+	// Baseline: only Alpha solved, and it's in the cache (count 1).
+	h.solve(alpha)
+	if err := h.sb.Recompute(ctx); err != nil {
+		t.Fatalf("baseline recompute: %v", err)
+	}
+
+	// Bravo solves, but NOTHING recomputes — the cache is now stale (log has 2, cache 1).
+	h.solve(bravo)
+
+	// A read MUST serve fresh: read-repair detects the log moved past the cached SolveCount
+	// and recomputes before returning.
+	snap, err := h.sb.Current(ctx, false)
+	if err != nil {
+		t.Fatalf("current: %v", err)
+	}
+	if snap.SolveCount != 2 {
+		t.Fatalf("served board SolveCount=%d, want 2 — read-repair did not recompute the stale cache", snap.SolveCount)
+	}
+	got := 0
+	for _, e := range snap.Standings {
+		if e.TeamID == bravo {
+			got = e.Points
+		}
+	}
+	if got != 100 {
+		t.Fatalf("read-repair served a stale board: Bravo=%d, want 100", got)
 	}
 }
 

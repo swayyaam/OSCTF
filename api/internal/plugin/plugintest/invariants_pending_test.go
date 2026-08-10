@@ -14,7 +14,8 @@ import "testing"
 // the forcing function: a "what isn't tested yet" list is only useful while something shrinks it.
 //
 // Pinned NOW lives in doubles_test.go (transport + subprocess doubles). Inv 12 (reader-atomic
-// registry swap) is already pinned by P1's registry contention tests.
+// registry swap) is already pinned by P1's registry contention tests. Inv 2 (non-ready never
+// serves) is pinned by state_test.go + routing_test.go in the plugin package (P3-c).
 
 type pendingInvariant struct {
 	id     string // spec invariant number + short name
@@ -34,7 +35,6 @@ var completedPhases = map[string]bool{
 
 var pendingInvariants = []pendingInvariant{
 	{"1 boot orphan-sweep", "P3-c", "needs the loader's boot reconciliation (pidfile sweep); graceful-reap half is pinned now"},
-	{"2 non-ready never serves", "P3-c", "needs the state machine + routing"},
 	{"4 crash-loop cap/quarantine", "P3-c", "needs the restart cap (crashlaunch/crashafter -> <=5 -> failed)"},
 	{"5 reload idempotent", "P3-c", "needs reload (x2 -> one PID, one entry, no leak)"},
 	{"7 full stop cleanup", "P3-c", "needs the per-plugin context lifecycle (goleak + fd/PID over load->serve->stop)"},

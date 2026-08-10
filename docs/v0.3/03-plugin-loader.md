@@ -41,8 +41,11 @@ config:
 
 Manifest validation (fail the plugin, not the host):
 
-- `name` matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is unique across loaded plugins (a
-  collision skips the later one with a warning).
+- `name` matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is unique across loaded plugins. A
+  collision — two plugins claiming the same `name`, i.e. the same registry key / auth
+  provider id — **fails both** with a loud error; neither registers. Identity in an auth
+  path is not resolved by load order, and the host still starts (the other plugins load).
+  (A plugin colliding with a *built-in* key is separate: protected unless `override: true`.)
 - `type` is one of the four; `abi` major equals the host's; `executable` exists and is a
   regular file with the owner-exec bit.
 - `config` keys and types are well-formed; `secret: true` keys must **not** carry a value
@@ -312,6 +315,15 @@ around plugins; operators should only install plugins they trust, exactly as wit
 server extension. Stronger sandboxing is a future hardening item, not a v0.3 deliverable.
 This is stated plainly in the operator docs.
 
+**The plugins directory should be read-only to the platform process.** Discovery only
+reads `OSCTF_PLUGINS_DIR`; the core never writes there. Mounting it read-only to the
+process removes a persistence path — a compromised core cannot drop a new plugin binary
++ manifest for the next boot to launch. v0.3 does not *enforce* this (the loader doesn't
+check the mount), but the deployment doc states it as the expected posture, the same way
+the Docker-socket mount is called out as root-equivalent. Installing a plugin is then an
+explicit operator action (write to the dir out-of-band, then reload/restart), not
+something core code can do to itself.
+
 ## Config (new env)
 
 | Env | Default | Meaning |
@@ -348,5 +360,21 @@ This is stated plainly in the operator docs.
 - **The state machine and invariants are fixed before the loader exists.** This is a new
   concurrency surface and the last two releases found bugs of exactly this shape; the
   invariant table is written in the testing-contract style so the tests precede the code.
-- **No live directory watching in v0.3.** Rescan on restart or explicit reload; a
-  filesystem watcher is complexity without a strong v0.3 need.
+- **No live directory watching in v0.3 — discovery at boot + explicit reload.** Discovery
+  is a one-level scan at `serve` boot; after that, a plugin appears or disappears from the
+  registry only via `POST …/plugins/{name}/reload` or a `serve` restart. **Dropping a
+  plugin directory in while the platform runs does nothing until a reload/restart** — stated
+  in the operator doc so it isn't a surprise. Watching the filesystem is a *different*
+  failure surface than an explicit trigger — a partial binary mid-copy, an editor temp file,
+  a manifest visible before its binary, unreliable events on network filesystems — and would
+  need a settle delay plus a rule for a manifest whose binary isn't there yet. That
+  complexity buys little in v0.3, where a plugin install is already an explicit operator step.
+- **A name collision fails both plugins, it does not pick one by order.** Two plugins
+  claiming the same `name` (= registry key = auth provider id) both fail with a loud error;
+  neither registers, and the host still starts. Resolving ambiguous identity — especially an
+  auth provider id — by discovery sort order is exactly the kind of silent, order-dependent
+  behaviour to avoid. (Overriding a *built-in* key is the separate, opt-in `override: true`
+  path.)
+- **The plugins directory is expected read-only to the process.** The core only reads it;
+  making it read-only removes a persistence path for a compromised core. Not enforced in
+  v0.3, stated as deployment posture (see Trust model).

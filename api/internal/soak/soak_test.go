@@ -83,6 +83,7 @@ var (
 	fFaults   = flag.Bool("faults", true, "inject seeded deploy/destroy/reconcile faults + container vanish/exit")
 	fWSC      = flag.Int("wsclients", 8, "scoreboard WebSocket clients that must converge to the REST snapshot")
 	fBreakSB  = flag.Bool("break-scoreboard", false, "DEBUG: stop recomputing the scoreboard so REST goes stale — proves the from-scratch invariant bites")
+	fBreakRR  = flag.Bool("break-readrepair", false, "DEBUG: disable read-repair (Current serves the stale cache) — negative control that reappears the #6 durability-gap mismatch at ~the pre-fix rate")
 	fAgeLost  = flag.Bool("age-lost-rows", true, "age a vanished row's updated_at past reconcile's DB-wall grace so lost→reap fires in-run; -age-lost-rows=false measures the vanish→lost→reap path going dark under an accelerated clock")
 )
 
@@ -123,6 +124,7 @@ func TestSoak(t *testing.T) {
 	if !flag.Parsed() {
 		flag.Parse()
 	}
+	scoreboard.BreakReadRepairForTest(*fBreakRR) // negative control: prove read-repair closes #6
 	rng := rand.New(rand.NewSource(*fSeed))
 
 	_, dsn := testsupport.Postgres(t)
@@ -968,11 +970,15 @@ func (m *collector) oneInvariantPass(ctx context.Context, pool *pgxpool.Pool, q 
 	// background recompute interval, so a one-shot mismatch is lag; re-read after a
 	// pause longer than that interval, and a mismatch that survives is a real stale-
 	// cache / broken-recompute divergence.
-	// Count-consistent (read-repaired): a mismatch is a real bug, not timing lag, so a
-	// single detection is a violation. The re-read only guards against a rare read-gap in
-	// the content branch (a solve landing between CountValidSolves and independentStandings
-	// inside scoreboardMatches); the staleness branch is unfailable by construction.
+	// Count-consistent (read-repaired). With read-repair ON both branches of
+	// scoreboardMatches are unfailable — the staleness branch by construction, the content
+	// branch skips the read-gap — so this never fires. The 600ms re-read isolates
+	// PERSISTENT staleness from transient lag: it is a no-op here, but under
+	// -break-readrepair (read-repair off) it reproduces the #6 durability gap at the pre-fix
+	// rate — a mismatch that a full recompute cycle does not clear is real, a transient one
+	// is lag.
 	if ok, _ := scoreboardMatches(ctx, q, sb); !ok {
+		time.Sleep(600 * time.Millisecond)
 		if ok2, d2 := scoreboardMatches(ctx, q, sb); !ok2 {
 			m.recordViol("scoreboard-mismatch", d2)
 		} else {

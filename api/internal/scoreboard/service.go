@@ -125,6 +125,16 @@ func (s *Service) recompute(ctx context.Context, force, broadcast bool) error {
 // concurrent-recompute race deterministic. It is nil in production.
 var afterComputeHook func()
 
+// breakReadRepair, when a test flips it via BreakReadRepairForTest, disables read-repair
+// so Current() serves the possibly-stale cache. It exists only to PROVE read-repair is
+// what closes #6: with it set, the soak's -break-readrepair reappears the intermittent
+// mismatch at the pre-fix rate — the same negative-control discipline as -break-scoreboard.
+// Never set in production.
+var breakReadRepair bool
+
+// BreakReadRepairForTest toggles the read-repair kill switch. Test-only.
+func BreakReadRepairForTest(v bool) { breakReadRepair = v }
+
 // staleRepairBudget bounds an inline read-repair recompute. Past it, the read serves the
 // stale board and counts it (ScoreboardStaleServed) rather than hanging the request.
 const staleRepairBudget = time.Second
@@ -181,7 +191,7 @@ func (s *Service) served(ctx context.Context, isAdmin, repair bool) (Snapshot, e
 		if werr := s.write(ctx, keyCurrent, snap); werr != nil {
 			return Snapshot{}, werr
 		}
-	case repair:
+	case repair && !breakReadRepair:
 		if fresh, repaired, rerr := s.readRepair(ctx, snap); rerr != nil {
 			return Snapshot{}, rerr
 		} else if repaired {

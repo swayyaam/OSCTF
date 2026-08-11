@@ -89,6 +89,10 @@ type Loader struct {
 	mu      sync.Mutex
 	plugins map[string]*managed
 	budget  budget
+
+	cfg        Config             // discovery/runtime config (empty for the test-constructed loader)
+	sups       []*supervisor      // one per launched plugin, for Stop
+	bootCancel context.CancelFunc // cancels every supervisor on Stop
 }
 
 // newLoader returns an empty loader with a permissive default budget (per-plugin 64, unbounded

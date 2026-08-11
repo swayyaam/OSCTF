@@ -235,7 +235,8 @@ func TestBootSweepRefusesReusedPid(t *testing.T) {
 	t.Cleanup(func() { _ = victim.Process.Kill(); _, _ = victim.Process.Wait() })
 	pid := victim.Process.Pid
 
-	if _, err := writePidfile(dir, "ghost", pid, "osctf-token-that-is-not-in-sleep-argv"); err != nil {
+	// owner 0 (unknown) so the owner check is skipped and the TOKEN check is what's under test.
+	if _, err := writePidfile(dir, "ghost", pid, "osctf-token-that-is-not-in-sleep-argv", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,6 +252,55 @@ func TestBootSweepRefusesReusedPid(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "ghost.pid")); !os.IsNotExist(statErr) {
 		t.Errorf("stale pidfile not cleared")
+	}
+}
+
+// Invariant #1 (two instances, one host): a boot sweep must not reap a plugin that belongs to a
+// SECOND, live platform instance sharing the runtime dir. The plugin carries a valid token (so
+// the token check alone would reap it), but its owner platform is alive — the sweep must REFUSE
+// and leave the record untouched. Two instances sharing a runtime dir is a deployment mistake;
+// the sweep must not turn it into one instance killing the other's plugins.
+func TestBootSweepRefusesLivePlatformInstance(t *testing.T) {
+	dir := t.TempDir()
+	token, err := newStartToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The "plugin": a live process whose argv carries the token (so processMatchesToken matches,
+	// as a real plugin's would). perl passes trailing args through to @ARGV, ignored.
+	//nolint:gosec // G204: fixed command, test-controlled; token is a hex string.
+	plugin := exec.Command("perl", "-e", "sleep 60", "--", token)
+	if err := plugin.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = plugin.Process.Kill(); _, _ = plugin.Process.Wait() })
+
+	// The OWNER: a live process standing in for a second platform instance.
+	//nolint:gosec // G204: fixed command, test-controlled.
+	owner := exec.Command("sleep", "60")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Process.Kill(); _, _ = owner.Process.Wait() })
+
+	if _, err := writePidfile(dir, "other-instance-plugin", plugin.Process.Pid, token, owner.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+
+	reclaimed, err := sweepOrphans(dir, nil)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if containsInt(reclaimed, plugin.Process.Pid) {
+		t.Errorf("sweep reaped pid %d belonging to a live platform instance", plugin.Process.Pid)
+	}
+	if !processAlive(plugin.Process.Pid) {
+		t.Errorf("sweep killed another instance's live plugin — the owner check failed")
+	}
+	// The record is not ours to remove either: leave the other instance's bookkeeping intact.
+	if _, statErr := os.Stat(filepath.Join(dir, "other-instance-plugin.pid")); os.IsNotExist(statErr) {
+		t.Errorf("sweep removed another live instance's pidfile")
 	}
 }
 

@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync/atomic"
 	"syscall"
@@ -141,7 +142,9 @@ func realLaunch(spec launchSpec) launchFn {
 		}
 		pidfilePath := ""
 		if spec.pidfileDir != "" {
-			p, werr := writePidfile(spec.pidfileDir, spec.name, pid, spec.token)
+			// os.Getpid() is the OWNER — this platform process. A future boot sweep uses it to
+			// refuse reaping a plugin that belongs to a live platform instance sharing the dir.
+			p, werr := writePidfile(spec.pidfileDir, spec.name, pid, spec.token, os.Getpid())
 			if werr != nil {
 				client.Kill()
 				return nil, fmt.Errorf("write pidfile: %w", werr)

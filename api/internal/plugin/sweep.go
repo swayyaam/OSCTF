@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -42,33 +43,47 @@ func newStartToken() (string, error) {
 
 // writePidfile records {pid, token} for a launched plugin under dir/name.pid, so a later boot
 // can find and identify a child the host never reaped.
-func writePidfile(dir, name string, pid int, token string) (string, error) {
+// pidfileRecord is one launched plugin's boot-sweep record: the plugin's pid + start-token, plus
+// the OWNER — the pid of the platform process that launched it. The owner is what lets a boot
+// sweep tell a true orphan (owner dead) from a plugin belonging to a SECOND platform instance
+// sharing the runtime dir (owner alive) — the token alone cannot, since a live instance's plugin
+// carries a perfectly valid token.
+type pidfileRecord struct {
+	PID   int    `json:"pid"`
+	Token string `json:"token"`
+	Owner int    `json:"owner"` // platform pid that launched the plugin (0 = unknown)
+}
+
+func writePidfile(dir, name string, pid int, token string, owner int) (string, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, name+".pid")
-	if err := os.WriteFile(path, []byte(fmt.Sprintf("%d\n%s\n", pid, token)), 0o600); err != nil {
+	data, err := json.Marshal(pidfileRecord{PID: pid, Token: token, Owner: owner})
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-// readPidfile parses a {pid, token} pidfile.
-func readPidfile(path string) (pid int, token string, err error) {
+// readPidfile parses a pidfile record.
+func readPidfile(path string) (pidfileRecord, error) {
 	//nolint:gosec // G304: path is a pidfile under our own pidfile dir, not user input.
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return 0, "", err
+		return pidfileRecord{}, err
 	}
-	lines := strings.SplitN(strings.TrimSpace(string(b)), "\n", 2)
-	if len(lines) != 2 {
-		return 0, "", fmt.Errorf("plugin: malformed pidfile %s", path)
+	var r pidfileRecord
+	if err := json.Unmarshal(b, &r); err != nil {
+		return pidfileRecord{}, fmt.Errorf("plugin: malformed pidfile %s: %w", path, err)
 	}
-	pid, err = strconv.Atoi(strings.TrimSpace(lines[0]))
-	if err != nil {
-		return 0, "", fmt.Errorf("plugin: bad pid in %s: %w", path, err)
+	if r.PID <= 0 {
+		return pidfileRecord{}, fmt.Errorf("plugin: pidfile %s missing pid", path)
 	}
-	return pid, strings.TrimSpace(lines[1]), nil
+	return r, nil
 }
 
 // processAlive reports whether an OS process exists (signal 0 probes without delivering a
@@ -98,11 +113,17 @@ func processMatchesToken(pid int, token string) bool {
 	return strings.Contains(string(out), token)
 }
 
-// sweepOrphans reclaims plugin children the host never reaped. For each pidfile in dir: if the
-// process is gone, the stale pidfile is removed; if it is alive AND its command line carries the
-// matching start-token, it is an orphan of ours and is killed; if it is alive but the token does
-// NOT match, the pid has been reused by an unrelated process and the sweep REFUSES to kill it
-// (removing only the stale pidfile). Returns the pids it reclaimed.
+// sweepOrphans reclaims plugin children the host never reaped. For each pidfile in dir:
+//   - plugin process gone → remove the stale record;
+//   - plugin alive but its OWNER platform is still alive → REFUSE and LEAVE the record: the plugin
+//     belongs to a second platform instance sharing this runtime dir, not to us;
+//   - plugin alive, owner dead, and the command line carries the matching start-token → an orphan
+//     of a crashed platform, killed and its record removed;
+//   - plugin alive, owner dead, token does NOT match → the pid was recycled by an unrelated
+//     process; refuse to kill, drop the stale record.
+//
+// Returns the pids it reclaimed. The owner check is what makes two platform instances on one host
+// safe; the token check is what makes pid reuse safe.
 func sweepOrphans(dir string, log *slog.Logger) (reclaimed []int, err error) {
 	if log == nil {
 		log = slog.Default()
@@ -119,25 +140,30 @@ func sweepOrphans(dir string, log *slog.Logger) (reclaimed []int, err error) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		pid, token, rerr := readPidfile(path)
+		r, rerr := readPidfile(path)
 		if rerr != nil {
 			log.Warn("orphan sweep: skipping unreadable pidfile", "path", path, "err", rerr)
 			continue
 		}
 		switch {
-		case !processAlive(pid):
-			_ = os.Remove(path) // owner already gone — clear the stale record
-		case processMatchesToken(pid, token):
-			if kerr := syscall.Kill(pid, syscall.SIGKILL); kerr != nil {
-				log.Warn("orphan sweep: kill failed", "pid", pid, "err", kerr)
+		case !processAlive(r.PID):
+			_ = os.Remove(path) // plugin already gone — clear the stale record
+		case r.Owner != 0 && processAlive(r.Owner):
+			// Belongs to a live platform instance sharing this runtime dir. Not ours to reap, and
+			// its record is not ours to remove.
+			log.Warn("orphan sweep: refusing — plugin belongs to a live platform instance",
+				"pid", r.PID, "owner_pid", r.Owner)
+		case processMatchesToken(r.PID, r.Token):
+			if kerr := syscall.Kill(r.PID, syscall.SIGKILL); kerr != nil {
+				log.Warn("orphan sweep: kill failed", "pid", r.PID, "err", kerr)
 				continue
 			}
 			_ = os.Remove(path)
-			reclaimed = append(reclaimed, pid)
-			log.Info("orphan sweep reclaimed a leaked plugin child", "pid", pid)
+			reclaimed = append(reclaimed, r.PID)
+			log.Info("orphan sweep reclaimed a leaked plugin child", "pid", r.PID)
 		default:
-			// Alive but not ours — the pid was recycled. Refuse to kill; drop the stale record.
-			log.Warn("orphan sweep: refusing to kill a reused pid (token mismatch)", "pid", pid)
+			// Alive, owner dead, but token mismatch — the pid was recycled. Refuse; drop the stale record.
+			log.Warn("orphan sweep: refusing to kill a reused pid (token mismatch)", "pid", r.PID)
 			_ = os.Remove(path)
 		}
 	}

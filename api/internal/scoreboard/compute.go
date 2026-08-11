@@ -89,10 +89,16 @@ func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, int, e
 		}
 	}
 
-	// value[challenge] = engine.Value(params, solveCount).
+	// value[challenge] = engine.Value(params, solveCount) — for BUILT-IN modes only. A plugin mode
+	// is scored locked-at-solve from each solve's recorded value (read below), NOT from a formula
+	// and NEVER by calling the plugin here: the read path stays deterministic regardless of plugin
+	// state, so the served board equals a from-scratch recompute over (log + records) even when the
+	// plugin is down (docs/v0.3, #9).
 	value := make(map[uuid.UUID]int, len(chal))
 	for id, cp := range chal {
-		value[id] = scoring.Value(cp.mode, cp.params, solveCount[id])
+		if scoring.IsBuiltinMode(cp.mode) {
+			value[id] = scoring.Value(cp.mode, cp.params, solveCount[id])
+		}
 	}
 
 	// Step 3: aggregate per team.
@@ -108,7 +114,15 @@ func compute(ctx context.Context, q scoreStore, now time.Time) (Snapshot, int, e
 			a = &agg{}
 			byTeam[r.TeamID] = a
 		}
-		a.points += value[r.ChallengeID]
+		// Built-in: the per-challenge formula value (retroactive, decays as solves accrue). Plugin:
+		// this solve's own recorded value, locked at solve time (no retroactive decay). A missing
+		// record (NULL) resolves to the deterministic default 0 — never a formula, never a plugin
+		// call — and is filled off the read path by the repair worker.
+		if scoring.IsBuiltinMode(r.Scoring) {
+			a.points += value[r.ChallengeID]
+		} else if r.ScoredValue != nil {
+			a.points += int(*r.ScoredValue)
+		}
 		a.solves++
 		if r.SolvedAt.After(a.lastSolve) {
 			a.lastSolve = r.SolvedAt

@@ -95,6 +95,33 @@ func (q *Queries) CountTeamAttempts(ctx context.Context, arg CountTeamAttemptsPa
 	return count, err
 }
 
+const countUnscoredPluginSolves = `-- name: CountUnscoredPluginSolves :one
+SELECT
+    count(*) FILTER (WHERE s.scored_by IS NULL)      AS missing,
+    count(*) FILTER (WHERE s.scored_by = 'pending')  AS pending
+FROM submissions s
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.scoring NOT IN ('static', 'dynamic')
+  AND s.scored_value IS NULL
+`
+
+type CountUnscoredPluginSolvesRow struct {
+	Missing int64
+	Pending int64
+}
+
+// The durability signal for plugin scoring: MISSING (scored_by NULL — the post-commit write
+// failed, an absence that must be ALERTABLE) counted separately from PENDING (scored_by 'pending'
+// — a deferred value while the plugin was down, expected to clear when it recovers). Same set as
+// ListSolvesNeedingScore. A sustained missing count means the write path is broken.
+func (q *Queries) CountUnscoredPluginSolves(ctx context.Context) (CountUnscoredPluginSolvesRow, error) {
+	row := q.db.QueryRow(ctx, countUnscoredPluginSolves)
+	var i CountUnscoredPluginSolvesRow
+	err := row.Scan(&i.Missing, &i.Pending)
+	return i, err
+}
+
 const countValidSolves = `-- name: CountValidSolves :one
 SELECT count(*) FROM submissions s
 JOIN teams t ON t.id = s.team_id
@@ -201,6 +228,58 @@ func (q *Queries) ListScoreboardTeams(ctx context.Context) ([]ListScoreboardTeam
 	for rows.Next() {
 		var i ListScoreboardTeamsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.Banned); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSolvesNeedingScore = `-- name: ListSolvesNeedingScore :many
+SELECT s.id, s.challenge_id, c.scoring, c.points_initial, c.points_min, c.decay
+FROM submissions s
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.scoring NOT IN ('static', 'dynamic')
+  AND s.scored_value IS NULL
+ORDER BY s.created_at ASC
+LIMIT $1
+`
+
+type ListSolvesNeedingScoreRow struct {
+	ID            uuid.UUID
+	ChallengeID   uuid.UUID
+	Scoring       string
+	PointsInitial int32
+	PointsMin     *int32
+	Decay         *int32
+}
+
+// Correct solves on a PLUGIN-scored challenge with no recorded value yet — MISSING (scored_by
+// NULL, the post-commit write never landed) or PENDING (scored_by 'pending', deferred while the
+// plugin was down). The off-read-path repair worker reads these on a tick and records a value.
+// No visibility filter: the record is a durable per-solve fact, independent of whether the
+// challenge is currently visible.
+func (q *Queries) ListSolvesNeedingScore(ctx context.Context, limit int32) ([]ListSolvesNeedingScoreRow, error) {
+	rows, err := q.db.Query(ctx, listSolvesNeedingScore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSolvesNeedingScoreRow{}
+	for rows.Next() {
+		var i ListSolvesNeedingScoreRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChallengeID,
+			&i.Scoring,
+			&i.PointsInitial,
+			&i.PointsMin,
+			&i.Decay,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -392,7 +471,8 @@ func (q *Queries) ListUserSolves(ctx context.Context, userID uuid.UUID) ([]ListU
 const listValidSolves = `-- name: ListValidSolves :many
 SELECT s.team_id, s.challenge_id, s.created_at AS solved_at,
        t.name AS team_name, t.banned AS team_banned,
-       c.scoring, c.points_initial, c.points_min, c.decay
+       c.scoring, c.points_initial, c.points_min, c.decay,
+       s.scored_value
 FROM submissions s
 JOIN teams t ON t.id = s.team_id
 JOIN challenges c ON c.id = s.challenge_id
@@ -417,12 +497,19 @@ type ListValidSolvesRow struct {
 	PointsInitial int32
 	PointsMin     *int32
 	Decay         *int32
+	ScoredValue   *int32
 }
 
 // The one scoreboard input query (docs/v0.1/07-scoring.md): every correct
 // submission for a visible challenge by a non-hidden team with at least one
 // non-hidden member. Banned teams are INCLUDED and flagged; Go excludes them
 // from solve counts but still displays them.
+//
+// scored_value carries the LOCKED-AT-SOLVE value for a plugin-scored challenge (0007). The
+// recompute reads it for plugin modes instead of calling the plugin — so the served board equals
+// a from-scratch recompute over (log + records) even when the plugin is down. Built-in
+// static/dynamic ignore it and recompute from the formula; a NULL on a plugin solve is a MISSING
+// record (resolves to the deterministic default on read, a background worker fills it).
 func (q *Queries) ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, error) {
 	rows, err := q.db.Query(ctx, listValidSolves)
 	if err != nil {
@@ -442,6 +529,7 @@ func (q *Queries) ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, er
 			&i.PointsInitial,
 			&i.PointsMin,
 			&i.Decay,
+			&i.ScoredValue,
 		); err != nil {
 			return nil, err
 		}
@@ -451,4 +539,29 @@ func (q *Queries) ListValidSolves(ctx context.Context) ([]ListValidSolvesRow, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordScore = `-- name: RecordScore :execrows
+UPDATE submissions
+SET scored_value = $3, scored_by = $2
+WHERE id = $1 AND correct AND scored_value IS NULL
+`
+
+type RecordScoreParams struct {
+	ID          uuid.UUID
+	ScoredBy    *string
+	ScoredValue *int32
+}
+
+// Records the locked-at-solve value for a plugin-scored solve. Written post-commit on the write
+// path, and by the off-read-path repair worker for MISSING/PENDING records. The `scored_value IS
+// NULL` guard makes it a write-once from the read path's view: a repair tick that raced a fresh
+// write-path record (which already set a value) is a no-op (0 rows), never a clobber. scored_by
+// names the source: the plugin mode, 'fallback' (static value used), or 'pending' (deferred → 0).
+func (q *Queries) RecordScore(ctx context.Context, arg RecordScoreParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordScore, arg.ID, arg.ScoredBy, arg.ScoredValue)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

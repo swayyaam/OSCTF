@@ -124,6 +124,56 @@ func TestComputeRanksTiebreaksBansAndDynamicValue(t *testing.T) {
 	}
 }
 
+// TestComputeReadsPluginRecordNotFormula pins the #9 read seam: a plugin-scored challenge is
+// scored from the PER-SOLVE recorded value (locked-at-solve), never from the formula and never by
+// calling the plugin. Two solvers of the same plugin challenge carry DIFFERENT recorded values —
+// impossible under the per-challenge formula, which would give every solver PointsInitial (the
+// unknown-mode static fallback). A third solver has a MISSING record (NULL scored_value) and must
+// resolve to the deterministic default 0, not to the formula.
+func TestComputeReadsPluginRecordNotFormula(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	teamA := uuid.MustParse("00000000-0000-0000-0000-0000000000a1")
+	teamB := uuid.MustParse("00000000-0000-0000-0000-0000000000b2")
+	teamC := uuid.MustParse("00000000-0000-0000-0000-0000000000c3")
+	chP := uuid.MustParse("00000000-0000-0000-0000-0000000000cc") // plugin-scored
+
+	plugin := func(team uuid.UUID, at time.Time, rec *int32) gen.ListValidSolvesRow {
+		// PointsInitial is deliberately 999 so a formula fallback (static → 999) is unmistakable.
+		return gen.ListValidSolvesRow{TeamID: team, ChallengeID: chP, SolvedAt: at, Scoring: "custom", PointsInitial: 999, ScoredValue: rec}
+	}
+
+	store := fakeStore{
+		teams: []gen.ListScoreboardTeamsRow{
+			{ID: teamA, Name: "Alpha"},
+			{ID: teamB, Name: "Bravo"},
+			{ID: teamC, Name: "Charlie"},
+		},
+		solves: []gen.ListValidSolvesRow{
+			plugin(teamA, now.Add(-3*time.Hour), i32p(250)),
+			plugin(teamB, now.Add(-2*time.Hour), i32p(175)),
+			plugin(teamC, now.Add(-1*time.Hour), nil), // MISSING record → 0
+		},
+	}
+
+	snap, _, err := compute(context.Background(), store, now)
+	if err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	got := map[uuid.UUID]int{}
+	for _, e := range snap.Standings {
+		got[e.TeamID] = e.Points
+	}
+	if got[teamA] != 250 {
+		t.Errorf("Alpha points = %d, want 250 (recorded per-solve value, not formula)", got[teamA])
+	}
+	if got[teamB] != 175 {
+		t.Errorf("Bravo points = %d, want 175 (recorded per-solve value, not formula)", got[teamB])
+	}
+	if got[teamC] != 0 {
+		t.Errorf("Charlie points = %d, want 0 (missing record resolves to the deterministic default)", got[teamC])
+	}
+}
+
 // TestComputeNameTiebreakAmongScorelessTeams checks the final tiebreak: teams with
 // identical points and no last-solve are ordered by name.
 func TestComputeNameTiebreakAmongScorelessTeams(t *testing.T) {

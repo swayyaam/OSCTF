@@ -184,6 +184,39 @@ var (
 		Name: "osctf_plugin_inflight_shed_total",
 		Help: "Host→plugin calls shed at an in-flight cap, by plugin and cap level (per_plugin, global).",
 	}, []string{"plugin", "level"})
+
+	// PluginScoreRecordFailures counts post-commit scoring-record WRITE failures — the solve
+	// committed but its scored_value did not land, leaving a MISSING record. This is the write-path
+	// durability signal; the repair worker backfills it, but a rising rate means writes are failing.
+	PluginScoreRecordFailures = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_plugin_score_record_failures_total",
+		Help: "Post-commit plugin-scoring record writes that failed (leaving a missing record).",
+	})
+
+	// PluginScoresMissing gauges valid plugin-scored solves with NO recorded value and NO scored_by
+	// — an ABSENCE (the post-commit write never landed), resolved to 0 on the board until repaired.
+	// ALERT on a sustained nonzero value: it means the write path is broken and the board is
+	// under-counting real solves. Distinct from pending (which is an expected deferral). Refreshed
+	// each repair-worker tick.
+	PluginScoresMissing = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "osctf_plugin_scores_missing",
+		Help: "Valid plugin-scored solves with a missing scoring record (absent write) — alert if sustained.",
+	})
+
+	// PluginScoresPending gauges plugin-scored solves recorded as 'pending' (plugin was down, no
+	// fallback) — a DEFINITE state resolving to 0, expected to clear when the plugin recovers and
+	// the repair worker fills the value. Not itself an alert; a pending count that never drains is.
+	PluginScoresPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "osctf_plugin_scores_pending",
+		Help: "Plugin-scored solves recorded as pending (deferred value), expected to clear on plugin recovery.",
+	})
+
+	// PluginScoresRepaired counts scoring records the off-read-path worker backfilled (missing or
+	// pending → a value). A healthy small trickle is normal; a spike tracks a write-path outage.
+	PluginScoresRepaired = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_plugin_scores_repaired_total",
+		Help: "Missing/pending plugin-scoring records backfilled by the repair worker.",
+	})
 )
 
 // MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
@@ -201,6 +234,7 @@ func init() {
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
 		ScoreboardStaleReads, ScoreboardStaleServed,
 		PluginCallDuration, PluginInflight, PluginInflightShed,
+		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
 	)
 }
 

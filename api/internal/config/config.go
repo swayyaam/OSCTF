@@ -122,6 +122,12 @@ type Config struct {
 	PluginHealthStable time.Duration `env:"OSCTF_PLUGIN_HEALTH_STABLE" envDefault:"60s"`
 	PluginRestartCap   int           `env:"OSCTF_PLUGIN_RESTART_CAP" envDefault:"5"`
 	PluginStartTimeout time.Duration `env:"OSCTF_PLUGIN_START_TIMEOUT" envDefault:"30s"`
+	// PluginScoringFallback controls how a plugin-scored solve is valued when its plugin is down at
+	// solve time (#9). Default ON: record the static value so the participant sees a real number and
+	// the board is right — the recommended default (docs/v0.1/10-deployment.md), since it avoids a
+	// participant-visible 0. OFF records 'pending' (resolves to 0 until the repair worker fills the
+	// plugin's value on recovery) for deployments that must never show a fallback value.
+	PluginScoringFallback bool `env:"OSCTF_PLUGIN_SCORING_FALLBACK" envDefault:"true"`
 
 	// API-token rate limit, keyed by TOKEN IDENTITY (not IP or account). Automation traffic
 	// is legitimately unlike a browser's, and the venue-NAT lesson (issue #1) applies to bots:

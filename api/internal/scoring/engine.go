@@ -11,6 +11,24 @@ type ChallengeScoring struct {
 	Decay   int // decay       (dynamic only; solve count at which value reaches Min)
 }
 
+// ModeStatic and ModeDynamic are the built-in scoring mode ids. Their value is a pure function of
+// the solve count, recomputed from the formula on every read. Any other mode is plugin-provided
+// and scored locked-at-solve from a recorded value (0007) — never by calling the plugin on the
+// read path.
+const (
+	ModeStatic  = "static"
+	ModeDynamic = "dynamic"
+)
+
+// IsBuiltinMode reports whether mode is a platform built-in (static/dynamic). It is a CONSTANT
+// check — no registry lookup, no plugin access, no I/O — so a scoreboard recompute can classify a
+// solve and stay deterministic regardless of plugin or registry state (a plugin deregistered
+// mid-read must not change how a past solve is scored). Everything else is a plugin mode, whose
+// value the recompute reads from the per-solve record, not from any engine.
+func IsBuiltinMode(mode string) bool {
+	return mode == ModeStatic || mode == ModeDynamic
+}
+
 // ScoringEngine computes a challenge's current point value given its valid solve count.
 type ScoringEngine interface {
 	Name() string // "static" | "dynamic"
@@ -21,7 +39,7 @@ type ScoringEngine interface {
 type StaticEngine struct{}
 
 // Name implements ScoringEngine.
-func (StaticEngine) Name() string { return "static" }
+func (StaticEngine) Name() string { return ModeStatic }
 
 // Value implements ScoringEngine: the value never changes.
 func (StaticEngine) Value(params ChallengeScoring, _ int) int { return params.Initial }
@@ -32,7 +50,7 @@ func (StaticEngine) Value(params ChallengeScoring, _ int) int { return params.In
 type DynamicEngine struct{}
 
 // Name implements ScoringEngine.
-func (DynamicEngine) Name() string { return "dynamic" }
+func (DynamicEngine) Name() string { return ModeDynamic }
 
 // Value implements ScoringEngine.
 func (DynamicEngine) Value(params ChallengeScoring, solves int) int {

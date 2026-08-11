@@ -48,6 +48,24 @@ type ChallengeTypes interface {
 	Resolve(typeID string) (checker FlagChecker, isPlugin, registered bool)
 }
 
+// Scorer computes the locked-at-solve point value for a PLUGIN-scored solve. It runs on the WRITE
+// path only — post-commit, never inside the transaction — so a slow plugin never holds a row lock,
+// and it is NEVER consulted by the scoreboard read path (which reads the recorded value). Built-in
+// static/dynamic solves never reach it; the service scores those from the formula. Returns:
+//   - (value, "<mode>", true)     — the plugin produced an authoritative value;
+//   - (value, "fallback", true)   — the plugin was unavailable and the deployment's fallback applied;
+//   - (0, "pending", false)       — unavailable with no fallback: record 'pending' (resolves to 0
+//     on the board; the repair worker retries when the plugin recovers).
+type Scorer interface {
+	Score(ctx context.Context, mode string, params scoring.ChallengeScoring, solves int) (value int, by string, hasValue bool)
+}
+
+// scoreDeadline bounds the post-commit scoring call so a slow/hung plugin can delay the response
+// by at most this much; on timeout the Scorer's fallback/pending path decides the record. The
+// solve is already committed — this only affects the value shown and recorded, which the off-read-
+// path repair worker backfills if it lands as missing/pending.
+const scoreDeadline = 3 * time.Second
+
 // Service implements the submission flow.
 type Service struct {
 	pool    *pgxpool.Pool
@@ -56,6 +74,7 @@ type Service struct {
 	clock   clock.Clock
 	audit   *audit.Logger
 	checker ChallengeTypes // challenge-type resolver; nil = no plugin types (byte-identical to v0.2)
+	scorer  Scorer         // plugin scoring; nil = no plugin scoring (built-in formula only, v0.2)
 }
 
 // New builds the service. With no challenge-type resolver wired (see WithChallengeTypes) every
@@ -69,6 +88,14 @@ func New(pool *pgxpool.Pool, ev *events.Service, c clock.Clock, auditLog *audit.
 // (or no resolver) keeps the in-transaction flag comparison. Returns the service for chaining.
 func (s *Service) WithChallengeTypes(reg ChallengeTypes) *Service {
 	s.checker = reg
+	return s
+}
+
+// WithScorer wires the plugin scorer consulted post-commit for a plugin-scored solve. With no
+// scorer (or a built-in static/dynamic challenge) the value is computed from the formula exactly as
+// v0.2. Returns the service for chaining.
+func (s *Service) WithScorer(sc Scorer) *Service {
+	s.scorer = sc
 	return s
 }
 
@@ -130,6 +157,10 @@ type Input struct {
 type Result struct {
 	Correct bool
 	Points  *int // current challenge value when correct; nil otherwise
+	// Pending is true when a plugin-scored solve's value could not be computed yet (plugin down,
+	// no fallback): Points is 0 and the participant is shown a "scoring pending" state rather than
+	// a bare 0. The repair worker fills the real value off the read path.
+	Pending bool
 }
 
 // Submit runs the full flow and returns the verdict. Every attempt is logged.
@@ -170,6 +201,7 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 	}
 
 	var correct bool
+	var solveID uuid.UUID       // the committed solve's submission id, for the post-commit scoring record
 	var sharingOwner *uuid.UUID // owning team when another team's per-instance flag was submitted
 	err = db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
@@ -251,6 +283,9 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 			}
 			return fmt.Errorf("submissions: insert: %w", lerr)
 		}
+		if correct {
+			solveID = id
+		}
 		return nil
 	})
 	if err != nil {
@@ -276,10 +311,47 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		if cerr != nil {
 			return Result{}, fmt.Errorf("submissions: count solves: %w", cerr)
 		}
-		pts := currentPoints(ch, int(count))
-		res.Points = &pts
+		if scoring.IsBuiltinMode(ch.Scoring) {
+			// Built-in static/dynamic: value is a pure function of the solve count, recomputed on
+			// every read — nothing to record (v0.2 behaviour, byte-identical).
+			pts := currentPoints(ch, int(count))
+			res.Points = &pts
+		} else {
+			// Plugin-scored: compute the value ONCE, post-commit, and record it on the solve. The
+			// board reads that record, never the plugin — so it stays correct with the plugin down.
+			pts, pending := s.recordPluginScore(ctx, solveID, ch, int(count))
+			res.Points = &pts
+			res.Pending = pending
+		}
 	}
 	return res, nil
+}
+
+// recordPluginScore computes the locked-at-solve value for a plugin-scored solve, records it on the
+// just-committed submission row, and returns the value to show the participant (pending=true when
+// the value is deferred). It runs POST-commit — never in the tx — so a slow plugin never holds a
+// row lock, and it is bounded by scoreDeadline. If the record write itself fails the solve stands
+// with a MISSING record: the board defaults it to 0 and the repair worker fills it, so the failure
+// is recoverable and never blocks the response.
+func (s *Service) recordPluginScore(ctx context.Context, solveID uuid.UUID, ch gen.Challenge, solves int) (points int, pending bool) {
+	value, by, hasValue := 0, "pending", false
+	if s.scorer != nil {
+		sctx, cancel := context.WithTimeout(ctx, scoreDeadline)
+		value, by, hasValue = s.scorer.Score(sctx, ch.Scoring, scoreParams(ch), solves)
+		cancel()
+	}
+	var scoredValue *int32
+	if hasValue {
+		v := int32(value)
+		scoredValue = &v
+	}
+	label := by
+	if _, err := s.q.RecordScore(ctx, gen.RecordScoreParams{ID: solveID, ScoredBy: &label, ScoredValue: scoredValue}); err != nil {
+		// The record write failed: the row is now a MISSING record (both columns NULL). Count it —
+		// this is the write-path durability signal — and let the repair worker backfill it.
+		metrics.PluginScoreRecordFailures.Inc()
+	}
+	return value, !hasValue
 }
 
 // comparePerInstance compares against the submitting team's own instance flag.
@@ -338,7 +410,9 @@ func compareFlag(provided, actual string, caseInsensitive bool) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func currentPoints(c gen.Challenge, solves int) int {
+// scoreParams extracts the challenge's scoring parameters. Shared by the built-in formula path and
+// the plugin scorer so both value the same solve from the same inputs.
+func scoreParams(c gen.Challenge) scoring.ChallengeScoring {
 	params := scoring.ChallengeScoring{Initial: int(c.PointsInitial)}
 	if c.PointsMin != nil {
 		params.Min = int(*c.PointsMin)
@@ -346,5 +420,9 @@ func currentPoints(c gen.Challenge, solves int) int {
 	if c.Decay != nil {
 		params.Decay = int(*c.Decay)
 	}
-	return scoring.Value(c.Scoring, params, solves)
+	return params
+}
+
+func currentPoints(c gen.Challenge, solves int) int {
+	return scoring.Value(c.Scoring, scoreParams(c), solves)
 }

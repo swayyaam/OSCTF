@@ -85,6 +85,9 @@ var (
 	fBreakSB  = flag.Bool("break-scoreboard", false, "DEBUG: stop recomputing the scoreboard so REST goes stale — proves the from-scratch invariant bites")
 	fBreakRR  = flag.Bool("break-readrepair", false, "DEBUG: disable read-repair (Current serves the stale cache) — negative control that reappears the #6 durability-gap mismatch at ~the pre-fix rate")
 	fAgeLost  = flag.Bool("age-lost-rows", true, "age a vanished row's updated_at past reconcile's DB-wall grace so lost→reap fires in-run; -age-lost-rows=false measures the vanish→lost→reap path going dark under an accelerated clock")
+	// #9 plugin-scoring negative controls (manual gates, like -break-readrepair).
+	fRecomputePlugin = flag.Bool("recompute-via-plugin", false, "DEBUG: recompute plugin scores by CALLING the plugin (current solve count) instead of reading the per-solve record — diverges from the served board (which reads the locked record), proving the record-read invariant bites")
+	fBreakScoreRec   = flag.Bool("break-score-record", false, "DEBUG: seed an aged plugin solve with NO record and disable the repair worker — the scoring-record-missing invariant must then fire")
 )
 
 const (
@@ -193,7 +196,7 @@ func TestSoak(t *testing.T) {
 	h := handlers.New(handlers.Deps{
 		Users: usersSvc, Teams: teamsSvc, Events: ev,
 		Challenges:  challenges.New(q, &memStore{m: map[string][]byte{}}),
-		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())),
+		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())).WithScorer(soakScoringPlugin),
 		Scoreboard:  sb, Runtime: mgr, Scheduler: sched,
 		Recompute: func(rctx context.Context) {
 			if !*fBreakSB { // -break-scoreboard: stop refreshing the cache so REST goes stale
@@ -215,7 +218,7 @@ func TestSoak(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	static, perTeam := seedWorld(ctx, t, q, usersSvc, teamsSvc)
+	static, perTeam := seedWorld(ctx, t, pool, q, usersSvc, teamsSvc)
 
 	m := &collector{pool: pool}
 	m.snapshotBaseline()
@@ -235,6 +238,13 @@ func TestSoak(t *testing.T) {
 	go func() { defer wg.Done(); runFaults(runCtx, pool, fake, m, *fSeed) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); m.checkInvariants(runCtx, pool, q, sb, checkGet) }()
+	// #9 off-read-path scoring repair worker. Disabled under -break-score-record so a seeded
+	// missing record stays missing and the scoring-record-missing invariant fires.
+	if !*fBreakScoreRec {
+		repairer := submissions.NewScoreRepairer(pool, soakScoringPlugin)
+		wg.Add(1)
+		go func() { defer wg.Done(); repairer.Run(runCtx, nil) }()
+	}
 
 	// WS clients live on their own context so they outlast the actors and receive the
 	// final quiescent broadcast before the convergence check.
@@ -315,7 +325,29 @@ var seededUsers []userCred
 // seedWorld before any actor runs, read by faultyRuntime.Deploy during the run.
 var cursedID atomic.Pointer[uuid.UUID]
 
-func seedWorld(ctx context.Context, t *testing.T, q *gen.Queries, usersSvc *users.Service, teamsSvc *teams.Service) (static, perTeam []challengeRef) {
+// soakScorer is the in-process stand-in for a scoring plugin (#9). Its value is COUNT-DEPENDENT, so
+// the value locked at solve time differs from a recompute at a later, higher count — which is what
+// makes the -recompute-via-plugin negative control diverge deterministically (the served board
+// reads the locked per-solve record; a plugin recompute reads the current count). It can be stopped
+// to simulate the plugin going down (write path then records 'pending').
+type soakScorer struct{ stopped atomic.Bool }
+
+func (s *soakScorer) Score(_ context.Context, mode string, p scoring.ChallengeScoring, solves int) (int, string, bool) {
+	if s.stopped.Load() {
+		return 0, "pending", false // plugin down, no fallback → defer (repair worker retries)
+	}
+	v := p.Initial - 5*solves
+	if v < 50 {
+		v = 50
+	}
+	return v, mode, true
+}
+
+// soakScoringPlugin is the single in-process scoring plugin: the write path scores through it, and
+// the -recompute-via-plugin negative control recomputes through it.
+var soakScoringPlugin = &soakScorer{}
+
+func seedWorld(ctx context.Context, t *testing.T, pool *pgxpool.Pool, q *gen.Queries, usersSvc *users.Service, teamsSvc *teams.Service) (static, perTeam []challengeRef) {
 	t.Helper()
 	total := numTeams * teamSize
 	if total < *fActors {
@@ -378,6 +410,37 @@ func seedWorld(ctx context.Context, t *testing.T, q *gen.Queries, usersSvc *user
 			} else {
 				perTeam = append(perTeam, challengeRef{slug: slug})
 			}
+		}
+	}
+
+	// A PLUGIN-scored challenge (#9): a standard flag challenge whose scoring mode is 'custom',
+	// valued by the in-process scoring plugin (post-commit) and recorded per-solve. Actors solve it
+	// like any static one; its solves exercise the record write path, the read seam, the repair
+	// worker, and both new invariants. (scoring='custom' inserts directly — 0007 dropped the CHECK.)
+	pid := uuid.Must(uuid.NewV7())
+	const pluginFlag = "OSCTF{plugin-scored}"
+	mustCreateChallenge(ctx, t, q, gen.CreateChallengeParams{
+		ID: pid, Slug: "chal-plugin", Title: "chal-plugin", Category: "misc", Kind: "standard", Flag: pluginFlag,
+		Scoring: "custom", PointsInitial: 500, Visible: true,
+		MemLimitMb: 128, CpuMillis: 500, ContainerEnv: []byte("{}"),
+		Instancing: ptr("shared"), FlagMode: ptr("static"), Egress: ptr(true), WritablePaths: []byte("[]"),
+	})
+	static = append(static, challengeRef{slug: "chal-plugin", flag: pluginFlag})
+
+	if *fBreakScoreRec {
+		// Negative control for the scoring-record-missing invariant: a correct plugin solve with NO
+		// record, inserted directly (bypassing the write path) and BACKDATED past the grace so it is
+		// missing from the first invariant pass. With the repair worker disabled (see TestSoak) it
+		// stays missing and the invariant must fire.
+		mid := uuid.Must(uuid.NewV7())
+		if _, err := q.CreateSubmission(ctx, gen.CreateSubmissionParams{
+			ID: mid, ChallengeID: pid, TeamID: seededUsers[0].teamID, UserID: seededUsers[0].userID,
+			Provided: "x", Correct: true,
+		}); err != nil {
+			t.Fatalf("seed missing-record solve: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE submissions SET created_at = now() - interval '120 seconds' WHERE id=$1`, mid); err != nil {
+			t.Fatalf("backdate missing-record solve: %v", err)
 		}
 	}
 	return static, perTeam
@@ -991,6 +1054,19 @@ func (m *collector) oneInvariantPass(ctx context.Context, pool *pgxpool.Pool, q 
 	if metrics.CounterValue(metrics.ScoreboardStaleServed) > 0 {
 		m.recordViol("scoreboard-stale-served", "inline read-repair exceeded its budget and served a stale board")
 	}
+	// #9 durability: every valid plugin-scored solve must carry a scoring RECORD (scored_by set)
+	// within the backfill-latency bound. The write path records synchronously post-commit, and the
+	// repair worker backfills any that slip; a solve older than the grace (3× RepairInterval) with
+	// scored_by NULL is a MISSING record neither wrote — the write-path durability gap, the failure
+	// that otherwise shows only as a wrong board mid-event.
+	var missingAged int
+	_ = pool.QueryRow(ctx, `
+		SELECT count(*) FROM submissions s JOIN challenges c ON c.id = s.challenge_id
+		WHERE s.correct AND c.scoring NOT IN ('static','dynamic')
+		  AND s.scored_by IS NULL AND s.created_at < now() - interval '30 seconds'`).Scan(&missingAged)
+	if missingAged > 0 {
+		m.recordViol("scoring-record-missing", fmt.Sprintf("%d plugin solves aged past grace with no scoring record", missingAged))
+	}
 	// No flag on a participant surface, points non-negative.
 	if snap, err := sb.Current(ctx, false); err == nil {
 		for _, e := range snap.Standings {
@@ -1091,11 +1167,32 @@ func independentStandings(ctx context.Context, q *gen.Queries) (map[uuid.UUID]in
 	}
 	value := make(map[uuid.UUID]int, len(params))
 	for id, c := range params {
-		value[id] = scoring.Value(c.mode, c.p, count[id])
+		switch {
+		case scoring.IsBuiltinMode(c.mode):
+			value[id] = scoring.Value(c.mode, c.p, count[id])
+		case *fRecomputePlugin:
+			// NEGATIVE CONTROL: recompute the plugin mode by CALLING the plugin at the current solve
+			// count, instead of reading the per-solve record. Because the plugin is count-dependent,
+			// this differs from the values locked at each solve — so it diverges from the served
+			// board (which reads the record), reproducing exactly the mistake the design forbids.
+			v, _, _ := soakScoringPlugin.Score(context.Background(), c.mode, c.p, count[id])
+			value[id] = v
+		}
 	}
 	pts := map[uuid.UUID]int{}
 	for _, r := range solves {
-		pts[r.TeamID] += value[r.ChallengeID]
+		// Mirror compute() exactly (#9): plugin modes are scored from the per-solve RECORD, never
+		// the plugin. That is what makes the served==from-scratch invariant hold with the plugin
+		// down — if this recomputed a plugin mode by calling the plugin, the two sides would
+		// diverge the moment the plugin stopped. (-recompute-via-plugin flips this on purpose.)
+		switch {
+		case scoring.IsBuiltinMode(r.Scoring):
+			pts[r.TeamID] += value[r.ChallengeID]
+		case *fRecomputePlugin:
+			pts[r.TeamID] += value[r.ChallengeID] // plugin-recomputed (current count), NOT the record
+		case r.ScoredValue != nil:
+			pts[r.TeamID] += int(*r.ScoredValue)
+		}
 	}
 	return pts, len(solves), nil
 }

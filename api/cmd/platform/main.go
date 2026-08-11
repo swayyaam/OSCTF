@@ -254,8 +254,14 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// One challenge-type registry shared by CRUD validation, plugin registration, and the
 	// submission path — so all three agree on which types exist.
 	challengeTypes := challenges.DefaultTypeRegistry()
+	// Scoring plugins: the registrar registers each ready mode (marker + write-path caller), and the
+	// pluginScorer values a plugin-scored solve post-commit. The scoreboard read path NEVER uses
+	// either — it reads the recorded value — so a plugin being down cannot change a served board.
+	scoringPluginReg := newScoringPlugins()
+	scorer := pluginScorer{plugins: scoringPluginReg, fallback: cfg.PluginScoringFallback}
 	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog).
-		WithChallengeTypes(challengeTypeResolver{reg: challengeTypes})
+		WithChallengeTypes(challengeTypeResolver{reg: challengeTypes}).
+		WithScorer(scorer)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
 	// bgWG joins the long-lived background workers so shutdown waits for any
@@ -315,7 +321,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HealthStable: cfg.PluginHealthStable,
 		MaxAttempts:  cfg.PluginRestartCap,
 		Log:          log,
-		Registrar:    pluginRegistrar{challengeTypes: challengeTypes},
+		Registrar:    pluginRegistrar{challengeTypes: challengeTypes, scoring: scoringPluginReg},
 	})
 	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be
 	// stopped only after the HTTP drain (below), not torn down concurrently with in-flight requests.
@@ -451,10 +457,19 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	bgWG.Add(3)
+	// #9 scoring repair worker: backfills MISSING/PENDING plugin-scoring records off the read path
+	// and refreshes the missing/pending gauges. It observes the signal ctx like the other workers;
+	// a pass that races the plugin drain simply falls back/defers (the plugin call errs), never
+	// blocking shutdown.
+	scoreRepairer := submissions.NewScoreRepairer(pool, scorer)
+	bgWG.Add(4)
 	go func() { defer bgWG.Done(); runTickers(ctx, log, eventsSvc, scoreboardSvc, hub, sched) }()
 	go func() { defer bgWG.Done(); runReconcile(ctx, log, rtMgr) }()
 	go func() { defer bgWG.Done(); sched.RunExpiry(ctx) }()
+	go func() {
+		defer bgWG.Done()
+		scoreRepairer.Run(ctx, func(err error) { log.Warn("scoring repair pass failed", "error", err.Error()) })
+	}()
 
 	serveErr := make(chan error, 1)
 	go func() {

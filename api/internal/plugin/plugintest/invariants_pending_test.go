@@ -49,7 +49,10 @@ var completedPhases = map[string]bool{
 
 var pendingInvariants = []pendingInvariant{
 	{"boot-does-not-gate-serving (server /healthz)", "P3-e", "boot-does-not-block is pinned at the loader level (TestBootDoesNotBlockOnLaunchingPlugin) + go-Boot is structurally async; the full-server assertion that /healthz answers while a plugin is not ready needs the integration stack (cmdServe)"},
-	{"9 scoreboard recomputable", "P3-e", "needs scoring wiring + scoreboard (fallback off/on)"},
+	// "9 scoreboard recomputable" — PINNED (v0.3 #9): the soak asserts served == recompute over
+	// (log + records) and every valid plugin solve carries a record within the latency bound, with
+	// negative controls (-recompute-via-plugin, -break-score-record) that fire only their own
+	// invariant; plus compute/write/repair integration tests. Removed from the manifest.
 	{"10 notification-drop observable", "P3-e", "needs the event bus"},
 }
 

@@ -141,6 +141,13 @@ func Register(name string, e ScoringEngine, override bool) error {
 	return defaultRegistry.Register(name, e, override)
 }
 
+// Deregister removes a plugin-registered mode from the default registry (revert-before-death). A
+// name that overrode a built-in restores the built-in; a name that only ever was a built-in is a
+// no-op. Mirrors Register as the plugin loader's revert entry.
+func Deregister(name string) {
+	defaultRegistry.Deregister(name)
+}
+
 // Engines returns a snapshot of the default registry's engines (replaces the former
 // Registry() function).
 func Engines() map[string]ScoringEngine {

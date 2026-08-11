@@ -16,9 +16,16 @@ SELECT count(*) FROM submissions WHERE challenge_id = $1 AND team_id = $2;
 -- submission for a visible challenge by a non-hidden team with at least one
 -- non-hidden member. Banned teams are INCLUDED and flagged; Go excludes them
 -- from solve counts but still displays them.
+--
+-- scored_value carries the LOCKED-AT-SOLVE value for a plugin-scored challenge (0007). The
+-- recompute reads it for plugin modes instead of calling the plugin — so the served board equals
+-- a from-scratch recompute over (log + records) even when the plugin is down. Built-in
+-- static/dynamic ignore it and recompute from the formula; a NULL on a plugin solve is a MISSING
+-- record (resolves to the deterministic default on read, a background worker fills it).
 SELECT s.team_id, s.challenge_id, s.created_at AS solved_at,
        t.name AS team_name, t.banned AS team_banned,
-       c.scoring, c.points_initial, c.points_min, c.decay
+       c.scoring, c.points_initial, c.points_min, c.decay,
+       s.scored_value
 FROM submissions s
 JOIN teams t ON t.id = s.team_id
 JOIN challenges c ON c.id = s.challenge_id
@@ -31,6 +38,45 @@ WHERE s.correct
       WHERE tm.team_id = t.id AND NOT u.hidden
   )
 ORDER BY s.created_at ASC;
+
+-- name: RecordScore :execrows
+-- Records the locked-at-solve value for a plugin-scored solve. Written post-commit on the write
+-- path, and by the off-read-path repair worker for MISSING/PENDING records. The `scored_value IS
+-- NULL` guard makes it a write-once from the read path's view: a repair tick that raced a fresh
+-- write-path record (which already set a value) is a no-op (0 rows), never a clobber. scored_by
+-- names the source: the plugin mode, 'fallback' (static value used), or 'pending' (deferred → 0).
+UPDATE submissions
+SET scored_value = sqlc.narg('scored_value'), scored_by = $2
+WHERE id = $1 AND correct AND scored_value IS NULL;
+
+-- name: ListSolvesNeedingScore :many
+-- Correct solves on a PLUGIN-scored challenge with no recorded value yet — MISSING (scored_by
+-- NULL, the post-commit write never landed) or PENDING (scored_by 'pending', deferred while the
+-- plugin was down). The off-read-path repair worker reads these on a tick and records a value.
+-- No visibility filter: the record is a durable per-solve fact, independent of whether the
+-- challenge is currently visible.
+SELECT s.id, s.challenge_id, c.scoring, c.points_initial, c.points_min, c.decay
+FROM submissions s
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.scoring NOT IN ('static', 'dynamic')
+  AND s.scored_value IS NULL
+ORDER BY s.created_at ASC
+LIMIT $1;
+
+-- name: CountUnscoredPluginSolves :one
+-- The durability signal for plugin scoring: MISSING (scored_by NULL — the post-commit write
+-- failed, an absence that must be ALERTABLE) counted separately from PENDING (scored_by 'pending'
+-- — a deferred value while the plugin was down, expected to clear when it recovers). Same set as
+-- ListSolvesNeedingScore. A sustained missing count means the write path is broken.
+SELECT
+    count(*) FILTER (WHERE s.scored_by IS NULL)      AS missing,
+    count(*) FILTER (WHERE s.scored_by = 'pending')  AS pending
+FROM submissions s
+JOIN challenges c ON c.id = s.challenge_id
+WHERE s.correct
+  AND c.scoring NOT IN ('static', 'dynamic')
+  AND s.scored_value IS NULL;
 
 -- name: CountValidSolves :one
 -- The read-repair version marker: the number of valid-solve rows the board is computed

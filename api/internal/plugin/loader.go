@@ -76,10 +76,12 @@ func newBudget(perPluginCap, globalCap int, queueWait time.Duration) budget {
 // managed is one plugin the loader tracks: identity, state, the live connection to its current
 // process (nil until ready), and its per-plugin in-flight semaphore.
 type managed struct {
-	name string
-	m    machine
-	cur  *conn         // the current instance's connection; nil unless ready
-	sem  chan struct{} // per-plugin in-flight semaphore (cap = budget.perPluginCap)
+	name       string
+	ptype      string // manifest type (auth/scoring/challenge_type/notification); for registry wiring
+	m          machine
+	cur        *conn         // the current instance's connection; nil unless ready
+	sem        chan struct{} // per-plugin in-flight semaphore (cap = budget.perPluginCap)
+	registered bool          // provider wired into its type registry (register-once, revert-on-terminal)
 }
 
 // Loader discovers, launches, supervises, and routes to plugins. It holds the tracked set under

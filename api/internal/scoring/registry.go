@@ -22,6 +22,7 @@ type engEntry struct {
 // TestScoringRegistryReaderAtomicContention.
 type Registry struct {
 	m       atomic.Pointer[map[string]engEntry]
+	base    map[string]engEntry // the immutable built-ins, restored when a plugin override is reverted
 	writeMu sync.Mutex
 }
 
@@ -32,8 +33,37 @@ func NewRegistry(builtins ...ScoringEngine) *Registry {
 	for _, e := range builtins {
 		m[e.Name()] = engEntry{engine: e, protected: true}
 	}
+	r.base = make(map[string]engEntry, len(m))
+	for k, v := range m {
+		r.base[k] = v
+	}
 	r.m.Store(&m)
 	return r
+}
+
+// Deregister removes a plugin-registered mode (revert-before-death when its plugin stops). If the
+// name overrode a built-in, the built-in is RESTORED (the key keeps working via the built-in);
+// otherwise the entry is removed and the mode falls back to static on use (Value's unknown-mode
+// path). Deregistering a name that only ever was a built-in is a no-op (a built-in is not a
+// plugin and cannot "stop"). Swapped atomically, so a reader never sees a torn map.
+func (r *Registry) Deregister(name string) {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	old := *r.m.Load()
+	if _, exists := old[name]; !exists {
+		return
+	}
+	next := make(map[string]engEntry, len(old))
+	for k, v := range old {
+		if k == name {
+			continue
+		}
+		next[k] = v
+	}
+	if b, isBuiltin := r.base[name]; isBuiltin {
+		next[name] = b // restore the built-in a plugin had overridden
+	}
+	r.m.Store(&next)
 }
 
 // Get resolves an engine by mode name. Lock-free.

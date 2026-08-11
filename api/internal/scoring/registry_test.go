@@ -19,6 +19,43 @@ type stubEngine struct {
 func (s stubEngine) Name() string                            { return s.name }
 func (s stubEngine) Value(scoring.ChallengeScoring, int) int { return s.val }
 
+// TestRegistryDeregister: deregistering a plugin mode removes it; deregistering a plugin that
+// OVERRODE a built-in restores the built-in; deregistering a bare built-in is a no-op.
+func TestRegistryDeregister(t *testing.T) {
+	r := scoring.NewRegistry(scoring.StaticEngine{}, scoring.DynamicEngine{})
+
+	// A new plugin mode → removed on deregister; Value then falls back to static.
+	if err := r.Register("elo", stubEngine{"elo", 7}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Get("elo"); !ok {
+		t.Fatal("elo not registered")
+	}
+	r.Deregister("elo")
+	if _, ok := r.Get("elo"); ok {
+		t.Error("elo still present after deregister")
+	}
+
+	// A plugin OVERRIDES the static built-in → deregister RESTORES the real static engine.
+	if err := r.Register("static", stubEngine{"static", 999}, true); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := r.Get("static"); e.Value(scoring.ChallengeScoring{Initial: 1}, 0) != 999 {
+		t.Error("override did not take effect")
+	}
+	r.Deregister("static")
+	e, ok := r.Get("static")
+	if !ok || e.Value(scoring.ChallengeScoring{Initial: 5}, 0) != 5 { // real StaticEngine returns Initial
+		t.Errorf("built-in static not restored after deregister (ok=%v)", ok)
+	}
+
+	// A bare built-in cannot "stop"; deregistering it is a no-op.
+	r.Deregister("dynamic")
+	if _, ok := r.Get("dynamic"); !ok {
+		t.Error("dynamic built-in wrongly removed by deregister")
+	}
+}
+
 // TestScoringRegistryResolution: built-ins resolve by name and through Value; an unknown
 // mode falls back to static; a plugin engine registers without disturbing the built-ins.
 func TestScoringRegistryResolution(t *testing.T) {

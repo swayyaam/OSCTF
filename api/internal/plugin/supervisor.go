@@ -160,6 +160,7 @@ func (s *supervisor) launchWithRetry(ctx context.Context) *conn {
 // instance and a single registry entry.
 func (s *supervisor) serve(ctx context.Context, cur *conn) serveOutcome {
 	s.becomeReady(cur)
+	s.l.registerReady(s.name) // publish the provider on first ready (register-once, revert on terminal)
 	exited, cancelWatch := s.watch(ctx, cur)
 
 	for {
@@ -249,6 +250,7 @@ func (s *supervisor) watch(ctx context.Context, c *conn) (<-chan struct{}, func(
 func (s *supervisor) backoffOrQuarantine(ctx context.Context, atCap bool) (stop bool) {
 	s.attempts++
 	if atCap {
+		s.l.revert(s.name) // remove the provider before the plugin becomes terminal (revert-before-death)
 		s.quarantine()
 		s.cfg.log.Error("plugin quarantined after crash loop", "plugin", s.name, "attempts", s.attempts)
 		// Park in `failed`: a quarantine never clears on its own. The ONLY exits are a stop
@@ -417,6 +419,10 @@ func (s *supervisor) quarantine() {
 // process and withdrawing the client. (#7 makes the resource accounting rigorous; this is the
 // state half.)
 func (s *supervisor) teardown(c *conn) {
+	// Revert BEFORE the kill: the registry misses immediately, and any lookup still holding the
+	// provider fails closed through the dispatch gate (draining is not ready) — never a call to
+	// the process we are about to kill.
+	s.l.revert(s.name)
 	s.transition(StateDraining)
 	s.drain(c)
 	c.kill()

@@ -21,6 +21,7 @@ type Config struct {
 	HealthStable time.Duration // OSCTF_PLUGIN_HEALTH_STABLE
 	MaxAttempts  int           // OSCTF_PLUGIN_RESTART_CAP
 	Log          *slog.Logger
+	Registrar    Registrar // wires ready plugins into their type registries; nil = no-op (transport only)
 }
 
 // New builds a loader from Config, wiring the two-level in-flight budget. Discovery and launch
@@ -106,6 +107,7 @@ func (l *Loader) launchDiscovered(ctx context.Context, d discovered) {
 		pollInterval: 250 * time.Millisecond,
 	}
 	l.track(d.manifest.Name)
+	l.setType(d.manifest.Name, d.manifest.Type)
 	sup := newSupervisor(l, d.manifest.Name, realLaunch(spec), l.superConfig())
 	l.mu.Lock()
 	l.sups = append(l.sups, sup)

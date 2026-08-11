@@ -48,6 +48,7 @@ var completedPhases = map[string]bool{
 }
 
 var pendingInvariants = []pendingInvariant{
+	{"boot-does-not-gate-serving (server /healthz)", "P3-e", "boot-does-not-block is pinned at the loader level (TestBootDoesNotBlockOnLaunchingPlugin) + go-Boot is structurally async; the full-server assertion that /healthz answers while a plugin is not ready needs the integration stack (cmdServe)"},
 	{"3 registry-never-holds-stopped", "P3-e", "needs loader stop AND registry wiring (revert-before-death)"},
 	{"8 challenge-type attempt untouched", "P3-e", "needs challenge-type registry + submissions tx"},
 	{"9 scoreboard recomputable", "P3-e", "needs scoring wiring + scoreboard (fallback off/on)"},

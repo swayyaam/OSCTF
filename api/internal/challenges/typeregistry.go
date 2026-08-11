@@ -148,5 +148,10 @@ func RegisterType(id string, ct ChallengeType, override bool) error {
 // IsRegisteredType reports whether a challenge-type id is registered in the default registry.
 func IsRegisteredType(id string) bool { return defaultTypeRegistry.IsRegistered(id) }
 
+// DefaultTypeRegistry returns the process-wide challenge-type registry — the one CRUD validation
+// checks, plugins register into, and the submission path resolves against, so all three agree on
+// which types exist.
+func DefaultTypeRegistry() *TypeRegistry { return defaultTypeRegistry }
+
 // TypeNames returns the registered type ids (default registry).
 func TypeNames() []string { return defaultTypeRegistry.Names() }

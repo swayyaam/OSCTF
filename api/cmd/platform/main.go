@@ -251,7 +251,11 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 	}
 	auditLog := audit.New(q, log)
-	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog)
+	// One challenge-type registry shared by CRUD validation, plugin registration, and the
+	// submission path — so all three agree on which types exist.
+	challengeTypes := challenges.DefaultTypeRegistry()
+	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog).
+		WithChallengeTypes(challengeTypeResolver{reg: challengeTypes})
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
 	// bgWG joins the long-lived background workers so shutdown waits for any
@@ -311,6 +315,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HealthStable: cfg.PluginHealthStable,
 		MaxAttempts:  cfg.PluginRestartCap,
 		Log:          log,
+		Registrar:    pluginRegistrar{challengeTypes: challengeTypes},
 	})
 	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be
 	// stopped only after the HTTP drain (below), not torn down concurrently with in-flight requests.

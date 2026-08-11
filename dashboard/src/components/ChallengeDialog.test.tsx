@@ -78,4 +78,20 @@ describe("ChallengeDialog", () => {
       expect(screen.getByText(/Incorrect flag/)).toBeInTheDocument();
     });
   });
+
+  // A 503 (the challenge's checker plugin was unavailable) is reject-retry, NOT a wrong answer:
+  // the player is told to retry and that no attempt was counted — never "Incorrect".
+  it("shows a retry message (not incorrect) when the checker is unavailable (503)", async () => {
+    submitMock.mockImplementation((_flag: string, opts: { onError: (e: unknown) => void }) => {
+      opts.onError({ api: { status: 503, detail: "checker temporarily unavailable — your attempt was not counted. Please try again." } });
+    });
+    renderDialog();
+    fireEvent.change(screen.getByTestId("flag-input"), { target: { value: "guess" } });
+    fireEvent.click(screen.getByTestId("flag-submit"));
+    await waitFor(() => {
+      expect(screen.getByText(/not counted. Please try again/)).toBeInTheDocument();
+    });
+    // It must NOT be shown as an incorrect flag.
+    expect(screen.queryByText(/Incorrect flag/)).not.toBeInTheDocument();
+  });
 });

@@ -19,6 +19,7 @@ type Feedback =
   | { kind: "correct"; points: number | null }
   | { kind: "wrong" }
   | { kind: "cooldown"; seconds: number }
+  | { kind: "retry"; message: string }
   | { kind: "error"; message: string };
 
 export function ChallengeDialog({ slug, onClose }: Props) {
@@ -45,6 +46,13 @@ export function ChallengeDialog({ slug, onClose }: Props) {
           setFeedback({ kind: "cooldown", seconds: 60 });
         } else if (err.api.status === 409) {
           setFeedback({ kind: "error", message: "Your team has already solved this." });
+        } else if (err.api.status === 503) {
+          // The challenge's checker was unavailable — this is NOT a wrong answer and did not
+          // consume an attempt. Tell the player to retry, not that they were incorrect.
+          setFeedback({
+            kind: "retry",
+            message: err.api.detail ?? "This challenge's checker is temporarily unavailable — your attempt was not counted. Please try again.",
+          });
         } else {
           setFeedback({ kind: "error", message: err.api.detail ?? err.api.title });
         }
@@ -150,6 +158,7 @@ function FeedbackLine({ feedback }: { feedback: Feedback }) {
       {feedback.kind === "cooldown" && (
         <p className="text-warning">Too many attempts — wait a moment before trying again.</p>
       )}
+      {feedback.kind === "retry" && <p className="text-warning">{feedback.message}</p>}
       {feedback.kind === "error" && <p className="text-danger">{feedback.message}</p>}
     </div>
   );

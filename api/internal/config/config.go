@@ -113,6 +113,16 @@ type Config struct {
 	PluginQueueWait        time.Duration `env:"OSCTF_PLUGIN_QUEUE_WAIT" envDefault:"1s"`
 	PluginDrainTimeout     time.Duration `env:"OSCTF_PLUGIN_DRAIN_TIMEOUT" envDefault:"30s"`
 
+	// Plugin discovery + supervision. Enabled=false is pure-core mode (== v0.2); a default
+	// deployment has no plugins dir, which is a silent no-op. RuntimeDir (pidfiles for the boot
+	// orphan sweep) defaults to an OS-temp subdir, resolved in main when empty.
+	PluginsEnabled     bool          `env:"OSCTF_PLUGINS_ENABLED" envDefault:"true"`
+	PluginsDir         string        `env:"OSCTF_PLUGINS_DIR" envDefault:"./plugins"`
+	RuntimeDir         string        `env:"OSCTF_RUNTIME_DIR" envDefault:""`
+	PluginHealthStable time.Duration `env:"OSCTF_PLUGIN_HEALTH_STABLE" envDefault:"60s"`
+	PluginRestartCap   int           `env:"OSCTF_PLUGIN_RESTART_CAP" envDefault:"5"`
+	PluginStartTimeout time.Duration `env:"OSCTF_PLUGIN_START_TIMEOUT" envDefault:"30s"`
+
 	// API-token rate limit, keyed by TOKEN IDENTITY (not IP or account). Automation traffic
 	// is legitimately unlike a browser's, and the venue-NAT lesson (issue #1) applies to bots:
 	// an IP-keyed limit throttles a CI runner or many tokens behind one egress IP. Generous by

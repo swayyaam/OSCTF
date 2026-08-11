@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/osctf/platform/internal/handlers"
 	"github.com/osctf/platform/internal/httpserver"
 	"github.com/osctf/platform/internal/httpx"
+	"github.com/osctf/platform/internal/plugin"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scheduler"
@@ -286,6 +288,33 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HandshakeBurst:  cfg.WSHandshakeBurst,
 		HandshakeWindow: cfg.WSHandshakeWindow,
 	})
+
+	// Plugin loader: consumes the plugin share of the fd budget derived above. Boot (orphan
+	// sweep → discover → launch) runs in a goroutine so a slow sweep or a plugin that never
+	// handshakes cannot delay the HTTP server — the core comes up whether or not plugins do.
+	// Boot uses a Background-derived context (NOT the signal ctx), so plugins keep serving until
+	// Stop is called explicitly AFTER the HTTP drain (see shutdown) — never torn down out from
+	// under a live request. Stopped/absent plugins are the v0.2 baseline.
+	runtimeDir := cfg.RuntimeDir
+	if runtimeDir == "" {
+		runtimeDir = filepath.Join(os.TempDir(), "osctf-plugins")
+	}
+	pluginLoader := plugin.New(plugin.Config{
+		Enabled:      cfg.PluginsEnabled,
+		PluginsDir:   cfg.PluginsDir,
+		RuntimeDir:   runtimeDir,
+		PerPluginCap: cfg.PluginMaxInflight,
+		GlobalCap:    rb.pluginGlobal,
+		QueueWait:    cfg.PluginQueueWait,
+		DrainTimeout: cfg.PluginDrainTimeout,
+		StartTimeout: cfg.PluginStartTimeout,
+		HealthStable: cfg.PluginHealthStable,
+		MaxAttempts:  cfg.PluginRestartCap,
+		Log:          log,
+	})
+	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be
+	// stopped only after the HTTP drain (below), not torn down concurrently with in-flight requests.
+	go pluginLoader.Boot(context.Background())
 	// Key admission on the authenticated user where a session exists (so a shared NAT of
 	// logged-in players is not squeezed through one IP budget), falling back to the
 	// proxy-aware client IP for anonymous connections.
@@ -435,10 +464,18 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	case <-ctx.Done():
 		log.Info("shutdown signal received, draining")
+		// One shared 10s budget covers the HTTP drain AND the plugin drain, in that order: HTTP
+		// first so no in-flight request is left calling a plugin whose registry entry is being
+		// removed; then the plugins drain (cancel-then-kill) with whatever of the 10s remains.
+		// It is NOT the sum of two independent timeouts. Background workers get a further bounded
+		// wait below (so the whole shutdown is bounded at ~20s). A plugin that outlasts the budget
+		// is left for the next boot sweep.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("graceful shutdown: %w", err)
+		shutErr := srv.Shutdown(shutdownCtx)
+		pluginLoader.Stop(shutdownCtx)
+		if shutErr != nil {
+			return fmt.Errorf("graceful shutdown: %w", shutErr)
 		}
 		// Wait for the background workers (ws hub, tickers, reconcile, expiry/reap) to
 		// return. They observe ctx and stop after finishing any in-flight pass; because

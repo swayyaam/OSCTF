@@ -13,6 +13,41 @@ type stubType struct{ id string }
 func (s stubType) ID() string                                         { return s.id }
 func (stubType) ValidateConfig(map[string]string) map[string][]string { return nil }
 
+// TestTypeRegistryDeregister: a plugin type is removed on deregister; a plugin that OVERRODE a
+// built-in restores the built-in; a bare built-in is a no-op.
+func TestTypeRegistryDeregister(t *testing.T) {
+	r := NewTypeRegistry(builtinType{"standard"}, builtinType{"container"})
+
+	// A plugin type → removed on deregister (the submission path then fails closed for it).
+	if err := r.Register("crypto", stubType{"crypto"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsRegistered("crypto") {
+		t.Fatal("crypto not registered")
+	}
+	r.Deregister("crypto")
+	if r.IsRegistered("crypto") {
+		t.Error("crypto still registered after deregister")
+	}
+
+	// A plugin OVERRIDES the standard built-in → deregister restores the built-in.
+	if err := r.Register("standard", stubType{"standard-plugin"}, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Deregister("standard")
+	if ct, ok := r.Get("standard"); !ok {
+		t.Error("standard built-in not restored after deregister")
+	} else if _, isPlugin := ct.(stubType); isPlugin {
+		t.Error("standard still resolves to the plugin override after deregister")
+	}
+
+	// A bare built-in cannot stop; deregistering it is a no-op.
+	r.Deregister("container")
+	if !r.IsRegistered("container") {
+		t.Error("container built-in wrongly removed")
+	}
+}
+
 // TestTypeRegistryResolution: built-ins resolve; unknown ids miss; a plugin type registers
 // without disturbing the built-ins.
 func TestTypeRegistryResolution(t *testing.T) {

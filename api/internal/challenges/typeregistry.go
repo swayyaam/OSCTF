@@ -1,20 +1,30 @@
 package challenges
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
 )
 
-// ChallengeType decides a challenge's author-time config validation and (in P4) its custom
-// flag check. In P1 only the built-in types exist and ValidateConfig is a no-op — the core
-// validation (validateCreate/validateUpdate) already covers standard/container; CheckFlag
-// does not enter the submission transaction until a plugin needs it (see docs/v0.3).
+// ChallengeType decides a challenge's author-time config validation and (via the optional
+// FlagChecker below) its custom flag check. The built-in types (standard/container) implement
+// only this interface and defer correctness to the platform's flag comparison; a plugin type
+// additionally implements FlagChecker and owns correctness.
 type ChallengeType interface {
 	ID() string
 	// ValidateConfig checks type-specific config at authoring time, returning per-field
 	// errors (empty = ok). The built-in types validate nothing extra here.
 	ValidateConfig(cfg map[string]string) map[string][]string
+}
+
+// FlagChecker is implemented ONLY by a plugin-provided challenge-type: it decides correctness
+// from the submitted guess + author config + per-instance metadata (never the real flag). The
+// submission path type-asserts for it — a type that implements it takes the PRE-transaction
+// plugin verdict path; a built-in (which does not) keeps the platform's in-transaction flag
+// comparison, byte-identical to v0.2.
+type FlagChecker interface {
+	CheckFlag(ctx context.Context, submitted string, config, instance map[string]string) (correct bool, err error)
 }
 
 type builtinType struct{ id string }
@@ -34,6 +44,7 @@ type ctEntry struct {
 // behaviourally identical to v0.2.2 (every challenge is 'standard'/'container').
 type TypeRegistry struct {
 	m       atomic.Pointer[map[string]ctEntry]
+	base    map[string]ctEntry // immutable built-ins, restored when a plugin override is reverted
 	writeMu sync.Mutex
 }
 
@@ -44,8 +55,36 @@ func NewTypeRegistry(builtins ...ChallengeType) *TypeRegistry {
 	for _, ct := range builtins {
 		m[ct.ID()] = ctEntry{ct: ct, protected: true}
 	}
+	r.base = make(map[string]ctEntry, len(m))
+	for k, v := range m {
+		r.base[k] = v
+	}
 	r.m.Store(&m)
 	return r
+}
+
+// Deregister removes a plugin-registered type (revert-before-death when its plugin stops),
+// restoring the built-in a plugin had overridden, or removing the entry outright otherwise. A
+// bare built-in cannot "stop", so deregistering one is a no-op. Atomic swap (reader-safe). After
+// this, the submission path finds the type unregistered and fails a submission to it closed.
+func (r *TypeRegistry) Deregister(id string) {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	old := *r.m.Load()
+	if _, exists := old[id]; !exists {
+		return
+	}
+	next := make(map[string]ctEntry, len(old))
+	for k, v := range old {
+		if k == id {
+			continue
+		}
+		next[k] = v
+	}
+	if b, isBuiltin := r.base[id]; isBuiltin {
+		next[id] = b
+	}
+	r.m.Store(&next)
 }
 
 // Get resolves a type by id. Lock-free.

@@ -24,6 +24,13 @@ type conn struct {
 	token       string                    // start-token carried in the process argv (for the boot sweep)
 	pidfilePath string                    // pidfile written for this launch ("" if none); removed on clean stop
 	inflight    atomic.Int64              // calls currently executing on THIS instance (drives drain-on-stop)
+
+	// drainCtx is cancelled by the supervisor on drain, and merged into every in-flight call's
+	// context — so a reload/stop cancels calls COOPERATIVELY (a well-behaved plugin honours ctx
+	// and winds down) before the process is killed, rather than breaking them with a SIGKILL. Set
+	// by the supervisor when it takes ownership of the conn; nil for a directly-constructed conn.
+	drainCtx    context.Context
+	drainCancel context.CancelFunc
 }
 
 // launchFn launches the plugin process and returns a live conn, or an error if the process

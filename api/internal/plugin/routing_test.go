@@ -22,7 +22,7 @@ func TestDispatchOnlyReachesReadyProcess(t *testing.T) {
 		}}
 
 		reached := false
-		err := l.dispatch(context.Background(), "p", "Value", func(client any) error {
+		err := l.dispatch(context.Background(), "p", "Value", func(_ context.Context, client any) error {
 			reached = true
 			if client != "client-handle" {
 				t.Errorf("state %s: dispatch passed the wrong client %v", st, client)
@@ -48,7 +48,7 @@ func TestDispatchOnlyReachesReadyProcess(t *testing.T) {
 func TestDispatchUnknownPluginIsNotReady(t *testing.T) {
 	l := &Loader{plugins: map[string]*managed{}}
 	reached := false
-	err := l.dispatch(context.Background(), "nope", "Value", func(any) error { reached = true; return nil })
+	err := l.dispatch(context.Background(), "nope", "Value", func(context.Context, any) error { reached = true; return nil })
 	if reached {
 		t.Fatal("dispatch reached a process for an unknown plugin")
 	}

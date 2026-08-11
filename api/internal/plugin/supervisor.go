@@ -103,11 +103,19 @@ func (s *supervisor) run(ctx context.Context) {
 		if c == nil {
 			return // context stopped, or quarantined then stopped (the park handles reload)
 		}
+		s.attachDrain(c)
 		if s.serve(ctx, c) == outcomeStopped {
 			return
 		}
 		// serve returned outcomeCrashed: the crash was accounted in afterCrash; loop to relaunch.
 	}
+}
+
+// attachDrain gives a conn its own drain context, cancelled on drain to cooperatively cancel the
+// instance's in-flight calls. Called before the conn is published (becomeReady/swapTo), so
+// dispatch never merges a nil drain ctx for a live instance.
+func (s *supervisor) attachDrain(c *conn) {
+	c.drainCtx, c.drainCancel = context.WithCancel(context.Background())
 }
 
 // serveOutcome is why serve returned: the plugin was stopped (actor should exit) or it crashed
@@ -190,6 +198,7 @@ func (s *supervisor) serve(ctx context.Context, cur *conn) serveOutcome {
 				continue // cur and its watcher are unchanged
 			}
 			cancelWatch()
+			s.attachDrain(newConn)
 			s.swapTo(newConn)   // publish the new client (state stays ready — no gap), reset readiness clock
 			s.drainAndKill(cur) // the old instance admits no new calls after the swap
 			cur = newConn
@@ -334,6 +343,13 @@ func (s *supervisor) drainAndKill(c *conn) {
 // the drain cannot leak a slot across the timeout (the port-leak shape). Uses the injected
 // clock+sleeper so the poll is real in production and controllable in tests.
 func (s *supervisor) drain(c *conn) {
+	// Cancel FIRST: the in-flight calls' contexts are cancelled cooperatively, so a plugin that
+	// honours ctx returns promptly (Canceled) and the calls' deferred releases free their slots —
+	// the drain completes without waiting the full timeout, and the process is not killed
+	// mid-call. The kill after the loop is the backstop for a call that never returns.
+	if c.drainCancel != nil {
+		c.drainCancel()
+	}
 	deadline := s.cfg.now().Add(s.cfg.drainTimeout)
 	for c.inflight.Load() > 0 && s.cfg.now().Before(deadline) {
 		if err := s.cfg.sleep(context.Background(), 10*time.Millisecond); err != nil {

@@ -118,7 +118,7 @@ func (l *Loader) track(name string) *managed {
 // per-plugin in-flight gauge and the connection's drain counter, both released when the call
 // returns however it ends (success, error, or the caller's context being cancelled) — so a slot
 // is never leaked, including on the drain-timeout path.
-func (l *Loader) dispatch(ctx context.Context, name, method string, call func(client any) error) error {
+func (l *Loader) dispatch(ctx context.Context, name, method string, call func(ctx context.Context, client any) error) error {
 	l.mu.Lock()
 	p, ok := l.plugins[name]
 	serve := ok && p.m.servesNew() && p.cur != nil
@@ -140,6 +140,12 @@ func (l *Loader) dispatch(ctx context.Context, name, method string, call func(cl
 	}
 	defer release()
 
+	// The call runs under the caller's ctx MERGED with the instance's drain ctx, so a drain
+	// (reload/stop) cancels the call cooperatively — the plugin gets the ABI's cancellation
+	// signal and can wind down, instead of being killed mid-call.
+	callCtx, stop := mergeCtx(ctx, c.drainCtx)
+	defer stop()
+
 	c.inflight.Add(1)
 	metrics.PluginInflight.WithLabelValues(name).Inc()
 	defer func() {
@@ -148,9 +154,21 @@ func (l *Loader) dispatch(ctx context.Context, name, method string, call func(cl
 	}()
 
 	start := time.Now()
-	callErr := call(c.client)
+	callErr := call(callCtx, c.client)
 	metrics.PluginCallDuration.WithLabelValues(name, method).Observe(time.Since(start).Seconds())
 	return callErr
+}
+
+// mergeCtx returns a context cancelled when EITHER a (the caller's) or b (the instance's drain
+// ctx) is done. b may be nil (a directly-constructed conn), in which case only a governs. The
+// returned stop must be called when the work completes, to release the AfterFunc watch.
+func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
+	if b == nil {
+		return context.WithCancel(a)
+	}
+	ctx, cancel := context.WithCancel(a)
+	stop := context.AfterFunc(b, cancel)
+	return ctx, func() { stop(); cancel() }
 }
 
 // acquire takes a per-plugin slot then a global slot, each waiting at most queueWait (bounded by

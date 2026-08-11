@@ -8,6 +8,8 @@ import (
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/osctf/platform/internal/clock"
 	"github.com/osctf/platform/internal/metrics"
@@ -23,8 +25,8 @@ func budgetConfig() superConfig {
 
 // scoringValue calls Value on a scoring client; returns the plugin's error (or the transport's,
 // when the process is killed mid-call). Fills the budget with the slow double.
-func scoringValue(client any) error {
-	_, err := client.(pluginpb.ScoringClient).Value(context.Background(),
+func scoringValue(ctx context.Context, client any) error {
+	_, err := client.(pluginpb.ScoringClient).Value(ctx,
 		&pluginpb.ScoreRequest{Initial: 500, Min: 100, Decay: 50, Solves: 3})
 	return err
 }
@@ -193,6 +195,44 @@ func TestDrainTimeoutReleasesInflightSlots(t *testing.T) {
 		waitInflight(t, name, 0, 5*time.Second)
 		wg.Wait()
 	}
+}
+
+// Cancel-then-kill (task 0): on a drain (reload/stop), in-flight calls are cancelled
+// COOPERATIVELY — a plugin that honours ctx returns promptly with Canceled, so the drain
+// finishes without waiting the timeout and the process is not killed mid-call. Pinned with
+// slowcoop (honours ctx); the companion to slow (ignores ctx), so the cooperative path is
+// asserted by something rather than left dormant.
+func TestDrainCancelsInFlightCallsCooperatively(t *testing.T) {
+	bin := buildDouble(t, "slowcoop")
+	name := "slowcoop-drain"
+	l := newLoader()
+	l.budget = newBudget(2, 0, 500*time.Millisecond)
+	// A GENEROUS drain timeout: if the call only ended at the timeout (a kill), this test would
+	// be slow and the error would be Unavailable, not Canceled. The cooperative cancel is what
+	// ends it fast.
+	s := startReady(t, l, name, bin, superConfig{sleep: realSleep, now: clock.System(), drainTimeout: 5 * time.Second})
+
+	callErr := make(chan error, 1)
+	go func() { callErr <- l.dispatch(context.Background(), name, "Value", scoringValue) }()
+	waitInflight(t, name, 1, 5*time.Second)
+
+	start := time.Now()
+	if err := s.reload(context.Background()); err != nil { // reload drains the old instance
+		t.Fatalf("reload: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("reload took %s — the cooperative cancel did not end the in-flight call promptly", elapsed)
+	}
+
+	select {
+	case err := <-callErr:
+		if status.Code(err) != codes.Canceled {
+			t.Errorf("in-flight call err = %v (code %s); want Canceled — cooperatively cancelled, not killed", err, status.Code(err))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the in-flight call did not return after the drain")
+	}
+	waitInflight(t, name, 0, 3*time.Second)
 }
 
 // pluginHistogram gathers the registry and returns the call-duration histogram for one plugin.

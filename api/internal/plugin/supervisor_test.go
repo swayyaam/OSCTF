@@ -356,8 +356,8 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 	s.start(ctx)
 	waitForState(t, s, StateReady, 15*time.Second)
 
-	value := func(client any) error {
-		_, err := client.(pluginpb.ScoringClient).Value(context.Background(),
+	value := func(ctx context.Context, client any) error {
+		_, err := client.(pluginpb.ScoringClient).Value(ctx,
 			&pluginpb.ScoreRequest{Initial: 500, Min: 100, Decay: 50, Solves: 3})
 		return err
 	}
@@ -390,8 +390,8 @@ func TestCrashGapDispatchIsCleanNeverHangs(t *testing.T) {
 // test can assert the plugin still serves after a reload.
 func value(t *testing.T, l *Loader, name string) error {
 	t.Helper()
-	return l.dispatch(context.Background(), name, "Value", func(client any) error {
-		r, err := client.(pluginpb.ScoringClient).Value(context.Background(),
+	return l.dispatch(context.Background(), name, "Value", func(ctx context.Context, client any) error {
+		r, err := client.(pluginpb.ScoringClient).Value(ctx,
 			&pluginpb.ScoreRequest{Initial: 500, Min: 100, Decay: 50, Solves: 3})
 		if err != nil {
 			return err

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -30,18 +31,88 @@ import (
 // per-team instance secret is never persisted or echoed back through the admin views.
 const redactedFlag = "[redacted per-instance flag]"
 
-// Service implements the submission flow.
-type Service struct {
-	pool   *pgxpool.Pool
-	q      *gen.Queries
-	events *events.Service
-	clock  clock.Clock
-	audit  *audit.Logger
+// FlagChecker is a plugin-provided correctness check. It receives the submitted guess + author
+// config + per-instance metadata, and NEVER the flag. Defined here (not imported from challenges)
+// so the submission path does not depend on the challenge domain — the composition root adapts
+// the challenge-type registry to this.
+type FlagChecker interface {
+	CheckFlag(ctx context.Context, submitted string, config, instance map[string]string) (correct bool, err error)
 }
 
-// New builds the service.
+// ChallengeTypes resolves a challenge type id to its checker, without the submission path
+// importing the challenge-type registry. Resolve returns:
+//   - (checker, true, true)  — a plugin type with a live checker → pre-tx verdict path;
+//   - (nil, false, true)     — a built-in type → in-tx flag comparison;
+//   - (nil, false, false)    — no checker registered (plugin down / unknown type) → reject-retry.
+type ChallengeTypes interface {
+	Resolve(typeID string) (checker FlagChecker, isPlugin, registered bool)
+}
+
+// Service implements the submission flow.
+type Service struct {
+	pool    *pgxpool.Pool
+	q       *gen.Queries
+	events  *events.Service
+	clock   clock.Clock
+	audit   *audit.Logger
+	checker ChallengeTypes // challenge-type resolver; nil = no plugin types (byte-identical to v0.2)
+}
+
+// New builds the service. With no challenge-type resolver wired (see WithChallengeTypes) every
+// challenge uses the platform's built-in flag comparison — byte-identical to v0.2.
 func New(pool *pgxpool.Pool, ev *events.Service, c clock.Clock, auditLog *audit.Logger) *Service {
 	return &Service{pool: pool, q: gen.New(pool), events: ev, clock: c, audit: auditLog}
+}
+
+// WithChallengeTypes wires the challenge-type resolver the submission path consults: a challenge
+// whose type resolves to a plugin checker takes the pre-transaction verdict path; a built-in type
+// (or no resolver) keeps the in-transaction flag comparison. Returns the service for chaining.
+func (s *Service) WithChallengeTypes(reg ChallengeTypes) *Service {
+	s.checker = reg
+	return s
+}
+
+// retryUnavailable is the DISTINCT reject-retry outcome: the challenge's checker could not render
+// an authoritative verdict (plugin unavailable/unregistered, or the challenge was swapped/deleted
+// between the verdict and the commit). It is NOT a wrong answer — no attempt is consumed — and it
+// maps to 503 so the participant is told to retry, not shown "incorrect".
+func retryUnavailable() error {
+	return &apperr.Unavailable{
+		Detail:     "this challenge's checker is temporarily unavailable — your attempt was not counted; please try again",
+		RetryAfter: 2 * time.Second,
+	}
+}
+
+// pluginVerdict decides whether ch's type is a plugin checker and, if so, computes the verdict
+// PRE-transaction (outside the row lock — never a plugin network call inside an open tx). Returns
+// (nil, nil) for a built-in type — the in-tx flag comparison handles it; (verdict, nil) for a
+// plugin type; or (nil, reject-retry) when the checker is unavailable/unregistered, or the submit
+// is a guaranteed reject (already solved), so no plugin call is paid for it.
+func (s *Service) pluginVerdict(ctx context.Context, ch gen.Challenge, in Input) (*bool, error) {
+	if s.checker == nil {
+		return nil, nil // no plugin support wired → built-in path (v0.2)
+	}
+	fc, isPlugin, registered := s.checker.Resolve(ch.Type)
+	if !registered {
+		// A plugin type whose plugin is down/unregistered, or an unknown type: cannot judge.
+		return nil, retryUnavailable()
+	}
+	if !isPlugin {
+		return nil, nil // built-in type → in-tx flag comparison
+	}
+	// Early, NON-authoritative already-solved read: skip the plugin call for a duplicate submit
+	// that cannot succeed (a slow/shed-prone plugin should not take load from guaranteed rejects).
+	// The in-tx check re-decides authoritatively. (Phase was already enforced above.)
+	if solved, serr := s.q.HasTeamSolved(ctx, gen.HasTeamSolvedParams{ChallengeID: ch.ID, TeamID: in.TeamID}); serr == nil && solved {
+		return nil, apperr.Conflictf("your team has already solved this challenge")
+	}
+	// Per-challenge type config is a later feature; the plugin judges from the guess + its own
+	// (env/manifest) config. Never send the flag.
+	verdict, verr := fc.CheckFlag(ctx, in.Flag, map[string]string{}, map[string]string{})
+	if verr != nil {
+		return nil, retryUnavailable()
+	}
+	return &verdict, nil
 }
 
 // Input is a validated submission request.
@@ -90,6 +161,14 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		return Result{}, apperr.ErrNotFound
 	}
 
+	// For a plugin challenge-type, the verdict is computed here — PRE-transaction, outside the row
+	// lock — so a slow/untrusted plugin never holds a database lock. nil for a built-in type (the
+	// in-tx comparison decides); a reject-retry error short-circuits without opening the tx.
+	pluginVerdict, rerr := s.pluginVerdict(ctx, ch, in)
+	if rerr != nil {
+		return Result{}, rerr
+	}
+
 	var correct bool
 	var sharingOwner *uuid.UUID // owning team when another team's per-instance flag was submitted
 	err = db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -99,7 +178,21 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		// Lock the challenge as the solve-count anchor.
 		locked, lerr := qtx.GetChallengeForUpdate(ctx, ch.ID)
 		if lerr != nil {
+			if pluginVerdict != nil && errors.Is(lerr, pgx.ErrNoRows) {
+				// DELETED between the pre-tx verdict and the lock — a missing row, not a changed
+				// updated_at. Fail closed here, before any attempt/solve check.
+				return retryUnavailable()
+			}
 			return fmt.Errorf("submissions: lock challenge: %w", lerr)
+		}
+
+		// Plugin path: the verdict was computed against a specific version of THIS row. If the
+		// challenge was edited or its type swapped between the verdict and the lock, the verdict is
+		// void. Checked BEFORE the solved/attempt checks so a swapped-or-deleted challenge fails
+		// closed WITHOUT consuming an attempt — the ordering here is load-bearing (see the ordering
+		// test, which fails if this moves below the solve/attempt checks).
+		if pluginVerdict != nil && (locked.Type != ch.Type || !locked.UpdatedAt.Equal(ch.UpdatedAt)) {
+			return retryUnavailable()
 		}
 
 		solved, lerr := qtx.HasTeamSolved(ctx, gen.HasTeamSolvedParams{ChallengeID: ch.ID, TeamID: in.TeamID})
@@ -118,15 +211,18 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 			return &apperr.Forbidden{Detail: "no attempts remaining for this challenge"}
 		}
 
-		// Flag comparison: static compares against the challenge flag (v0.1);
-		// per_instance compares against the submitting team's own instance flag
-		// and raises a sharing signal if it matches a different team's flag.
-		if locked.FlagMode == "per_instance" {
+		// Correctness. A plugin challenge-type's verdict was decided pre-tx (above); a built-in
+		// type compares here — static against the challenge flag (v0.1); per_instance against the
+		// submitting team's own instance flag, raising a sharing signal on another team's flag.
+		switch {
+		case pluginVerdict != nil:
+			correct = *pluginVerdict
+		case locked.FlagMode == "per_instance":
 			correct, sharingOwner, lerr = s.comparePerInstance(ctx, qtx, ch.ID, in)
 			if lerr != nil {
 				return lerr
 			}
-		} else {
+		default:
 			correct = compareFlag(in.Flag, locked.Flag, locked.FlagCaseInsensitive)
 		}
 

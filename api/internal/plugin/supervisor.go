@@ -97,6 +97,10 @@ func (s *supervisor) start(ctx context.Context) { go s.run(ctx) }
 // so a stop returns promptly.
 func (s *supervisor) run(ctx context.Context) {
 	defer close(s.done)
+	// Revert on EVERY exit path — including a stop that lands while the plugin is mid-restart
+	// (launchWithRetry / backoff), where teardown never runs. Idempotent, so the explicit
+	// revert-before-kill in teardown (which preserves the ordering) makes this a no-op there.
+	defer s.l.revert(s.name)
 
 	for {
 		c := s.launchWithRetry(ctx)

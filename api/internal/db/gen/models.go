@@ -112,6 +112,8 @@ type Submission struct {
 	Correct     bool
 	Ip          *netip.Addr
 	CreatedAt   time.Time
+	ScoredValue *int32
+	ScoredBy    *string
 }
 
 type Team struct {

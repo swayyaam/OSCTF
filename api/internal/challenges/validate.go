@@ -5,6 +5,7 @@ import (
 
 	"github.com/osctf/platform/internal/apperr"
 	"github.com/osctf/platform/internal/db/gen"
+	scoringpkg "github.com/osctf/platform/internal/scoring"
 )
 
 // validateCreate mirrors the DB CHECK constraints with precise messages.
@@ -34,8 +35,11 @@ func validateCreate(in CreateInput, slug string) error {
 	if len(in.Flag) < 1 {
 		v.Add("flag", "is required")
 	}
-	if in.Scoring != "static" && in.Scoring != "dynamic" {
-		v.Add("scoring", "must be 'static' or 'dynamic'")
+	// Reject an unregistered scoring mode at write time — the registry check REPLACES the dropped
+	// DB CHECK (0007). The valid set is the runtime registry: built-in static/dynamic plus any
+	// loaded scoring plugins.
+	if !scoringpkg.IsRegisteredMode(in.Scoring) {
+		v.Add("scoring", fmt.Sprintf("unknown scoring mode %q: no such mode is registered", in.Scoring))
 	}
 	if in.PointsInitial < 1 {
 		v.Add("points_initial", "must be a positive integer")
@@ -110,8 +114,8 @@ func validateUpdate(cur gen.Challenge, in UpdateInput) error {
 	scoring := cur.Scoring
 	if in.Scoring != nil {
 		scoring = *in.Scoring
-		if scoring != "static" && scoring != "dynamic" {
-			v.Add("scoring", "must be 'static' or 'dynamic'")
+		if !scoringpkg.IsRegisteredMode(scoring) {
+			v.Add("scoring", fmt.Sprintf("unknown scoring mode %q: no such mode is registered", scoring))
 		}
 	}
 	pointsInitial := int(cur.PointsInitial)

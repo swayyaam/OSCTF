@@ -117,6 +117,14 @@ func (r *Registry) Engines() map[string]ScoringEngine {
 	return out
 }
 
+// IsRegisteredMode reports whether a scoring mode id resolves in the default registry (built-in
+// static/dynamic plus any loaded scoring plugins). It is the write-time guard for
+// challenges.scoring — replacing the dropped DB CHECK, so an unknown mode is still rejected.
+func IsRegisteredMode(mode string) bool {
+	_, ok := defaultRegistry.Get(mode)
+	return ok
+}
+
 // defaultRegistry backs the package-level convenience functions. Existing callers
 // (scoreboard/compute, challenges, submissions) call scoring.Value unchanged; the plugin
 // loader calls scoring.Register.

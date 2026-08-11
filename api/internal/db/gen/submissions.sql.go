@@ -123,7 +123,7 @@ func (q *Queries) CountValidSolves(ctx context.Context) (int64, error) {
 const createSubmission = `-- name: CreateSubmission :one
 INSERT INTO submissions (id, challenge_id, team_id, user_id, provided, correct, ip)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, challenge_id, team_id, user_id, provided, correct, ip, created_at
+RETURNING id, challenge_id, team_id, user_id, provided, correct, ip, created_at, scored_value, scored_by
 `
 
 type CreateSubmissionParams struct {
@@ -156,6 +156,8 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 		&i.Correct,
 		&i.Ip,
 		&i.CreatedAt,
+		&i.ScoredValue,
+		&i.ScoredBy,
 	)
 	return i, err
 }
@@ -210,7 +212,7 @@ func (q *Queries) ListScoreboardTeams(ctx context.Context) ([]ListScoreboardTeam
 }
 
 const listSubmissionsAdmin = `-- name: ListSubmissionsAdmin :many
-SELECT s.id, s.challenge_id, s.team_id, s.user_id, s.provided, s.correct, s.ip, s.created_at, c.slug AS challenge_slug, c.title AS challenge_title,
+SELECT s.id, s.challenge_id, s.team_id, s.user_id, s.provided, s.correct, s.ip, s.created_at, s.scored_value, s.scored_by, c.slug AS challenge_slug, c.title AS challenge_title,
        t.name AS team_name, u.username
 FROM submissions s
 JOIN challenges c ON c.id = s.challenge_id
@@ -246,6 +248,8 @@ type ListSubmissionsAdminRow struct {
 	Correct        bool
 	Ip             *netip.Addr
 	CreatedAt      time.Time
+	ScoredValue    *int32
+	ScoredBy       *string
 	ChallengeSlug  string
 	ChallengeTitle string
 	TeamName       string
@@ -279,6 +283,8 @@ func (q *Queries) ListSubmissionsAdmin(ctx context.Context, arg ListSubmissionsA
 			&i.Correct,
 			&i.Ip,
 			&i.CreatedAt,
+			&i.ScoredValue,
+			&i.ScoredBy,
 			&i.ChallengeSlug,
 			&i.ChallengeTitle,
 			&i.TeamName,

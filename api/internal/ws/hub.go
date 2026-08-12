@@ -241,7 +241,9 @@ func (h *Hub) BroadcastScoreboard(snap apigen.Scoreboard) {
 	select {
 	case h.incoming <- outbound{data: b, isScoreboard: true, frozen: snap.Frozen}:
 	default:
-		// incoming is full; the latest snapshot will arrive on the next broadcast.
+		// incoming is full; the latest snapshot will arrive on the next broadcast. Benign
+		// (superseded), but counted — these drops were invisible before v0.3.
+		metrics.WSBroadcastsDropped.WithLabelValues("scoreboard").Inc()
 	}
 }
 
@@ -255,6 +257,9 @@ func (h *Hub) BroadcastPhase(phase string) {
 	select {
 	case h.incoming <- outbound{data: b}:
 	default:
+		// incoming is full; a phase frame lost here is corrected by reconnect/read-repair, but it
+		// matters more than a snapshot drop — counted (previously invisible).
+		metrics.WSBroadcastsDropped.WithLabelValues("phase").Inc()
 	}
 }
 

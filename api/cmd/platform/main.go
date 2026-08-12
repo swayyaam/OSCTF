@@ -259,9 +259,15 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// either — it reads the recorded value — so a plugin being down cannot change a served board.
 	scoringPluginReg := newScoringPlugins()
 	scorer := pluginScorer{plugins: scoringPluginReg, fallback: cfg.PluginScoringFallback}
+	// Domain-event bus (#10): the submission path publishes challenge.solved post-commit; ready
+	// notification plugins subscribe. Best-effort and fail-open — a full/dead subscriber drops
+	// (counted), never blocks the publisher.
+	eventBus := events.NewBus()
+	notificationPluginReg := newNotificationPlugins(eventBus)
 	submissionsSvc := submissions.New(pool, eventsSvc, clk, auditLog).
 		WithChallengeTypes(challengeTypeResolver{reg: challengeTypes}).
-		WithScorer(scorer)
+		WithScorer(scorer).
+		WithBus(eventBus)
 	scoreboardSvc := scoreboard.New(q, rdb, eventsSvc, clk)
 
 	// bgWG joins the long-lived background workers so shutdown waits for any
@@ -321,7 +327,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HealthStable: cfg.PluginHealthStable,
 		MaxAttempts:  cfg.PluginRestartCap,
 		Log:          log,
-		Registrar:    pluginRegistrar{challengeTypes: challengeTypes, scoring: scoringPluginReg},
+		Registrar:    pluginRegistrar{challengeTypes: challengeTypes, scoring: scoringPluginReg, notifications: notificationPluginReg},
 	})
 	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be
 	// stopped only after the HTTP drain (below), not torn down concurrently with in-flight requests.

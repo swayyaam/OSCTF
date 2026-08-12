@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/osctf/platform/internal/challenges"
+	"github.com/osctf/platform/internal/events"
 	"github.com/osctf/platform/internal/plugin"
 	"github.com/osctf/platform/internal/plugin/pluginpb"
 	"github.com/osctf/platform/internal/scoring"
@@ -133,12 +135,93 @@ func (p pluginScorer) Score(ctx context.Context, mode string, params scoring.Cha
 	return 0, "pending", false
 }
 
+// subscriptionsTimeout bounds the Subscriptions RPC made once at registration.
+const subscriptionsTimeout = 5 * time.Second
+
+// notificationPlugins tracks a notification plugin's bus subscription so it can be cancelled when
+// the plugin reaches a terminal state (revert-before-death). It bridges the loader to events.Bus.
+type notificationPlugins struct {
+	bus     *events.Bus
+	mu      sync.Mutex
+	cancels map[string]func()
+}
+
+func newNotificationPlugins(bus *events.Bus) *notificationPlugins {
+	return &notificationPlugins{bus: bus, cancels: map[string]func(){}}
+}
+
+// subscribe registers the plugin on the bus (replacing any prior subscription of the same name).
+func (n *notificationPlugins) subscribe(name string, wants func(string) bool, h events.Handler) {
+	cancel := n.bus.Subscribe(name, wants, h)
+	n.mu.Lock()
+	if old, ok := n.cancels[name]; ok {
+		old() // a re-register (e.g. reload) replaces the old subscription
+	}
+	n.cancels[name] = cancel
+	n.mu.Unlock()
+}
+
+func (n *notificationPlugins) unsubscribe(name string) {
+	n.mu.Lock()
+	cancel, ok := n.cancels[name]
+	delete(n.cancels, name)
+	n.mu.Unlock()
+	if ok {
+		cancel()
+	}
+}
+
+// notifyWants asks the plugin ONCE (at registration) which events it wants and builds the match
+// predicate: a list containing "*" (or a failed/absent call) matches ALL — fail open, the plugin's
+// own Notify can ignore what it does not care about; an explicit empty list matches nothing.
+func notifyWants(c plugin.Caller) func(string) bool {
+	names := []string{"*"} // fail-open default if the call errors
+	ctx, cancel := context.WithTimeout(context.Background(), subscriptionsTimeout)
+	defer cancel()
+	_ = c.Call(ctx, "Subscriptions", func(ctx context.Context, client any) error {
+		resp, err := client.(pluginpb.NotificationClient).Subscriptions(ctx, &pluginpb.InfoRequest{})
+		if err != nil {
+			return err
+		}
+		names = resp.GetEventNames()
+		return nil
+	})
+	if len(names) == 0 {
+		return func(string) bool { return false }
+	}
+	for _, n := range names {
+		if n == "*" {
+			return func(string) bool { return true }
+		}
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return func(name string) bool { return set[name] }
+}
+
+// notifyHandler dispatches an event to the plugin's Notify RPC through the loader's Caller (ready
+// gate + in-flight budget). A returned error is counted by the bus as a delivery drop; it never
+// blocks the publisher.
+func notifyHandler(c plugin.Caller) events.Handler {
+	return func(ctx context.Context, e events.Event) error {
+		return c.Call(ctx, "Notify", func(ctx context.Context, client any) error {
+			_, err := client.(pluginpb.NotificationClient).Notify(ctx, &pluginpb.Event{
+				Name: e.Name, Id: e.ID, OccurredAt: e.OccurredAt.Format(time.RFC3339), Data: e.Data,
+			})
+			return err
+		})
+	}
+}
+
 // pluginRegistrar wires ready plugins into their type registries and reverts them before death.
-// challenge-type (#8) and scoring (#9) are wired here; notification (#10) and auth follow the same
+// challenge-type (#8), scoring (#9), and notification (#10) are wired here; auth follows the same
 // shape.
 type pluginRegistrar struct {
 	challengeTypes *challenges.TypeRegistry
 	scoring        *scoringPlugins
+	notifications  *notificationPlugins
 }
 
 func (r pluginRegistrar) Register(name, ptype string, c plugin.Caller) error {
@@ -151,8 +234,10 @@ func (r pluginRegistrar) Register(name, ptype string, c plugin.Caller) error {
 			return err // e.g. a plugin trying to shadow a protected built-in (static/dynamic)
 		}
 		r.scoring.add(name, c)
+	case "notification":
+		r.notifications.subscribe(name, notifyWants(c), notifyHandler(c))
 	}
-	return nil // notification (#10) / auth land with their phases
+	return nil // auth lands with its phase
 }
 
 func (r pluginRegistrar) Deregister(name, ptype string) {
@@ -162,5 +247,7 @@ func (r pluginRegistrar) Deregister(name, ptype string) {
 	case "scoring":
 		r.scoring.remove(name)
 		scoring.Deregister(name)
+	case "notification":
+		r.notifications.unsubscribe(name)
 	}
 }

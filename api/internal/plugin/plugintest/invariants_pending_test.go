@@ -53,7 +53,10 @@ var pendingInvariants = []pendingInvariant{
 	// (log + records) and every valid plugin solve carries a record within the latency bound, with
 	// negative controls (-recompute-via-plugin, -break-score-record) that fire only their own
 	// invariant; plus compute/write/repair integration tests. Removed from the manifest.
-	{"10 notification-drop observable", "P3-e", "needs the event bus"},
+	// "10 notification-drop observable" — PINNED (v0.3 #10): events.Bus counts every drop by reason
+	// (backpressure/delivery/shutdown); unit tests pin non-blocking Publish + drop-newest (with
+	// drop-oldest/blocking-send negative controls) and the soak's slow-notifier run proves drops are
+	// counted while throughput holds. WS hub drops are now counted too. Removed from the manifest.
 }
 
 // TestPendingInvariantsSelfEmpty forces the manifest to shrink. It also catches a typo'd phase

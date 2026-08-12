@@ -217,6 +217,26 @@ var (
 		Name: "osctf_plugin_scores_repaired_total",
 		Help: "Missing/pending plugin-scoring records backfilled by the repair worker.",
 	})
+
+	// PluginEventsDropped counts notification-bus deliveries dropped — NEVER silent. The bus is
+	// best-effort and fails open (a drop never gates the action that published the event), but every
+	// drop is observable here, by subscriber, event, and reason: "backpressure" (the subscriber's
+	// bounded queue was full — a slow plugin, drop-newest), "delivery" (the plugin's Notify call
+	// errored), or "shutdown" (queued events discarded when the subscriber was removed on a terminal
+	// plugin state). A rising backpressure rate for one subscriber is the slow-plugin signal.
+	PluginEventsDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_plugin_events_dropped_total",
+		Help: "Notification-bus events dropped, by subscriber, event, and reason (backpressure, delivery, shutdown).",
+	}, []string{"name", "event", "reason"})
+
+	// WSBroadcastsDropped counts WebSocket broadcasts dropped because the hub's ingress channel was
+	// full, by frame kind ("scoreboard" — superseded by the next snapshot, benign; "phase" — a
+	// transition frame lost, which read-repair/reconnect eventually corrects but is worth watching).
+	// These drops existed and were UNCOUNTED before v0.3; anyone who ran an event had invisible drops.
+	WSBroadcastsDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_ws_broadcasts_dropped_total",
+		Help: "WebSocket broadcasts dropped at the hub ingress (full channel), by frame kind (scoreboard, phase).",
+	}, []string{"kind"})
 )
 
 // MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
@@ -235,6 +255,7 @@ func init() {
 		ScoreboardStaleReads, ScoreboardStaleServed,
 		PluginCallDuration, PluginInflight, PluginInflightShed,
 		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
+		PluginEventsDropped, WSBroadcastsDropped,
 	)
 }
 

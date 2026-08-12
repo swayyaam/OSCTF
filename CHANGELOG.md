@@ -5,6 +5,16 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+### Changed (observability)
+
+- **WebSocket broadcast drops are now counted.** When the hub's ingress channel is full it
+  drops a broadcast frame — a scoreboard snapshot (benign; the next snapshot supersedes it) or,
+  rarer, a phase-transition frame. **These drops existed before v0.3 and were never counted**,
+  so any deployment that has run an event has had invisible broadcast drops. They are now
+  visible as `osctf_ws_broadcasts_dropped_total{kind}` (`scoreboard` / `phase`). No behaviour
+  change — only the previously-silent drop is now observable, in keeping with the plugin event
+  bus's "a drop is never silent" contract (new `osctf_plugin_events_dropped_total{name,event,reason}`).
+
 ## v0.2.3 — Scoreboard consistency by construction
 
 A patch release closing an intermittent scoreboard-versus-log divergence

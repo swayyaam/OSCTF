@@ -194,10 +194,17 @@ func TestSoak(t *testing.T) {
 	go hub.Run(hubCtx)
 	sb.SetBroadcaster(func(s scoreboard.Snapshot) { hub.BroadcastScoreboard(handlers.ToScoreboard(s)) })
 
+	// #10 domain-event bus with a DELIBERATELY SLOW notifier subscribed: a cap-1 queue drained at
+	// ~2/s, far below the solve burst rate, so its queue fills and events drop. It proves the bus is
+	// the slow-plugin lesson applied — a slow subscriber drops (counted), publishers (the submission
+	// hot path) never block, and platform throughput is unaffected (every other invariant still
+	// holds with it running). The subscription is registered below, once the collector exists.
+	eventBus := events.NewBus().WithQueueCap(1)
+
 	h := handlers.New(handlers.Deps{
 		Users: usersSvc, Teams: teamsSvc, Events: ev,
 		Challenges:  challenges.New(q, &memStore{m: map[string][]byte{}}),
-		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())).WithScorer(soakScoringPlugin),
+		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())).WithScorer(soakScoringPlugin).WithBus(eventBus),
 		Scoreboard:  sb, Runtime: mgr, Scheduler: sched,
 		Recompute: func(rctx context.Context) {
 			if !*fBreakSB { // -break-scoreboard: stop refreshing the cache so REST goes stale
@@ -223,6 +230,20 @@ func TestSoak(t *testing.T) {
 
 	m := &collector{pool: pool}
 	m.snapshotBaseline()
+
+	// Register the slow notifier now that the collector exists. Its handler sleeps 2s/event (drain
+	// ~0.5/s), far below the solve stream, so its cap-1 queue overruns and events drop (counted as
+	// backpressure); it counts what it manages to deliver. It respects ctx so teardown is prompt.
+	notifierCancel := eventBus.Subscribe(soakNotifier, func(string) bool { return true },
+		func(ctx context.Context, _ events.Event) error {
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+			}
+			m.notifDelivered.Add(1)
+			return nil
+		})
+	defer notifierCancel()
 	runCtx, runCancel := context.WithTimeout(ctx, *fDuration)
 	defer runCancel()
 
@@ -356,6 +377,9 @@ func (s *soakScorer) Score(_ context.Context, mode string, p scoring.ChallengeSc
 // soakScoringPlugin is the single in-process scoring plugin: the write path scores through it, and
 // the -recompute-via-plugin negative control recomputes through it.
 var soakScoringPlugin = &soakScorer{}
+
+// soakNotifier is the bus subscriber name for the deliberately-slow #10 notifier.
+const soakNotifier = "soak-slow-notifier"
 
 func seedWorld(ctx context.Context, t *testing.T, pool *pgxpool.Pool, q *gen.Queries, usersSvc *users.Service, teamsSvc *teams.Service) (static, perTeam []challengeRef) {
 	t.Helper()
@@ -791,6 +815,7 @@ type collector struct {
 	invLag    atomic.Int64 // scoreboard checks that mismatched transiently then reconciled (lag, not a bug)
 
 	outageMaxPending atomic.Int64 // -plugin-outage: peak pending records observed while the plugin was down
+	notifDelivered   atomic.Int64 // #10: challenge.solved events the slow notifier actually delivered
 
 	vmu        sync.Mutex
 	viol       map[string]int // invariant name → count of confirmed violations
@@ -941,6 +966,19 @@ func (m *collector) report(t *testing.T, sc *simClock) {
 	t.Logf("faults      : container vanish/exit injected=%d  (+seeded deploy/destroy faults inline)", m.faultsInjected.Load())
 	t.Logf("invariants  : %d checks  avg %.1f ms/check  scoreboard transient-lag=%d", m.invChecks.Load(), avgMs, m.invLag.Load())
 	t.Logf("ws converge : %d/%d clients matched the REST snapshot", m.wsConverged, m.wsChecked)
+
+	// #10 event bus: the deliberately-slow notifier (0.5/s drain) proves the slow-plugin lesson on
+	// the bus. Publish is non-blocking, so the whole run above (throughput, all invariants) held
+	// while it was overrun. It CANNOT have delivered more than ~0.5/s × duration; any solves beyond
+	// that must have been dropped-and-counted. If more events were published than it could drain yet
+	// nothing was counted dropped, the backpressure accounting is broken.
+	notifDelivered := m.notifDelivered.Load()
+	notifDropped := int64(metrics.CounterValue(metrics.PluginEventsDropped.WithLabelValues(soakNotifier, "challenge.solved", "backpressure")))
+	t.Logf("event bus   : notifier delivered=%d dropped(backpressure)=%d  (publishers never blocked — Publish is non-blocking)", notifDelivered, notifDropped)
+	if maxDeliverable := dur*0.5 + 3; float64(notifDelivered+notifDropped) > maxDeliverable && notifDropped == 0 {
+		t.Errorf("slow notifier saw %d events (> %.0f it could drain) but dropped none — bus backpressure accounting is broken",
+			notifDelivered+notifDropped, maxDeliverable)
+	}
 
 	m.vmu.Lock()
 	nviol := 0

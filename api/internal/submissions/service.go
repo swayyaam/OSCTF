@@ -75,6 +75,7 @@ type Service struct {
 	audit   *audit.Logger
 	checker ChallengeTypes // challenge-type resolver; nil = no plugin types (byte-identical to v0.2)
 	scorer  Scorer         // plugin scoring; nil = no plugin scoring (built-in formula only, v0.2)
+	bus     *events.Bus    // domain-event bus; nil = no events published (byte-identical to v0.2)
 }
 
 // New builds the service. With no challenge-type resolver wired (see WithChallengeTypes) every
@@ -96,6 +97,15 @@ func (s *Service) WithChallengeTypes(reg ChallengeTypes) *Service {
 // v0.2. Returns the service for chaining.
 func (s *Service) WithScorer(sc Scorer) *Service {
 	s.scorer = sc
+	return s
+}
+
+// WithBus wires the domain-event bus. On a correct solve the service publishes a `challenge.solved`
+// event AFTER the transaction commits; Publish is non-blocking, so it never delays the hot write
+// path. With no bus wired nothing is published — byte-identical to v0.2. Returns the service for
+// chaining.
+func (s *Service) WithBus(b *events.Bus) *Service {
+	s.bus = b
 	return s
 }
 
@@ -322,6 +332,22 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 			pts, pending := s.recordPluginScore(ctx, solveID, ch, int(count))
 			res.Points = &pts
 			res.Pending = pending
+		}
+		// Publish the domain event AFTER the commit + scoring record. Publish is non-blocking (a
+		// full subscriber queue drops, never waits), so this never re-creates lock-across-I/O on the
+		// hot write path. Best-effort: a dropped event never affects the solve.
+		if s.bus != nil {
+			s.bus.Publish(events.Event{
+				Name:       "challenge.solved",
+				ID:         solveID.String(),
+				OccurredAt: s.clock(),
+				Data: map[string]string{
+					"team_id":        in.TeamID.String(),
+					"user_id":        in.UserID.String(),
+					"challenge_id":   ch.ID.String(),
+					"challenge_slug": ch.Slug,
+				},
+			})
 		}
 	}
 	return res, nil

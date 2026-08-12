@@ -45,19 +45,17 @@ var completedPhases = map[string]bool{
 	// tail histogram + drain-timeout release (inflight_test.go), and the shared fd accountant
 	// wired into the composition root (cmd/platform budget_test.go asserts the reserve is counted
 	// exactly once). No P3-d entry may remain below.
+	"P3-e": true, // plugins wired into real requests: boot/drain + registry register-on-ready/
+	// revert-before-death (#3), challenge-type in submission (#8), plugin scoring locked-at-solve
+	// off the read path (#9), notification bus (#10). The full-server "boot does not gate serving"
+	// assertion is now pinned by cmd/platform TestBootDoesNotGateServing (real loader + real
+	// httpserver + a never-ready nohandshake subprocess → /healthz 200). No P3-e entry may remain.
 }
 
-var pendingInvariants = []pendingInvariant{
-	{"boot-does-not-gate-serving (server /healthz)", "P3-e", "boot-does-not-block is pinned at the loader level (TestBootDoesNotBlockOnLaunchingPlugin) + go-Boot is structurally async; the full-server assertion that /healthz answers while a plugin is not ready needs the integration stack (cmdServe)"},
-	// "9 scoreboard recomputable" — PINNED (v0.3 #9): the soak asserts served == recompute over
-	// (log + records) and every valid plugin solve carries a record within the latency bound, with
-	// negative controls (-recompute-via-plugin, -break-score-record) that fire only their own
-	// invariant; plus compute/write/repair integration tests. Removed from the manifest.
-	// "10 notification-drop observable" — PINNED (v0.3 #10): events.Bus counts every drop by reason
-	// (backpressure/delivery/shutdown); unit tests pin non-blocking Publish + drop-newest (with
-	// drop-oldest/blocking-send negative controls) and the soak's slow-notifier run proves drops are
-	// counted while throughput holds. WS hub drops are now counted too. Removed from the manifest.
-}
+// pendingInvariants is EMPTY: every v0.3 plugin-loader spec invariant is now pinned by a real test.
+// The self-emptying guard below stays as the forcing function for any FUTURE phase that adds
+// entries — an empty manifest is the goal state, not the absence of the mechanism.
+var pendingInvariants = []pendingInvariant{}
 
 // TestPendingInvariantsSelfEmpty forces the manifest to shrink. It also catches a typo'd phase
 // (one that could never be marked complete and so would never be forced out).

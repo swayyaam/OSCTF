@@ -68,6 +68,16 @@ var (
 		Help: "Rate-limit rejections by scope.",
 	}, []string{"scope"})
 
+	// RateLimiterUnavailable counts requests refused (503) because the rate limiter's backing store
+	// was unavailable, by scope (login, register, submit, token). The limiter fails CLOSED: a Redis
+	// blip must not silently drop every rate limit. Any nonzero value means Redis is unreachable and
+	// clients are being told to retry — pair it with the Redis-up alert to distinguish a blip from an
+	// outage.
+	RateLimiterUnavailable = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_ratelimiter_unavailable_total",
+		Help: "Requests refused (503) because the rate limiter's backing store was unavailable, by scope.",
+	}, []string{"scope"})
+
 	// TeamInstances gauges per-team challenge instances by state.
 	TeamInstances = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "osctf_team_instances",
@@ -157,6 +167,16 @@ var (
 		Name: "osctf_scoreboard_stale_served_total",
 		Help: "Scoreboard reads served stale because inline read-repair exceeded its budget.",
 	})
+
+	// ScoreboardDegradedServed counts scoreboard reads served by a direct Postgres recompute because
+	// the Redis cache was unavailable — the board degrades (slightly slower) instead of going dark.
+	// A rising count means "Redis is down and the board is being recomputed on the read path"; if it
+	// stays high the read load is hitting Postgres directly (the bound is what keeps that from
+	// cascading into a DB overload). The freeze path does NOT degrade, so this never covers a freeze.
+	ScoreboardDegradedServed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_scoreboard_degraded_served_total",
+		Help: "Scoreboard reads served by a direct Postgres recompute because the Redis cache was unavailable.",
+	})
 )
 
 // MarkSuccess sets g to the current wall-clock time (a liveness heartbeat for a
@@ -168,11 +188,11 @@ func init() {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		HTTPRequests, HTTPDuration, Submissions,
-		WSConnections, WSRejections, WSReadPumpPanics, Instances, RateLimitRejections,
+		WSConnections, WSRejections, WSReadPumpPanics, Instances, RateLimitRejections, RateLimiterUnavailable,
 		TeamInstances, InstanceSpawns, InstanceExpiries, InstanceCleanups, FlagSharingSignals,
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
-		ScoreboardStaleReads, ScoreboardStaleServed,
+		ScoreboardStaleReads, ScoreboardStaleServed, ScoreboardDegradedServed,
 	)
 }
 

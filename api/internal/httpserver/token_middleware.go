@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/httpx"
+	"github.com/osctf/platform/internal/metrics"
 	"github.com/osctf/platform/internal/redisx"
 )
 
@@ -21,7 +23,7 @@ import (
 // On a valid token it rate-limits by TOKEN IDENTITY (not IP or account) and enforces the
 // scope gate before handing off. An invalid/expired/banned token is rejected outright rather
 // than falling through to anonymous, since a bearer credential is presented deliberately.
-func tokenMiddleware(tokens *auth.TokenService, limiter *redisx.Limiter, burst int, window time.Duration) func(http.Handler) http.Handler {
+func tokenMiddleware(tokens *auth.TokenService, limiter *redisx.Limiter, burst int, window time.Duration, log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if tokens == nil {
 			return next
@@ -45,7 +47,26 @@ func tokenMiddleware(tokens *auth.TokenService, limiter *redisx.Limiter, burst i
 			// browser's, and an IP-keyed limit misfires for a CI runner or bot behind shared NAT.
 			if limiter != nil && burst > 0 {
 				allowed, retryAfter, lerr := limiter.Allow(r.Context(), "token", id.TokenID.String(), burst, window)
-				if lerr == nil && !allowed {
+				switch {
+				case lerr != nil:
+					// Redis down: FAIL CLOSED (503), symmetric with the credential/mutation paths.
+					// An outage must not silently remove the throttle on the credential built for
+					// automation — that is exactly when it is most wanted, and two adjacent limiters
+					// behaving oppositely under the same condition is a trap for a future reader.
+					// Counted + logged DISTINCTLY so "Redis is down" reads apart from "throttled".
+					metrics.RateLimiterUnavailable.WithLabelValues("token").Inc()
+					if log != nil {
+						log.Warn("rate limiter unavailable (Redis) — failing the token request closed with 503", "error", lerr.Error())
+					}
+					w.Header().Set("Retry-After", "3")
+					httpx.WriteProblem(w, r, httpx.Problem{
+						Type:   "https://osctf.dev/errors/unavailable",
+						Title:  "Service unavailable",
+						Status: http.StatusServiceUnavailable,
+						Detail: "the rate limiter is temporarily unavailable; please retry shortly",
+					})
+					return
+				case !allowed:
 					w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 					httpx.WriteProblem(w, r, httpx.Problem{
 						Type:   "https://osctf.dev/errors/rate-limited",

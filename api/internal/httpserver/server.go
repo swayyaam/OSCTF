@@ -111,7 +111,7 @@ func New(d Deps) http.Handler {
 	// Token auth wraps the origin check (bearer requests skip CSRF) but is wrapped BY the
 	// session middleware (a resolved session takes precedence over a presented token).
 	if d.Tokens != nil {
-		api = tokenMiddleware(d.Tokens, d.Limiter, d.TokenRateBurst, d.TokenRateWindow)(api)
+		api = tokenMiddleware(d.Tokens, d.Limiter, d.TokenRateBurst, d.TokenRateWindow, d.Log)(api)
 	}
 	if d.Sessions != nil {
 		api = sessionMiddleware(d.Sessions)(api)

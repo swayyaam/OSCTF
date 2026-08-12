@@ -178,7 +178,15 @@ func (s *Service) served(ctx context.Context, isAdmin, repair bool) (Snapshot, e
 
 	snap, ok, err := s.read(ctx, keyCurrent)
 	if err != nil {
-		return Snapshot{}, err
+		// Redis cache read failed (Redis down). A LIVE board is authoritative in Postgres, so DEGRADE:
+		// recompute directly and serve — a slightly slower board beats a dark one mid-event. But a
+		// non-admin during a FREEZE must NOT degrade: a frozen snapshot lives only in Redis, so with
+		// Redis down there is no authority for it and this fails closed. The two paths deliberately
+		// behave DIFFERENTLY under the same outage (pinned by the Redis-outage test); do not unify them.
+		if frozen && !isAdmin {
+			return Snapshot{}, err
+		}
+		return s.degradeToRecompute(ctx, frozen)
 	}
 	switch {
 	case !ok:
@@ -198,6 +206,25 @@ func (s *Service) served(ctx context.Context, isAdmin, repair bool) (Snapshot, e
 			snap = fresh
 		}
 	}
+	snap.Frozen = frozen
+	return snap, nil
+}
+
+// degradeToRecompute serves a scoreboard read directly from Postgres when the Redis cache is
+// unavailable — the live-read fallback that keeps the board from going dark during a Redis outage.
+// It is BOUNDED by staleRepairBudget (the same bound as inline read-repair) so a cache outage cannot
+// turn every read into an unbounded DB load — that is how a partial outage becomes a total one — and
+// COUNTED. It does not write the cache (Redis is down). If even the bounded recompute cannot finish,
+// there is genuinely nothing to serve and it fails closed. The FREEZE path never calls this (see
+// served): a frozen snapshot has no Postgres authority to fall back to.
+func (s *Service) degradeToRecompute(ctx context.Context, frozen bool) (Snapshot, error) {
+	rctx, cancel := context.WithTimeout(ctx, staleRepairBudget)
+	defer cancel()
+	snap, _, err := compute(rctx, s.q, s.clock())
+	if err != nil {
+		return Snapshot{}, err // bounded recompute failed → fail closed (the bound stops a DB cascade)
+	}
+	metrics.ScoreboardDegradedServed.Inc()
 	snap.Frozen = frozen
 	return snap, nil
 }

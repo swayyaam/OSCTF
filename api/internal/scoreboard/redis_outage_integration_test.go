@@ -53,7 +53,7 @@ func TestScoreboardRedisOutageDegradesButFreezeFailsClosedIntegration(t *testing
 		t.Fatalf("create challenge: %v", err)
 	}
 	uid := uuid.Must(uuid.NewV7())
-	if _, err := q.CreateUser(ctx, gen.CreateUserParams{ID: uid, Username: "au", Email: "a@e.test", PasswordHash: "x", Role: "user"}); err != nil {
+	if _, err := q.CreateUser(ctx, gen.CreateUserParams{ID: uid, Username: "alphauser", Email: "alpha@e.test", PasswordHash: "x", Role: "user"}); err != nil {
 		t.Fatalf("user: %v", err)
 	}
 	team := uuid.Must(uuid.NewV7())

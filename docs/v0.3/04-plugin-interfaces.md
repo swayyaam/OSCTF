@@ -133,28 +133,83 @@ Two consequences, both enforced:
   it (a submitted credential is swept as a secret allowed to no one). The plugin sees it by
   design; the host leaking it would be a bug.
 
-## 2. Scoring — the registry is already there
+## 2. Scoring — locked at solve, recorded, read off the plugin
 
-`scoring.Registry()` ([`scoring/engine.go:56`](../../api/internal/scoring/engine.go#L56))
-is a `map[string]ScoringEngine`. v0.3 turns it into a **mutable** registry the loader adds
-to, and `scoring.Value(mode, …)` resolves through it:
+A plugin-scored challenge is valued **once, at solve time**, and the value is **recorded on
+the solve** (`submissions.scored_value` / `scored_by`, migration `0007`). The scoreboard reads
+that record; it never calls the plugin. So the board is **exactly recomputable from
+`(submission log + records)` at every instant, regardless of plugin state** — a plugin that is
+down, slow, or removed cannot change a served board, because the value each solve was worth is
+already written down. There is no retroactive decay for plugin modes (each solve keeps the value
+locked at its own solve time); built-in `static`/`dynamic` are unchanged and recompute from the
+formula.
 
-```go
-scoring.Register("acme-linear", pluginEngine)   // loader, for a scoring plugin
-// Value(mode) unchanged for callers; unknown mode still falls back to static.
-```
+### The read path structurally cannot reach a plugin
 
-- A challenge's `scoring` field may now be a plugin mode name (validated at authoring time:
-  the mode must be a registered engine). Built-in `static`/`dynamic` are unchanged and
-  protected from override.
-- A scoring plugin is called with `(initial, min, decay, solves, params)` and returns the
-  value; it must be **deterministic**. On plugin failure the host **fails closed by default**:
-  the submission errors and the player retries — because falling back to `static` mid-event
-  computes the board under two rules and makes recovery ambiguous
-  ([`03-plugin-loader.md`](03-plugin-loader.md) → the per-type table). A `static` fallback is
-  an explicit operator opt-in (`OSCTF_PLUGIN_SCORING_FALLBACK`); when it fires the core marks
-  the submission `scored_by=fallback` so the board stays **exactly recomputable from the
-  submission log**. The plugin is marked unhealthy either way.
+This is enforced by construction, not by a well-behaved branch:
+
+- A plugin scoring mode is registered in `scoring.Registry` **only as a marker**
+  ([`cmd/platform/plugin_registrar.go`](../../api/cmd/platform/plugin_registrar.go),
+  `scoringMarker`) — its sole job is to make write-time validation
+  (`scoring.IsRegisteredMode`, used by challenge authoring) accept the mode. The marker's
+  `Value()` is a static fail-safe; it holds no reference to the plugin.
+- The plugin **process** is reachable only through the *separate* write-path scorer
+  (`pluginScorer`, which holds the gRPC `Caller`s). The registry and the read path have no
+  handle on it.
+- `compute()` — the one scoreboard recompute — classifies each solve with
+  `scoring.IsBuiltinMode` (a **pure constant check**: `static`/`dynamic` vs everything else, no
+  registry lookup, no I/O) and reads `scored_value` for plugin modes. It has no code path that
+  calls a plugin.
+
+So "the scoreboard calls a plugin" is **unrepresentable**, not merely untested — the same class
+of improvement as the WS hub serializing `apigen.Scoreboard` directly instead of trusting two
+structs to stay in field order. Making the wrong thing impossible to write beats testing that it
+doesn't happen. The soak's `-recompute-via-plugin` control deliberately re-introduces a plugin
+call in the *recompute* to show the invariant it would break; and a full **plugin-outage** run
+proves the served board keeps matching from-scratch with the plugin actually stopped mid-run.
+
+### Fallback, pending, and missing
+
+A scoring failure never fails the submission — the solve commits and correctness is unaffected
+(that is the challenge-**type** plugin's job, §1). Only the *value* is affected, and it is always
+recorded as one of three definite states in `scored_by`:
+
+| `scored_by` | when | `scored_value` | board reads |
+|---|---|---|---|
+| `<mode>` | the plugin returned a value | the value | that value |
+| `fallback` | plugin down, **fallback on** | static value | that value |
+| `pending` | plugin down, **fallback off** | `NULL` | `0`, until backfilled |
+
+- **`pending` is a state, not a failure.** It is the honest, expected record of a solve that
+  landed while the plugin was unreachable and fallback was off: a definite "value deferred,
+  resolves to `0` for now." It self-heals — the repair worker fills the real value when the
+  plugin returns.
+- **A *missing* record is a durability failure.** Both columns `NULL` on a valid plugin solve
+  means the post-commit write never landed. It also resolves to `0` on the board, but it is an
+  **absence**, not a decision — so it is counted **separately** and is **alertable**
+  (`osctf_plugin_scores_missing` is an alarm; `osctf_plugin_scores_pending` is a status). Keeping
+  the two apart is what lets the missing gauge mean "the write path is broken," not "a plugin is
+  down."
+
+### Off-read-path repair
+
+A background worker (`submissions.ScoreRepairer`, ~10 s tick = the backfill-latency bound) fills
+`pending` and `missing` records with the plugin's value, or re-records `pending` while the plugin
+is still down. It runs **off the read path on purpose**: repairing inline on a scoreboard read
+would let a live recompute and an independent recompute resolve the same absent record
+differently depending on whether the plugin happened to answer — the non-determinism the whole
+design exists to avoid.
+
+### Fallback-on is the recommended default
+
+`OSCTF_PLUGIN_SCORING_FALLBACK` defaults **on**. The earlier worry — that a `static` fallback
+mid-event computes the board "under two rules" and makes recovery ambiguous — is dissolved by the
+record: each solve's row states exactly what it was worth (`<mode>`, `fallback`, or `pending`), so
+the board is exactly recomputable no matter which rule produced which solve. Fallback-on simply
+avoids a participant-visible `0`; fallback-off (records `pending`) is for deployments that must
+never show a value the plugin did not produce. A scoring plugin is called with
+`(initial, min, decay, solves, params)` and must be **deterministic**; it is marked unhealthy on
+failure either way.
 
 ## 3. Notifications — a new event bus
 

@@ -88,6 +88,7 @@ var (
 	// #9 plugin-scoring negative controls (manual gates, like -break-readrepair).
 	fRecomputePlugin = flag.Bool("recompute-via-plugin", false, "DEBUG: recompute plugin scores by CALLING the plugin (current solve count) instead of reading the per-solve record — diverges from the served board (which reads the locked record), proving the record-read invariant bites")
 	fBreakScoreRec   = flag.Bool("break-score-record", false, "DEBUG: seed an aged plugin solve with NO record and disable the repair worker — the scoring-record-missing invariant must then fire")
+	fPluginOutage    = flag.Bool("plugin-outage", false, "stop the scoring plugin for the middle third of the run: the board must keep recomputing and matching from-scratch, MISSING must stay 0 while PENDING grows, and the repair worker must drain PENDING to 0 once the plugin returns (proves the structural claim end-to-end)")
 )
 
 const (
@@ -245,6 +246,11 @@ func TestSoak(t *testing.T) {
 		wg.Add(1)
 		go func() { defer wg.Done(); repairer.Run(runCtx, nil) }()
 	}
+	// #9 plugin-outage run: stop the plugin for the middle third, watch missing vs pending.
+	if *fPluginOutage {
+		wg.Add(1)
+		go func() { defer wg.Done(); runPluginOutage(runCtx, q, m, *fDuration) }()
+	}
 
 	// WS clients live on their own context so they outlast the actors and receive the
 	// final quiescent broadcast before the convergence check.
@@ -263,6 +269,10 @@ func TestSoak(t *testing.T) {
 		go func() { defer wg.Done(); a.run(runCtx, m) }()
 	}
 	wg.Wait() // actors + background + faults + invariants done; WS clients still live
+
+	if *fPluginOutage {
+		assertPluginOutageConverged(ctx, t, pool, m)
+	}
 
 	// End-of-run teardown: jump the clock past event end, converge CleanupEnded, and
 	// assert zero live per-team instances + the full port range reclaimed. This is the
@@ -686,6 +696,83 @@ func runBackground(ctx context.Context, sched *scheduler.Scheduler, sb *scoreboa
 	}
 }
 
+// runPluginOutage (-plugin-outage) stops the scoring plugin for the middle third of the run and
+// restarts it, proving the structural claim end-to-end rather than by construction: with the plugin
+// unreachable the board still recomputes and still matches from-scratch (the continuous
+// scoreboardMatches invariant keeps checking that), MISSING stays 0 (a stopped plugin records a
+// PENDING value — a state — never an absence), PENDING grows, and once the plugin returns the
+// repair worker drains PENDING back to 0. The convergence + growth assertions run in TestSoak after
+// the workers join; this drives the outage and watches the missing/pending split live.
+func runPluginOutage(ctx context.Context, q *gen.Queries, m *collector, duration time.Duration) {
+	third := duration / 3
+	if !sleepCtx(ctx, third) { // Phase 1: plugin up (baseline)
+		return
+	}
+	soakScoringPlugin.stopped.Store(true) // Phase 2: OUTAGE
+	outageEnd := time.Now().Add(third)
+	tick := time.NewTicker(1 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			soakScoringPlugin.stopped.Store(false)
+			return
+		case <-tick.C:
+			if !time.Now().Before(outageEnd) {
+				soakScoringPlugin.stopped.Store(false) // Phase 3: plugin back; repair worker drains pending
+				return
+			}
+			c, err := q.CountUnscoredPluginSolves(ctx)
+			if err != nil {
+				continue
+			}
+			// A stopped plugin must NEVER leave a missing record: the write path records 'pending'
+			// (a definite deferred value), not a bare absence. A missing record here would mean the
+			// write path itself failed while the plugin was merely down — a durability bug, distinct
+			// from the outage.
+			if c.Missing > 0 {
+				m.recordViol("outage-missing", fmt.Sprintf("%d missing records while the plugin was down — a stopped plugin must record pending, never an absence", c.Missing))
+			}
+			if c.Pending > m.outageMaxPending.Load() {
+				m.outageMaxPending.Store(c.Pending)
+			}
+		}
+	}
+}
+
+// assertPluginOutageConverged runs after the workers join: the outage must have exercised the
+// pending path (PENDING actually grew), and once the plugin is back a final repair pass must drain
+// PENDING to 0 with MISSING never appearing. This is the end-to-end proof that the board survives
+// the plugin being unreachable — not by construction, but by running with it stopped.
+func assertPluginOutageConverged(ctx context.Context, t *testing.T, pool *pgxpool.Pool, m *collector) {
+	t.Helper()
+	if m.outageMaxPending.Load() == 0 {
+		t.Errorf("plugin-outage: no PENDING records observed during the outage — the pending path was not exercised (raise -duration so first-time solves land while the plugin is down)")
+	}
+	// Plugin is back (Phase 3 restored it); a final off-read-path repair pass drains any residual
+	// pending deterministically, independent of the last in-run tick's timing.
+	soakScoringPlugin.stopped.Store(false)
+	repairer := submissions.NewScoreRepairer(pool, soakScoringPlugin)
+	if _, err := repairer.RepairOnce(ctx); err != nil {
+		t.Fatalf("plugin-outage: final repair pass: %v", err)
+	}
+	var pending, missing int64
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE s.scored_by = 'pending'),
+		       count(*) FILTER (WHERE s.scored_by IS NULL)
+		FROM submissions s JOIN challenges c ON c.id = s.challenge_id
+		WHERE s.correct AND c.scoring NOT IN ('static','dynamic')`).Scan(&pending, &missing); err != nil {
+		t.Fatalf("plugin-outage: final count: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("plugin-outage: %d PENDING records did not converge after the plugin returned — the repair worker failed to drain", pending)
+	}
+	if missing != 0 {
+		t.Errorf("plugin-outage: %d MISSING records at end — a stopped plugin must record pending, never an absence", missing)
+	}
+	t.Logf("plugin-outage : peak pending during outage=%d, converged to 0 after recovery, missing stayed 0", m.outageMaxPending.Load())
+}
+
 // ---------------- metrics ----------------
 
 type collector struct {
@@ -702,6 +789,8 @@ type collector struct {
 	invChecks atomic.Int64
 	invCostNs atomic.Int64
 	invLag    atomic.Int64 // scoreboard checks that mismatched transiently then reconciled (lag, not a bug)
+
+	outageMaxPending atomic.Int64 // -plugin-outage: peak pending records observed while the plugin was down
 
 	vmu        sync.Mutex
 	viol       map[string]int // invariant name → count of confirmed violations

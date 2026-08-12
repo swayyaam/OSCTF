@@ -172,24 +172,28 @@ A call already dispatched when the plugin dies (or is swapped by a reload) resol
 | Type | On plugin death mid-call | Retry? | Fallback? | Why |
 |---|---|---|---|---|
 | **auth** | The login **errors** (`502`/clear message); the user re-initiates. | No | **No** | You must never complete a login by silently routing it elsewhere. A half-finished auth is a failed auth. |
-| **scoring** | The submission **errors** (clear message); the player retries in ~10 s. | No | **Off by default** — opt-in static fallback (below) | Falling back to `static` mid-event means the board is computed under two rules depending on when each solve landed, and recovery is ambiguous (recompute → rankings shift retroactively; don't → permanently inconsistent). A retry costs a player nothing and corrupts nothing. |
+| **scoring** | The solve **still commits**; the value is scored **post-commit** and **recorded** on the solve — as the plugin's value, or `fallback` (default) / `pending` (fallback off) when the plugin is unreachable. The scoreboard reads the record, never the plugin. | No | **On by default** — `fallback`; `pending` when off | Scoring is off the read path (see [`04-plugin-interfaces.md` §2](04-plugin-interfaces.md)): the value each solve was worth is written down at solve time, so the board is exactly recomputable whatever the plugin does. There is nothing to fail closed — the solve is valid regardless; only its *value* may defer. |
 | **challenge-type** (`CheckFlag`) | The submission **errors**, the tx **rolls back**, and **the attempt is not counted** against `max_attempts`. | No | **No** | Both fallbacks are catastrophic: accept-anything hands out free solves; reject-everything is indistinguishable from a wrong flag, so players **burn attempts against a broken plugin**. A plugin outage must not cost a player their tries. |
 | **notification** | The event is **dropped**, **counted, and logged** — never silent. | No | n/a | The bus is best-effort and never gates an action (see the event-bus contract), but a drop is always observable. |
 
-**Auth, challenge-type, and scoring all fail closed by default** — the caller gets a clear
-error and retries, and nothing is corrupted. **Notification fails open** (drops, but counts +
-logs). No type transparently retries a *single* in-flight call against a restarted process —
-the caller re-initiates — because a transparent mid-call retry would double-execute side
-effects.
+**Auth and challenge-type fail closed by default** — the caller gets a clear error and
+retries, and nothing is corrupted. **Scoring never fails the submission**: it is decoupled from
+correctness (challenge-type owns that) and off the read path — the solve commits and the value
+is *recorded* (as `fallback`/`pending` when the plugin is down), so there is nothing to fail
+closed. **Notification fails open** (drops, but counts + logs). No type transparently retries a
+*single* in-flight call against a restarted process — the caller re-initiates — because a
+transparent mid-call retry would double-execute side effects.
 
-**The one opt-in: scoring static fallback.** An operator who prefers availability over
-consistency may set `OSCTF_PLUGIN_SCORING_FALLBACK=true`; then a scoring-plugin failure falls
-back to `static` for that computation instead of erroring. When it fires, the core **records
-on the submission that it was scored by fallback** (a `scored_by=fallback` marker), so the
-scoreboard remains **exactly recomputable from the submission log** afterward — the
-board-recomputability invariant below (and the v0.2 soak invariant) must hold whether or not
-the fallback is enabled. A *silent* fallback that left no marker would break it, which is
-why the marker is mandatory when the opt-in is on.
+**Scoring records rather than errors.** `OSCTF_PLUGIN_SCORING_FALLBACK` defaults **on**: a
+plugin-down solve records the `static` value marked `scored_by=fallback`; with the opt-in off it
+records `scored_by=pending` (value deferred, resolves to `0` until the off-read-path repair
+worker fills it). Either way the value is written on the solve, so the scoreboard is **exactly
+recomputable from `(submission log + records)`** — the board-recomputability invariant below
+holds whatever the plugin does. The earlier fear that a fallback computes the board "under two
+rules" is dissolved by the record: `scored_by` names which rule produced each solve's value, so
+recomputation is unambiguous. A `pending`/`missing` distinction makes a lost record (the
+post-commit write failed) **alertable** rather than silently read as `0`; see
+[`04-plugin-interfaces.md` §2](04-plugin-interfaces.md).
 
 ### Hot-reload drains, it does not cancel
 
@@ -243,20 +247,23 @@ process and one registry entry, never a duplicate registration or a leaked old p
   plugin that serves for `T` seconds before crashing each time takes ~`5·T` longer (it runs,
   then dies, five times). Either way it reaches a stable `failed` in bounded time — seconds
   for a fast crash, not minutes and never forever.
-- **On quarantine (and on any exit from `ready`), the registry entry is handled per type —
-  fail-closed by default, never a silent revert to a built-in scorer/checker**, because
-  scoring and challenge-type were decided fail-closed (silently re-scoring under `static` or
-  re-checking with a built-in is the behaviour we rejected):
+- **On quarantine (and on any exit from `ready`), the registry entry is handled per type.**
+  Auth and challenge-type **fail closed** — the entry is removed and the next call errors
+  clearly, never silently re-checked by a built-in. Scoring is different: its next solve is
+  *recorded* (not gated), so removing the entry does not silently re-score — the `scored_by`
+  column names which rule produced each value:
 
-  | Type | Registry action on leaving `ready` | A new call then… |
+  | Type | Registry action on leaving `ready` | A new call/solve then… |
   |---|---|---|
   | **auth** | entry **removed** | that provider errors clearly; other providers (incl. built-in `email`) unaffected |
-  | **scoring** | entry **removed** (fail closed) — *unless* `OSCTF_PLUGIN_SCORING_FALLBACK=true`, then reverted to `static` **with a `scored_by=fallback` marker** | submission errors (default), or is scored `static` and marked (opt-in) |
+  | **scoring** | **both** removed — the registry marker (`scoring.Deregister`) *and* the write-path caller (`scoringPlugins.remove`) | the next solve is recorded `fallback` (static value, default) or `pending` (fallback off); the board reads records, so it is unaffected — never errors, never silently re-scored |
   | **challenge-type** | entry **removed** (fail closed) | `CheckFlag` errors, tx rolls back, **attempt not consumed** — never accept-anything, never reject-anything |
   | **notification** | subscription **removed** | event dropped, **counted + logged** (fails open, but observable) |
 
-  Only scoring's explicit opt-in reverts to a built-in; every other case removes the entry
-  so the call fails closed. "Revert to built-in" is **not** the default for any type.
+  Auth and challenge-type remove the entry so the call fails closed. Scoring removes both its
+  marker and its caller, and the recorded `fallback`/`pending` value keeps the board exactly
+  recomputable — the opposite of a silent re-score. "Revert to a built-in engine on the read
+  path" is **not** a thing any type does: the scoreboard reads recorded values, not engines.
 - **Operator visibility:** `GET /api/v1/admin/plugins` shows `state=failed` with the
   restart count, last error, and last-attempt time; `osctf_plugin_errors_total` and the
   `osctf_plugin_state` gauge reflect it; a loud `WARN` names the plugin. The **only** way

@@ -64,7 +64,7 @@ Full ABI in [`02-plugin-abi.md`](02-plugin-abi.md); loader in
 | `plugin/proto` (`pluginpb`) | **NEW.** The `.proto` ABI and generated Go stubs (checked in, drift-gated like `apigen`). |
 | `plugin/sdk` | **NEW.** Author-facing helpers a plugin binary imports to serve a plugin type with a few lines of `main`. Shipped as an importable package + the template repo ([`11-plugin-template.md`](11-plugin-template.md)). |
 | `auth` | `AuthProvider` grows a redirect/OAuth-capable variant; add `auth.Registry` and the core `/auth/{provider}/*` routes that drive any provider. Built-in `email` registers itself. |
-| `scoring` | `Registry()` becomes a mutable registry the loader adds to. `Value()` resolves through it. Engines unchanged. |
+| `scoring` | Registry becomes mutable; the loader registers a plugin mode as a **marker** (for write-time validation only). Plugin scoring is **locked at solve, recorded per-solve, and read off the plugin** — the scoreboard reads `submissions.scored_value`, never an engine; `IsBuiltinMode` classifies. Built-in `static`/`dynamic` engines unchanged. See [`04-plugin-interfaces.md` §2](../v0.3/04-plugin-interfaces.md). |
 | `challenges` | New `ChallengeType` concept (id, config schema, optional custom flag check) + a registry; the built-in `standard`/`container` behaviour is the default type. |
 | `events` | **Grows an event bus** (`events.Bus`): typed domain events published by the services, delivered to subscribers (notification plugins) asynchronously. Distinct from the existing event *window* service. |
 | `tokens` | **NEW.** API tokens: issue/verify/revoke, scopes, hashing. Bearer-auth middleware alongside sessions. |

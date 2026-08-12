@@ -34,13 +34,14 @@ Proves the **scoring** interface.
 - **Config:** `step` (points lost per solve, default from `params`), floor at `min`.
 - **Value:** `max(min, initial - step*solves)` — a linear curve distinct from the built-in
   quadratic `dynamic`. Deterministic.
-- **Proves:** a challenge authored with `scoring: linear-decay` scores through a plugin;
-  `static`/`dynamic` are untouched; on plugin failure the host **fails closed by default**
-  (the submission errors and the player retries) and marks the plugin unhealthy. The
-  `static` fallback is an operator opt-in (`OSCTF_PLUGIN_SCORING_FALLBACK`); when it fires
-  the submission is marked `scored_by=fallback` so the board stays recomputable — see the
-  per-type failure table in [`03-plugin-loader.md`](03-plugin-loader.md) and the scoring
-  section in [`04-plugin-interfaces.md`](04-plugin-interfaces.md).
+- **Proves:** a challenge authored with `scoring: linear-decay` scores through a plugin,
+  **locked at solve and recorded** (`scored_by=linear-decay`); `static`/`dynamic` are
+  untouched; the scoreboard reads the record, never the plugin. On plugin failure the solve
+  **still commits** and the value records as `fallback` (default, `OSCTF_PLUGIN_SCORING_FALLBACK`
+  on) or `pending` (off), and the plugin is marked unhealthy — so the board stays exactly
+  recomputable from `(log + records)` whatever the plugin does. See the per-type failure table
+  in [`03-plugin-loader.md`](03-plugin-loader.md) and the scoring section in
+  [`04-plugin-interfaces.md` §2](04-plugin-interfaces.md).
 - **Test target:** a table of `(initial, min, step, solves) → value` vectors, run both
   against the plugin binary (contract test) and as a pure unit test of its logic.
 

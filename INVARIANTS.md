@@ -85,6 +85,22 @@ resource is indistinguishable from a nonexistent one (status, body, ~timing). *P
 `handlers.TestPolicyTableCoversEveryRoute`, `handlers.TestPolicyMatrixIntegration`,
 `handlers.TestFreezeFailsClosedWithoutEvents`, `handlers.TestEnumerationHiddenChallengeIndistinguishable`.
 
+## Redis unavailable degrades reads, refuses credentials and mutations, never falls through the freeze
+
+Redis is derived state, so a Redis outage during a live event does not take the platform down — but
+the *direction* of failure is deliberate and differs by surface. **Reads degrade**: a live
+scoreboard read falls back to a bounded, counted Postgres recompute rather than going dark (the
+board is authoritative in Postgres). **Credentials and mutations fail closed**: login, register,
+submit, and token requests all return `503 + Retry-After` when the rate limiter's backend is down —
+never fail-open (which would silently remove every throttle, including the credential-stuffing
+backstop, exactly when an attacker wants it gone) and never a bare `500`. Sessions fail closed
+gracefully (a Redis-down session read drops the user to anonymous, no `500`). And the **freeze never
+falls through**: a frozen snapshot lives only in Redis, so with Redis down a frozen read fails closed
+rather than serving a live board — the opposite of the read-degrade path, on purpose. *Pinned by:*
+`handlers.TestLimitFailsClosedWhenLimiterUnavailable`,
+`scoreboard.TestScoreboardRedisOutageDegradesButFreezeFailsClosedIntegration` (a real container
+pause, asserting degrade-vs-fail-closed under the *same* outage, and recovery when Redis returns).
+
 ## Resource budgets are shared and bounded
 
 One file-descriptor accountant splits the process budget across WebSockets and plugins, with the

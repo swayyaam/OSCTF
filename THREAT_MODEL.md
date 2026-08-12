@@ -281,7 +281,13 @@ credential-stuffing backstop of 5 attempts / 5 min keyed on `sha256(email)`
 (`handlers/auth.go:104`, `:150`). Pinned by
 `handlers/register_ratelimit_integration_test.go :: TestRegisterRateLimitAllowsVenueBurst` and
 `handlers/login_ratelimit_integration_test.go :: TestLoginRateLimitTightConfigStillFires`
-(429 on the 4th over a burst of 3; per-IP buckets are independent).
+(429 on the 4th over a burst of 3; per-IP buckets are independent). **On a Redis outage these limits
+FAIL CLOSED** — login, register, submit, and token requests return `503 + Retry-After`, never
+fail-open, so an outage cannot be used to strip the throttle (including the credential-stuffing
+backstop) exactly when it is most wanted (`handlers.TestLimitFailsClosedWhenLimiterUnavailable`;
+counted distinctly as `osctf_ratelimiter_unavailable_total`). See INVARIANTS.md ("Redis
+unavailable…") for the full Redis-down posture: reads degrade to Postgres, credentials/mutations
+refuse, and the freeze (§1) never falls through to a live board.
 
 **WebSocket exhaustion — Mitigated.** Admission enforces, in order, a handshake rate, a global
 connection cap, and a per-key cap, keyed on the authenticated user id where present else the client

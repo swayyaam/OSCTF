@@ -75,6 +75,17 @@ provisioning policy (open/invite/off), `GET /auth/providers`. Challenge-type reg
 [v0.3.1](../v0.3.1/README.md)) and `CheckFlag` inside the submissions tx. First-party `oidc`
 + `regex-flag`.
 
+> **Security precondition — auth return-path validation ships before or WITH auth-plugin
+> registration, never after.** The ABI trust docs
+> ([`04-plugin-interfaces.md`](04-plugin-interfaces.md)) describe a return-path defense — a
+> provider's returned `Identity` cannot mint an admin, set roles, or bind to an existing account
+> without proof. At HEAD that defense is **not implemented**, and it is harmless only because the
+> registrar's auth arm returns `nil` (no auth plugin can load; see
+> [`../../THREAT_MODEL.md`](../../THREAT_MODEL.md) §3). Wiring `auth.Registry` in this milestone
+> removes that safety, so the validation is a **precondition of** wiring auth registration in the
+> same change — not a follow-up task. Do not enable auth-plugin loading against an unvalidated
+> return path.
+
 **Acceptance**:
 ```
 cd api && go test ./internal/auth/... ./internal/challenges/... -run 'Registry|Provider|Type'

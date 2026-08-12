@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 )
 
@@ -67,6 +68,19 @@ func (l *Loader) Boot(ctx context.Context) {
 		}
 	}
 
+	// A plugins directory the process can WRITE to is a persistence path: a compromised core could
+	// drop a plugin binary + manifest there for the next boot to launch AS the platform. The
+	// recommended posture is a read-only mount (docs/v0.3/03-plugin-loader.md); detect the writable
+	// case loudly rather than only documenting it — the same shape as the reverse-proxy misconfig
+	// warning. Runs whenever plugins are enabled, even before the first plugin exists (the risk is
+	// dropping the FIRST one).
+	if pluginsDirWritable(l.cfg.PluginsDir) {
+		l.cfg.Log.Warn("SECURITY: the plugins directory is WRITABLE by the platform process — a "+
+			"compromised core could drop a plugin binary + manifest there for the next boot to launch "+
+			"AS the platform. Mount it READ-ONLY to the process (docs/v0.3/03-plugin-loader.md).",
+			"dir", l.cfg.PluginsDir)
+	}
+
 	found, err := discoverPlugins(l.cfg.PluginsDir, l.cfg.Log)
 	if err != nil {
 		l.cfg.Log.Error("plugin discovery failed; continuing with no plugins", "err", err)
@@ -86,6 +100,29 @@ func (l *Loader) Boot(ctx context.Context) {
 		l.launchDiscovered(bctx, d)
 	}
 	l.cfg.Log.Info("plugins launched", "count", len(found))
+}
+
+// pluginsDirWritable reports whether THIS PROCESS can create a file in dir. It probes by creating
+// and immediately removing a temp file — the ground truth for "can I write here", which a stat of
+// the mode bits alone would miss: a read-only bind mount leaves the bits writable while the mount
+// rejects the write, and that ro mount is exactly the recommended posture. An empty, absent, or
+// non-directory path returns false (nothing to warn about; an absent dir is the silent no-op the
+// loader already treats as pure-core).
+func pluginsDirWritable(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".osctf-write-probe-*")
+	if err != nil {
+		return false // read-only (or otherwise unwritable) → the desired posture, no warning
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
 }
 
 // launchDiscovered tracks a discovered plugin and starts its supervisor. The supervisor goroutine

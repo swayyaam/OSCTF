@@ -174,10 +174,19 @@ elsewhere** (a corporate directory, email, whatever the user reused) — "equiva
 core" ([`docs/v0.3/04-plugin-interfaces.md`](docs/v0.3/04-plugin-interfaces.md)). Installing an auth
 plugin is therefore an operator trust decision on par with replacing the binary. What *is* enforced:
 built-in providers are override-protected, so a plugin cannot silently hijack `email`
-(`auth/registry.go:58`, pinned by `auth.TestAuthRegistryBuiltinOverrideProtected`). What is **not
-yet enforced**: auth return-path validation (a plugin cannot mint an admin or set roles) is
-specified but is P4 work — **documented, not implemented, not tested**. Until then a trusted-but-buggy
-auth plugin's return path is not defended in depth; treat auth plugins as fully trusted.
+(`auth/registry.go:58`, pinned by `auth.TestAuthRegistryBuiltinOverrideProtected`).
+
+What is **not yet enforced — and the most important line in this document**: auth return-path
+validation (a provider's returned `Identity` cannot mint an admin, set roles, or bind to an existing
+account without proof) is *specified* in the ABI trust docs but is **not implemented and not
+tested**. That means the docs describe a defense that does not exist. It is harmless **only because
+no auth plugin can load** — the composition root's auth registrar arm returns `nil`
+(`cmd/platform/plugin_registrar.go`, no `auth` case), so there is no untrusted return path to defend
+yet. That safety disappears the moment auth-plugin registration is wired (milestone **M3**).
+**Therefore the return-path validation is a hard precondition of M3 — it ships before or with auth
+registration, never after** ([`docs/v0.3/10-milestones.md`](docs/v0.3/10-milestones.md) records this
+as a security precondition). Until then: no auth plugin loads, and this gap must not outlive the
+`nil` arm that makes it safe.
 
 **Plugin failure — Mitigated, fail-safe per type.** Isolation means a panicking or hung plugin dies
 alone: crash-loops quarantine, a slow plugin cannot stall others, and boot never gates serving
@@ -239,12 +248,16 @@ auth provider is registered, the platform **aborts startup** rather than serving
 deployment (`cmd/platform/main.go:390`; `auth.HasUsableLogin`, pinned by
 `auth.TestAuthRegistryHasUsableLogin`).
 
-**A writable plugins directory — Accepted (documented, NOT enforced).** A plugins directory an
-attacker can write to is arbitrary code execution as the platform on the next boot. The core only
-*reads* it, and the documented posture is to mount it **read-only to the process**
-([`docs/v0.3/03-plugin-loader.md`](docs/v0.3/03-plugin-loader.md)) — but **v0.3 does not enforce
-this and there is no test**. This is a real residual risk stated plainly: a compromised core that
-can write the plugins directory gains a persistence path. Harden the mount per the deployment doc.
+**A writable plugins directory — Detected at boot.** A plugins directory the process can write to is
+a persistence path: a compromised core could drop a plugin binary + manifest there for the next boot
+to launch as the platform. The recommended posture is a **read-only mount**
+([`docs/v0.3/03-plugin-loader.md`](docs/v0.3/03-plugin-loader.md)). The loader now **probes this at
+boot and logs a loud `SECURITY` warning if the directory is writable** (`plugin/boot.go`,
+`pluginsDirWritable` — a create-and-remove probe, so a read-only bind mount is correctly detected as
+not-writable even when its mode bits say otherwise), pinned by `plugin.TestPluginsDirWritable`. This
+is detection, not prevention — it does not stop a write, it makes the misconfiguration
+observable — so harden the mount per the deployment doc; the warning is the backstop when it is
+missed.
 
 Other misconfigurations — no reverse proxy, rate limits disabled, the default admin password left
 unchanged — are the operator's responsibility per
@@ -305,8 +318,8 @@ yet behaviourally pinned:
 - Direct assertion that `RateLimitRejections` / `WSRejections` counters increment, and a token
   rate-limit 429 (§6, §4) — **no test**; the 429 *behaviour* is pinned by the register/login tests.
 - The constant-time property of the password/flag compares (§6) — **construction-only** (`crypto/subtle`).
-- Auth-plugin return-path validation and the read-only-plugins-directory posture (§3, §5) —
-  **documented, not yet enforced, no test.**
+- Auth-plugin return-path validation (§3) — **documented, not yet implemented, not tested.** Safe
+  only while the auth registrar arm returns `nil`; a hard precondition of milestone M3.
 
 ## Keeping this honest
 

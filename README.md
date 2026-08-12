@@ -18,6 +18,50 @@ CTFs are the entry point; the durable goal is to be the open infrastructure laye
 universities, communities, and companies build their security education on. Vision and
 roadmap: [`docs/project-desc.md`](docs/project-desc.md).
 
+## How it works
+
+One Go binary — a modular monolith — serves the JSON API **and** the embedded React dashboard,
+with **Postgres** as the source of truth, **Redis** for ephemeral state (sessions, rate limits,
+the board cache), **MinIO** for attachments, the host **Docker** daemon for per-team containers,
+and **0..N out-of-process plugins** over gRPC. The diagrams below are verified against `main`;
+read each top-to-bottom.
+
+![OSCTF architecture — the clients, the packages inside the binary, and where state lives](docs/public/overview.png)
+
+<details>
+<summary><b>Request flows</b> — flag submission, scoreboard read, per-team instances, plugin lifecycle (click to expand)</summary>
+
+<br>
+
+**Flag submission.** A plugin challenge-type's verdict is computed *before* the transaction — a
+plugin call never happens inside the row lock. Inside `SELECT … FOR UPDATE` the deleted/swapped
+checks run *before* the solved/attempt checks, so a challenge changed mid-submit costs no attempt.
+The point value is recorded post-commit; the event-bus and notification tails are async and can
+never fail the solve.
+
+![Flag submission flow](docs/public/submission-flow.png)
+
+**Scoreboard read.** Read-repair makes *served == the solve log* by construction rather than by
+timing. Plugin scores are **locked at solve** and read from a per-solve record, so the served board
+equals a from-scratch recompute over the log **even with every plugin down**; a background worker
+backfills missing/pending records off the read path.
+
+![Scoreboard read flow](docs/public/scoreboard-flow.png)
+
+**Per-team instance lifecycle** — the reason to use OSCTF over a CTFd-class tool. Per-team locking,
+quota, DB-arbitrated port allocation, container hardening, and background sweeps (expiry, reap,
+reconcile) that all take the same per-team lock.
+
+![Per-team instance lifecycle flow](docs/public/instance-flow.png)
+
+**Plugin lifecycle.** Boot runs in a goroutine and never gates HTTP serving; an 8-state supervisor
+with guarded transitions; register-on-ready / revert-before-death; a two-level in-flight budget; and
+an ordered shutdown (HTTP drain → plugin drain → background workers) under one shared budget.
+
+![Plugin lifecycle flow](docs/public/plugin-flow.png)
+
+</details>
+
 ## Quick start
 
 ```bash
@@ -96,14 +140,17 @@ every push.
 ## Status
 
 **Latest release: see [Releases](https://github.com/swayam-mishra/OSCTF/releases)** and the
-[CHANGELOG](CHANGELOG.md). Shipped so far: **v0.1** (MVP) → **v0.2** (per-team instances +
-scheduler), hardened across **v0.2.1** (security) and **v0.2.2** (concurrency).
+[CHANGELOG](CHANGELOG.md). Shipped: **v0.1** (MVP) → **v0.2** (per-team instances + scheduler),
+hardened across **v0.2.1** (security), **v0.2.2** (concurrency), and **v0.2.3** (scoreboard
+consistency by construction).
 
-**Next:** **v0.3** — a plugin system (auth / scoring / notifications / challenge types) and a
-stable, semver-governed **API v1** — is fully specified in
-[`docs/v0.3/`](docs/v0.3/README.md) and [`docs/v0.3.1/`](docs/v0.3.1/README.md), but **not
-yet built**. The HTTP surface is still `/api/v0`; there are no API stability promises before
-v1.0.
+**In progress on `main` — v0.3:** the canonical **`/api/v1`** surface (with `/api/v0` kept as a
+deprecated alias) and the **out-of-process plugin system**. Built and verified in the diagrams
+above: the plugin **loader** (discovery, an 8-state supervisor, a two-level in-flight budget,
+ordered drain) and its **challenge-type**, **scoring**, and **notification** wiring. Remaining:
+**auth** plugins (redirect/OAuth), the first-party plugin set, and API v1's full stability
+guarantees. Specs: [`docs/v0.3/`](docs/v0.3/README.md) · [`docs/v0.3.1/`](docs/v0.3.1/README.md).
+There are no API stability promises before v1.0.
 
 ## License
 

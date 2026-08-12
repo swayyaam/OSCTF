@@ -68,6 +68,15 @@ var (
 		Help: "Rate-limit rejections by scope.",
 	}, []string{"scope"})
 
+	// RateLimiterUnavailable counts rate-limit checks that could not run because the backend (Redis)
+	// was unavailable, by scope. Distinct from a rejection: a rising count here means "Redis is
+	// down and requests are failing closed (503)", NOT "clients are being throttled" — an operator
+	// must be able to tell those apart.
+	RateLimiterUnavailable = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_ratelimiter_unavailable_total",
+		Help: "Rate-limit checks that failed closed because the limiter backend (Redis) was unavailable, by scope.",
+	}, []string{"scope"})
+
 	// TeamInstances gauges per-team challenge instances by state.
 	TeamInstances = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "osctf_team_instances",
@@ -156,6 +165,16 @@ var (
 	ScoreboardStaleServed = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "osctf_scoreboard_stale_served_total",
 		Help: "Scoreboard reads served stale because inline read-repair exceeded its budget.",
+	})
+
+	// ScoreboardDegradedServed counts scoreboard reads served by a direct Postgres recompute because
+	// the Redis cache was unavailable — the board degrades (slightly slower) instead of going dark.
+	// A rising count means "Redis is down and the board is being recomputed on the read path"; if it
+	// stays high the read load is hitting Postgres directly (the bound is what keeps that from
+	// cascading into a DB overload). The freeze path does NOT degrade, so this never covers a freeze.
+	ScoreboardDegradedServed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_scoreboard_degraded_served_total",
+		Help: "Scoreboard reads served by a direct Postgres recompute because the Redis cache was unavailable.",
 	})
 
 	// PluginCallDuration observes host→plugin call latency by plugin and method. The failure
@@ -248,11 +267,11 @@ func init() {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		HTTPRequests, HTTPDuration, Submissions,
-		WSConnections, WSRejections, WSReadPumpPanics, Instances, RateLimitRejections,
+		WSConnections, WSRejections, WSReadPumpPanics, Instances, RateLimitRejections, RateLimiterUnavailable,
 		TeamInstances, InstanceSpawns, InstanceExpiries, InstanceCleanups, FlagSharingSignals,
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
-		ScoreboardStaleReads, ScoreboardStaleServed,
+		ScoreboardStaleReads, ScoreboardStaleServed, ScoreboardDegradedServed,
 		PluginCallDuration, PluginInflight, PluginInflightShed,
 		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
 		PluginEventsDropped, WSBroadcastsDropped,

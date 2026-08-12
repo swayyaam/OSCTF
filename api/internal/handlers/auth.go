@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +63,16 @@ func (s *Server) limit(ctx context.Context, scope, key string, n int, window tim
 	}
 	allowed, retryAfter, err := s.d.Limiter.Allow(ctx, scope, key, n, window)
 	if err != nil {
-		return fmt.Errorf("rate limit check (%s): %w", scope, err)
+		// Redis is down: FAIL CLOSED. Credential and mutation paths must not run without a working
+		// limiter — an outage silently removing the login/register/submit throttle (incl. the
+		// credential-stuffing backstop) is exactly when it is most wanted. Return 503, not 500: 500
+		// tells a client its request was wrong; 503 + Retry-After tells it to come back, which
+		// automation handles differently. Logged + counted DISTINCTLY so an operator can tell
+		// "Redis is down" from "you are being throttled".
+		metrics.RateLimiterUnavailable.WithLabelValues(scope).Inc()
+		s.logger().Warn("rate limiter unavailable (Redis) — failing the request closed with 503",
+			"scope", scope, "error", err.Error())
+		return &apperr.Unavailable{Detail: "the rate limiter is temporarily unavailable; please retry shortly", RetryAfter: limiterUnavailableRetry}
 	}
 	if !allowed {
 		metrics.RateLimitRejections.WithLabelValues(scope).Inc()
@@ -72,6 +80,10 @@ func (s *Server) limit(ctx context.Context, scope, key string, n int, window tim
 	}
 	return nil
 }
+
+// limiterUnavailableRetry is the Retry-After surfaced when the limiter backend is down — short, so a
+// client comes back quickly once Redis recovers, not the (possibly long) rate-limit window.
+const limiterUnavailableRetry = 3 * time.Second
 
 // mePayload assembles the /auth/me response for a user.
 func (s *Server) mePayload(ctx context.Context, u gen.User) (apigen.Me, error) {

@@ -5,6 +5,30 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
 ## Unreleased
 
+### Security & hardening (v0.3 line)
+
+Outcomes of an architecture-review pass. The two Redis-outage bug fixes it also produced are
+backported to **v0.2.4** (below) because they affect released versions.
+
+- **Container challenges are refused when per-team network isolation is unenforced** — on Docker
+  Desktop or an unverified daemon, a container instance no longer starts (one team could otherwise
+  reach another team's instance). Fail-closed by default, overridable only by an explicit,
+  loudly-logged `OSCTF_ALLOW_UNISOLATED_INSTANCES` for local trials; unknown/unverified isolation
+  also fails closed. Closes the silent cross-team-reachability gap on a supported path
+  ([#2](https://github.com/swayam-mishra/OSCTF/issues/2)). Pinned by `runtime.TestIsolationGate`.
+- **A writable plugins directory is detected and warned at boot** — a compromised core dropping a
+  plugin binary for the next boot to launch is now an observed condition, not only a documented
+  risk. The recommended posture is a read-only mount. Pinned by `plugin.TestPluginsDirWritable`.
+- **Auth return-path validation recorded as a hard precondition of milestone M3** — the ABI trust
+  docs describe a "a plugin cannot mint an admin or set roles" defense that is not yet implemented;
+  it is safe only while the registrar's auth arm returns `nil` (no auth plugin can load), so it must
+  ship before or with auth-plugin registration, never after.
+- **`THREAT_MODEL.md` and `INVARIANTS.md` added** — an adversary-by-adversary threat model and a
+  readable invariant summary, each entry naming the test that enforces it; linked from `SECURITY.md`.
+- **The commit→async durability gap is now tested by actually killing the process** at the seam
+  (build-tagged out of the production binary), proving the repair worker recovers the exact state a
+  real crash produces — not only a state a test constructs.
+
 ### Changed (observability)
 
 - **WebSocket broadcast drops are now counted.** When the hub's ingress channel is full it
@@ -14,6 +38,35 @@ stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
   visible as `osctf_ws_broadcasts_dropped_total{kind}` (`scoreboard` / `phase`). No behaviour
   change — only the previously-silent drop is now observable, in keeping with the plugin event
   bus's "a drop is never silent" contract (new `osctf_plugin_events_dropped_total{name,event,reason}`).
+
+## v0.2.4 — Redis-unavailability hardening
+
+Two production bugs, **live in v0.2.3 and every earlier release**, that surface only when Redis
+becomes unavailable during an event. Both backport cleanly from the v0.3 line (they touch code
+unchanged since v0.2.3). **No database-schema or OpenAPI change**; the fixes are behavioural. Worth
+applying before your next event if you run one on Redis.
+
+### Fixed (security)
+
+- **The API-token rate limiter failed OPEN when Redis was unavailable.** A Redis blip silently
+  removed the per-token throttle entirely — the credential built for automation losing its limit
+  exactly when the platform is already under stress — while the login/register/submit limiters
+  failed closed as a bare `500`. Now **all four (login, register, submit, token) fail closed with
+  `503` + `Retry-After`** (a `503` tells a client to come back; a `500` tells it its request was
+  wrong, and automation behaves differently on each), and the limiter-unavailable condition is
+  logged and counted distinctly (`osctf_ratelimiter_unavailable_total`) so an operator can tell
+  "Redis is down" from "you're being throttled". Pinned by
+  `handlers.TestLimitFailsClosedWhenLimiterUnavailable`.
+
+### Fixed (availability)
+
+- **The scoreboard went dark (`500`) when Redis was unavailable.** A cache-read failure returned an
+  error instead of falling back to the authoritative data in Postgres. A live scoreboard read now
+  **degrades to a bounded, counted Postgres recompute** (`osctf_scoreboard_degraded_served_total`) —
+  a slightly slower board instead of no board — while a **frozen** read stays fail-closed, because a
+  frozen snapshot lives only in Redis and has no Postgres authority to fall back to (the two paths
+  behave differently under the same outage, on purpose). Pinned by
+  `scoreboard.TestScoreboardRedisOutageDegradesButFreezeFailsClosedIntegration`.
 
 ## v0.2.3 — Scoreboard consistency by construction
 

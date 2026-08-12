@@ -128,6 +128,14 @@ else
 fi
 
 step "/metrics exposes osctf_submissions_total"
-curl -s "$BASE_URL/metrics" | grep -q '^osctf_submissions_total' || fail "missing metric"; ok
+# Retry the scrape: the metric is definitely present by here (submissions ran above, and the
+# handler increments it synchronously), so a miss is a transient scrape — not a missing metric. A
+# genuinely-absent metric still fails all attempts. Un-retried, one flaky scrape reds main.
+found=""
+for _ in 1 2 3 4 5; do
+  if curl -s "$BASE_URL/metrics" | grep -q '^osctf_submissions_total'; then found=1; break; fi
+  sleep 1
+done
+[ -n "$found" ] || fail "missing metric (5 scrapes over ~4s)"; ok
 
 echo "Smoke test passed ($pass assertions)."

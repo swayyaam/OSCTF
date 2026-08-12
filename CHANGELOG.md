@@ -3,7 +3,34 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
-## Unreleased
+## v0.2.4 — Redis-unavailability hardening
+
+Two production bugs, **live in v0.2.3 and every earlier release**, that surface only when Redis
+becomes unavailable during an event. Both backport cleanly from the v0.3 line (they touch code
+unchanged since v0.2.3). **No database-schema or OpenAPI change**; the fixes are behavioural. Worth
+applying before your next event if you run one on Redis.
+
+### Fixed (security)
+
+- **The API-token rate limiter failed OPEN when Redis was unavailable.** A Redis blip silently
+  removed the per-token throttle entirely — the credential built for automation losing its limit
+  exactly when the platform is already under stress — while the login/register/submit limiters
+  failed closed as a bare `500`. Now **all four (login, register, submit, token) fail closed with
+  `503` + `Retry-After`** (a `503` tells a client to come back; a `500` tells it its request was
+  wrong, and automation behaves differently on each), and the limiter-unavailable condition is
+  logged and counted distinctly (`osctf_ratelimiter_unavailable_total`) so an operator can tell
+  "Redis is down" from "you're being throttled". Pinned by
+  `handlers.TestLimitFailsClosedWhenLimiterUnavailable`.
+
+### Fixed (availability)
+
+- **The scoreboard went dark (`500`) when Redis was unavailable.** A cache-read failure returned an
+  error instead of falling back to the authoritative data in Postgres. A live scoreboard read now
+  **degrades to a bounded, counted Postgres recompute** (`osctf_scoreboard_degraded_served_total`) —
+  a slightly slower board instead of no board — while a **frozen** read stays fail-closed, because a
+  frozen snapshot lives only in Redis and has no Postgres authority to fall back to (the two paths
+  behave differently under the same outage, on purpose). Pinned by
+  `scoreboard.TestScoreboardRedisOutageDegradesButFreezeFailsClosedIntegration`.
 
 ## v0.2.3 — Scoreboard consistency by construction
 

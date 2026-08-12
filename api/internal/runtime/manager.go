@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,20 @@ import (
 	"github.com/osctf/platform/internal/apperr"
 	"github.com/osctf/platform/internal/db/gen"
 )
+
+// isolationVerdict is the platform's knowledge of whether the Docker daemon enforces per-team
+// network isolation. It starts UNKNOWN and is set once by the boot self-check (VerifyIsolation).
+type isolationVerdict int32
+
+const (
+	isolationUnknown    isolationVerdict = iota // not verified yet, or verification errored → fail closed
+	isolationEnforced                           // native Linux Docker: per-team networks are isolated
+	isolationUnenforced                         // Docker Desktop: a published port is cross-reachable
+)
+
+// unisolatedWarnEvery throttles the "running unisolated" / "refused" deploy logs so a busy event
+// does not flood, while still leaving the marker in the logs of the event it affected.
+const unisolatedWarnEvery = int64(60) // seconds
 
 // Manager layers DB-backed instance lifecycle over a ChallengeRuntime. It owns
 // port allocation, instance rows, spec construction (including v0.2 hardening),
@@ -27,11 +43,91 @@ type Manager struct {
 	publicHost string
 	portStart  int
 	portEnd    int
+
+	// Isolation gate (#2): container deploys are refused when the daemon does not enforce per-team
+	// isolation, unless allowUnisolated overrides it. isolation is set once by the boot self-check.
+	// The gate is ARMED by the composition root (ConfigureIsolationGate); an unarmed Manager — the
+	// default for tests and embedded use, which never run the real boot self-check — permits, so the
+	// fail-closed default is a property of production wiring, not something tests must opt out of.
+	gateArmed       bool
+	allowUnisolated bool
+	isolation       atomic.Int32 // isolationVerdict
+	lastUnisoWarn   atomic.Int64 // unix-sec of the last throttled isolation warning
+	secLog          *slog.Logger
 }
 
 // NewManager builds the manager.
 func NewManager(rt ChallengeRuntime, q *gen.Queries, publicHost string, portStart, portEnd int) *Manager {
 	return &Manager{rt: rt, q: q, publicHost: publicHost, portStart: portStart, portEnd: portEnd}
+}
+
+// ConfigureIsolationGate wires the override + a logger for the isolation gate, and logs loudly at
+// boot when the override is set — so "we ran unisolated" is on the record from the first line. With
+// no override (the default) container deploys fail closed until the boot self-check reports
+// isolation enforced (see RecordIsolationVerdict). Call once at startup.
+func (m *Manager) ConfigureIsolationGate(allowUnisolated bool, log *slog.Logger) {
+	m.gateArmed = true
+	m.allowUnisolated = allowUnisolated
+	m.secLog = log
+	if allowUnisolated && log != nil {
+		log.Warn("SECURITY: OSCTF_ALLOW_UNISOLATED_INSTANCES is set — container challenges will start " +
+			"even when the Docker daemon does not enforce per-team network isolation, so one team can " +
+			"reach another team's instance. This is for a LOCAL TRIAL / dev only; NEVER set it for a real " +
+			"event. Run events on native Linux Docker (docs/v0.2/03-runtime.md).")
+	}
+}
+
+// RecordIsolationVerdict stores the boot self-check result. Until it is called the verdict is
+// UNKNOWN and container deploys fail closed; a verification that errors should leave it UNKNOWN.
+func (m *Manager) RecordIsolationVerdict(isolated bool) {
+	if isolated {
+		m.isolation.Store(int32(isolationEnforced))
+		return
+	}
+	m.isolation.Store(int32(isolationUnenforced))
+}
+
+// isolationRefusalDetail is the actionable error a refused container deploy surfaces — it names the
+// override, states why, and links the doc, so an operator hitting it does not have to search.
+const isolationRefusalDetail = "container challenges are disabled on this deployment: the Docker " +
+	"daemon does not enforce per-team network isolation, so one team could reach another team's " +
+	"instance. Run on native Linux Docker, or set OSCTF_ALLOW_UNISOLATED_INSTANCES=true to accept the " +
+	"risk for a local trial (docs/v0.2/03-runtime.md)."
+
+// isolationGate is the fail-closed check run before every container deploy. Isolated → allow.
+// Otherwise (unenforced, or verdict not yet known) → refuse, unless the override is set — in which
+// case allow but log loudly (throttled) so the unisolated deploys are visible in the event's logs.
+func (m *Manager) isolationGate() error {
+	if !m.gateArmed {
+		return nil // not wired by a composition root (tests / embedded) — no real daemon to gate
+	}
+	if isolationVerdict(m.isolation.Load()) == isolationEnforced {
+		return nil
+	}
+	if m.allowUnisolated {
+		m.throttledSecWarn("SECURITY: starting a container instance WITHOUT enforced per-team network " +
+			"isolation (OSCTF_ALLOW_UNISOLATED_INSTANCES is set). One team can reach another team's " +
+			"instance. This must not be a real event.")
+		return nil
+	}
+	m.throttledSecWarn("refused a container deploy: per-team network isolation is not enforced on this " +
+		"Docker daemon and OSCTF_ALLOW_UNISOLATED_INSTANCES is not set (docs/v0.2/03-runtime.md).")
+	return &apperr.Unavailable{Detail: isolationRefusalDetail}
+}
+
+// throttledSecWarn logs msg at Warn, at most once per unisolatedWarnEvery seconds.
+func (m *Manager) throttledSecWarn(msg string) {
+	if m.secLog == nil {
+		return
+	}
+	now := time.Now().Unix()
+	last := m.lastUnisoWarn.Load()
+	if now-last < unisolatedWarnEvery {
+		return
+	}
+	if m.lastUnisoWarn.CompareAndSwap(last, now) {
+		m.secLog.Warn(msg)
+	}
 }
 
 // Runtime exposes the underlying runtime (for the reconcile ticker).
@@ -146,6 +242,11 @@ func (m *Manager) InstanceForChallenge(ctx context.Context, challengeID uuid.UUI
 // The scheduler owns quota, flag generation, and TTL; the Manager owns rows,
 // ports, networks, and hardening.
 func (m *Manager) DeployForTeam(ctx context.Context, req DeployReq) (Instance, error) {
+	// Fail closed before touching the DB or the daemon: a container instance must not start on a
+	// daemon that cannot isolate it from other teams (unless explicitly overridden). #2.
+	if err := m.isolationGate(); err != nil {
+		return Instance{}, err
+	}
 	ch, err := m.getContainerChallenge(ctx, req.ChallengeID)
 	if err != nil {
 		return Instance{}, err

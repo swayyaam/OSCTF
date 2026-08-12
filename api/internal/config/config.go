@@ -92,6 +92,13 @@ type Config struct {
 	ExamplesDir  string `env:"OSCTF_EXAMPLES_DIR" envDefault:"examples"`
 	TrustProxy   bool   `env:"OSCTF_TRUST_PROXY" envDefault:"false"`
 
+	// AllowUnisolatedInstances overrides the fail-closed refusal to start CONTAINER challenges when
+	// the Docker daemon does not enforce per-team network isolation (Docker Desktop; issue #2).
+	// Default false = refuse, so one team cannot reach another team's instance by accident. Set true
+	// ONLY for a local trial / dev — never a real event; when set, the platform logs loudly at boot
+	// and on every unisolated deploy (docs/v0.2/03-runtime.md).
+	AllowUnisolatedInstances bool `env:"OSCTF_ALLOW_UNISOLATED_INSTANCES" envDefault:"false"`
+
 	// Live-scoreboard WebSocket admission control. The endpoint is public and
 	// unauthenticated; these caps stop a client from opening connections until the
 	// process dies. Caps and the handshake rate key on the authenticated user where a

@@ -61,6 +61,7 @@ dev-api: ## Run the API locally against dev services
 	OSCTF_S3_ENDPOINT="localhost:9000" \
 	OSCTF_CORS_DEV_ORIGIN="http://localhost:5173" \
 	OSCTF_LOG_FORMAT=text \
+	OSCTF_ALLOW_UNISOLATED_INSTANCES=true \
 	go run ./cmd/platform serve
 
 .PHONY: dev-web

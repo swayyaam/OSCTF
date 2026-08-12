@@ -355,20 +355,29 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else {
 		log.Info("runtime reconciled")
 	}
-	// Self-check cross-network isolation (async, best-effort). Native Linux Docker
-	// isolates per-team instances; Docker Desktop's VM does not once a host port is
-	// published (which every instance does), so warn loudly there.
+	// Isolation gate (#2): container deploys fail closed until the boot self-check reports isolation
+	// enforced, unless the operator overrides it. Configure the gate up front (logs loudly if the
+	// override is set), then run the self-check async — it feeds the verdict to the gate. Native
+	// Linux Docker isolates per-team instances; Docker Desktop's VM does not once a host port is
+	// published (which every instance does).
+	rtMgr.ConfigureIsolationGate(cfg.AllowUnisolatedInstances, log)
 	go func() {
 		isolated, ierr := rtMgr.VerifyIsolation(ctx)
 		switch {
 		case ierr != nil:
-			log.Debug("network isolation self-check skipped", "error", ierr.Error())
+			// Leave the verdict UNKNOWN → container deploys stay fail-closed until this resolves or
+			// the override is set. This is louder than before because it now gates deploys.
+			log.Warn("network isolation self-check could not run; treating isolation as UNVERIFIED — "+
+				"container challenges are refused until this resolves or OSCTF_ALLOW_UNISOLATED_INSTANCES "+
+				"is set (docs/v0.2/03-runtime.md)", "error", ierr.Error())
 		case !isolated:
+			rtMgr.RecordIsolationVerdict(false)
 			log.Warn("SECURITY: this Docker daemon does NOT enforce network isolation between " +
-				"per-team challenge instances — one team can reach another team's container. This is " +
-				"expected on Docker Desktop; run per-team challenges on native Linux Docker for real " +
-				"isolation (docs/v0.2/03-runtime.md).")
+				"per-team challenge instances — one team can reach another team's container. Container " +
+				"challenges are REFUSED unless OSCTF_ALLOW_UNISOLATED_INSTANCES is set. This is expected " +
+				"on Docker Desktop; run per-team challenges on native Linux Docker (docs/v0.2/03-runtime.md).")
 		default:
+			rtMgr.RecordIsolationVerdict(true)
 			log.Info("network isolation self-check passed: per-team instances are isolated")
 		}
 	}()

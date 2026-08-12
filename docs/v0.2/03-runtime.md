@@ -159,10 +159,14 @@ port-forwarding makes the published container reachable across bridges, so team 
 reach team B's container. There is no fix inside the Docker runtime for this; it is a
 property of the Desktop VM. Therefore:
 
-- The platform runs a **startup isolation self-check** (`Manager.VerifyIsolation`, async,
-  best-effort) and logs a **loud `SECURITY` warning** when the daemon does not enforce
-  cross-network isolation. Operators running untrusted per-team challenges must use native
-  Linux Docker.
+- The platform runs a **startup isolation self-check** (`Manager.VerifyIsolation`, async) and,
+  when the daemon does not enforce cross-network isolation, **fails closed: container challenges
+  are refused** (`Manager.isolationGate`, run before every `DeployForTeam`), with an actionable
+  error. Unknown/unverified isolation also refuses, so no startup window can leak an unisolated
+  deploy. The only override is `OSCTF_ALLOW_UNISOLATED_INSTANCES=true` — for a **local trial only**,
+  logged loudly at boot and on every unisolated deploy. `make dev-api` sets it for you;
+  `.env.example` leaves it commented so a copied config is fail-closed. Operators running untrusted
+  per-team challenges must use native Linux Docker.
 - The dockerint isolation test is **strict** when `OSCTF_ISOLATION_ENFORCED=1` (CI, on
   Linux) and an **informative skip** otherwise (developer machines on Desktop), so it is
   never a spurious red locally while still guarding Linux in CI

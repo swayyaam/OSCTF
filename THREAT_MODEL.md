@@ -101,19 +101,24 @@ currently probes a hidden user profile** (test gap, not a code gap; tracked belo
 The sharpest adversary: root inside a container OSCTF started, which is the entire point of a CTF
 challenge. The question is blast radius.
 
-**Other teams' containers and networks — Mitigated on Linux; Accepted (not enforced) on Docker
-Desktop.** Each team's containers sit on their own Docker bridge; cross-team traffic is blocked by
-Docker's isolation chains **on native Linux only** (`runtime/docker.go`, `ensureNamedNetwork`
-`:666`, per-team network `manager.go:499`). On **Docker Desktop (macOS/Windows) this does not
-hold** once a host port is published — and every instance publishes one — so team A can reach team
-B's published port. This is a property of the Desktop VM, not a bug OSCTF can fix. The platform
-**detects it at boot** and logs a loud `SECURITY` warning rather than pretending: `VerifyIsolation`
-(`docker.go:93`) stands up two masquerade-off bridges and cross-probes them
-(`cmd/platform/main.go:361`). Mitigation pinned (Linux, `dockerint` tag) by
+**Other teams' containers and networks — Mitigated on Linux; refused-by-default elsewhere.** Each
+team's containers sit on their own Docker bridge; cross-team traffic is blocked by Docker's
+isolation chains **on native Linux only** (`runtime/docker.go`, `ensureNamedNetwork` `:666`,
+per-team network `manager.go:499`). On **Docker Desktop (macOS/Windows) this does not hold** once a
+host port is published — and every instance publishes one — so team A could reach team B's published
+port. This is a property of the Desktop VM, not a bug OSCTF can fix. The platform **verifies
+isolation at boot** (`VerifyIsolation`, `docker.go:93`, stands up two masquerade-off bridges and
+cross-probes them) and, when it is not enforced, **fails closed: container challenges are refused**
+(`manager.isolationGate`, called at the top of `DeployForTeam`) — a missable warning became an
+unmissable wall. The only escape is an explicit `OSCTF_ALLOW_UNISOLATED_INSTANCES=true`, which is
+logged loudly at boot and on every unisolated deploy so "we ran unisolated" is in the event's own
+logs. Unknown/unverified isolation also fails closed, so a startup window cannot leak an unisolated
+deploy. Linux mitigation pinned (`dockerint`) by
 `runtime/docker_hardening_integration_test.go :: TestDockerPerTeamIsolationIntegration` and
-`:: TestVerifyIsolationSelfCheckIntegration`. The Docker Desktop limitation is **documented and
-accepted** — [`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md) (issue
-[#2](https://github.com/swayam-mishra/OSCTF/issues/2)); **run real events on a Linux host**.
+`:: TestVerifyIsolationSelfCheckIntegration`; the gate (off refuses, on permits, unknown fails
+closed) by `runtime.TestIsolationGate`. **Run real events on a Linux host** — the override is for a
+local trial only ([`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md), issue
+[#2](https://github.com/swayam-mishra/OSCTF/issues/2)).
 
 **The host — Accepted (bounded, not sandboxed).** The Docker socket is mounted into the platform
 and is **root-equivalent on the host by design** — documented in the runtime and deployment docs;

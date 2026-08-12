@@ -85,6 +85,10 @@ account, no license key, no external services.
 > **root-equivalent on the host.** Run events on a dedicated host/VM. See
 > [`docs/v0.1/08-challenge-runtime.md`](docs/v0.1/08-challenge-runtime.md).
 
+The security posture — the adversaries, what each can reach, and what is defended vs. explicitly
+accepted — is in [`THREAT_MODEL.md`](THREAT_MODEL.md); report vulnerabilities via
+[`SECURITY.md`](SECURITY.md).
+
 ## Running a real event
 
 The quickstart is fine for a local trial; before an actual event, read

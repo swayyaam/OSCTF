@@ -39,7 +39,9 @@ Only the **latest release** receives security fixes at this stage.
 ## Scope
 
 OSCTF runs deliberately vulnerable challenge containers on purpose, so "scope" matters more
-than usual — please read this before reporting.
+than usual — please read this before reporting. For the full adversary-by-adversary analysis —
+what each attacker can reach, what is mitigated (with the test that pins each mitigation), what
+is accepted-and-documented, and what is out of scope — see [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 **In scope** (please report):
 

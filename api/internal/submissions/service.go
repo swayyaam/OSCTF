@@ -31,15 +31,12 @@ import (
 // per-team instance secret is never persisted or echoed back through the admin views.
 const redactedFlag = "[redacted per-instance flag]"
 
-// afterCommitCrashHook is a TEST-ONLY seam (nil in production). Submit calls it at the instant after
-// a submission commits and before any post-commit async work; a subprocess crash test assigns it to
-// os.Exit to prove the post-commit durability gap is recovered from the state a real crash produces.
-var afterCommitCrashHook func()
-
-// SetAfterCommitCrashHookForTest installs the post-commit crash seam. It exists ONLY for the
-// subprocess crash test (TestCrashBetweenCommitAndAsyncRecovers); production never calls it and the
-// hook stays nil, so Submit's call site is a no-op outside that one test.
-func SetAfterCommitCrashHookForTest(fn func()) { afterCommitCrashHook = fn }
+// crashAfterCommit is the post-commit crash SEAM. In the production binary it is a no-op that does
+// not exist beyond an empty function (crashhook_off.go, //go:build !crashtest) — there is no hook
+// var and no settable entry point to reach, so nothing can arm a process exit on the submission hot
+// path. Only the crashtest build (crashhook_on.go) carries the settable hook, and only the
+// subprocess crash test builds with that tag. Called by Submit at the instant after commit and
+// before any post-commit async work.
 
 // FlagChecker is a plugin-provided correctness check. It receives the submitted guess + author
 // config + per-instance metadata, and NEVER the flag. Defined here (not imported from challenges)
@@ -312,15 +309,12 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		return Result{}, err
 	}
 
-	// TEST SEAM — nil in production, so this is a no-op there (only test code assigns it, following
-	// the afterFrozenExistsCheckHook pattern). It marks the exact instant AFTER the submission has
-	// COMMITTED and BEFORE any post-commit async work (the scoring record, the domain-event publish).
-	// A subprocess crash test sets it to os.Exit here, to prove that the "committed-but-async-skipped"
-	// state the repair mechanisms are built to recover is precisely the state a real crash produces —
-	// no partial write, no in-memory bookkeeping the repair silently depends on.
-	if afterCommitCrashHook != nil {
-		afterCommitCrashHook()
-	}
+	// Post-commit crash seam (crashAfterCommit): the exact instant AFTER the submission has COMMITTED
+	// and BEFORE any post-commit async work (scoring record, domain-event publish). A no-op in the
+	// production binary — the settable hook exists ONLY under the crashtest build tag, which only the
+	// subprocess crash test uses, to prove the "committed-but-async-skipped" state the repair
+	// mechanisms recover is precisely the state a real crash produces.
+	crashAfterCommit()
 
 	// A sharing signal is detection-only: log it and count it, never reveal it to
 	// the submitter and never record the flag value.

@@ -11,6 +11,7 @@ run:
     - integration
     - dockerint
     - soak
+    - crashtest
 
 linters:
   default: none
@@ -53,7 +54,8 @@ linters:
       rules:
         # Only internal/runtime (production) and internal/testsupport (the integration-test
         # container harness — start/pause/terminate; pause is not on the testcontainers interface)
-        # may talk to the Docker daemon.
+        # may talk to the Docker daemon. Do NOT extend this exemption to other packages by analogy:
+        # a new Docker user belongs behind internal/runtime, not on this list.
         docker-client:
           files: ["!$test", "!**/internal/runtime/**", "!**/internal/testsupport/**"]
           deny:

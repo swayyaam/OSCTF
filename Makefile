@@ -101,7 +101,7 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 # with the reason. The guard in vet-tags fails if the tree uses a tag in neither list, so a
 # fifth build tag added later can't silently reintroduce the partial-compile gap — the same
 # shape as the policy-table route-coverage gate.
-VET_TAGS := integration dockerint soak
+VET_TAGS := integration dockerint soak crashtest
 # embed_spa: compiled only in the image build — it embeds the built SPA (webdist/static),
 # absent in a plain checkout, so vetting it here would fail on the missing embed.
 TAG_ALLOWLIST := embed_spa
@@ -218,7 +218,7 @@ ci-api-test: vet-tags ## CI job 'api test': tag/GOOS build coverage, then unit t
 
 .PHONY: ci-api-integration
 ci-api-integration: ## CI job 'api integration': integration + dockerint + soak + migrations
-	cd api && go test ./... -race -shuffle=on -tags integration
+	cd api && go test ./... -race -shuffle=on -tags 'integration crashtest'
 	cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
 	@out=$$(mktemp); cd api && go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee $$out; \
 		grep -q '^--- PASS: TestSoak' $$out || { echo '::error:: soak produced no PASS for TestSoak — it exercised nothing'; rm -f $$out; exit 1; }; rm -f $$out

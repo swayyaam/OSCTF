@@ -105,6 +105,10 @@ make a build go green.** If one fails, either the code is wrong (fix the code) o
 invariant changed on purpose — in which case update the test and say why, here or in the
 linked doc, in the same change.
 
+A prose summary of these guarantees, for a first read before touching anything, is
+[`INVARIANTS.md`](INVARIANTS.md) — it describes them; the table below (and the tests) *enforce*
+them. Keep the enforcement here, not there.
+
 | Invariant | Pinned by |
 |---|---|
 | Every route has an authorization-policy entry; the matrix holds across identity × phase | `handlers.TestPolicyTableCoversEveryRoute`, `TestPolicyMatrixIntegration`, `TestPolicyMatrixWebSocketIntegration` |

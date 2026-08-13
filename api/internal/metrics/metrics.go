@@ -68,13 +68,14 @@ var (
 		Help: "Rate-limit rejections by scope.",
 	}, []string{"scope"})
 
-	// RateLimiterUnavailable counts rate-limit checks that could not run because the backend (Redis)
-	// was unavailable, by scope. Distinct from a rejection: a rising count here means "Redis is
-	// down and requests are failing closed (503)", NOT "clients are being throttled" — an operator
-	// must be able to tell those apart.
+	// RateLimiterUnavailable counts requests refused (503) because the rate limiter's backing store
+	// was unavailable, by scope (login, register, submit, token). The limiter fails CLOSED: a Redis
+	// blip must not silently drop every rate limit. Any nonzero value means Redis is unreachable and
+	// clients are being told to retry — pair it with the Redis-up alert to distinguish a blip from an
+	// outage.
 	RateLimiterUnavailable = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "osctf_ratelimiter_unavailable_total",
-		Help: "Rate-limit checks that failed closed because the limiter backend (Redis) was unavailable, by scope.",
+		Help: "Requests refused (503) because the rate limiter's backing store was unavailable, by scope.",
 	}, []string{"scope"})
 
 	// TeamInstances gauges per-team challenge instances by state.

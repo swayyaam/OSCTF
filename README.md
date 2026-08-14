@@ -35,7 +35,7 @@ and **0..N out-of-process plugins** over gRPC. Read each top-to-bottom.
 
 ![OSCTF architecture — the clients, the packages inside the binary, and where state lives](docs/public/overview.png)
 
-<sub>Source: [`00-overview.excalidraw`](docs/architecture/00-overview.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+<sub>Source: [`00-overview.excalidraw`](docs/architecture/00-overview.excalidraw) · PNG exported at `92c5755` · source verified at `92c5755`</sub>
 
 <details>
 <summary><b>Request flows</b> — flag submission, scoreboard read, per-team instances, plugin lifecycle (click to expand)</summary>
@@ -48,34 +48,34 @@ checks run *before* the solved/attempt checks, so a challenge changed mid-submit
 The point value is recorded post-commit; the event-bus and notification tails are async and can
 never fail the solve.
 
-![Flag submission flow](docs/public/submission-flow.png)
+![Flag submission flow](docs/public/flag-submission.png)
 
-<sub>Source: [`01-flow-submission.excalidraw`](docs/architecture/01-flow-submission.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+<sub>Source: [`01-flow-submission.excalidraw`](docs/architecture/01-flow-submission.excalidraw) · PNG exported at `92c5755` · source verified at `92c5755`</sub>
 
 **Scoreboard read.** Read-repair makes *served == the solve log* by construction rather than by
 timing. Plugin scores are **locked at solve** and read from a per-solve record, so the served board
 equals a from-scratch recompute over the log **even with every plugin down**; a background worker
 backfills missing/pending records off the read path.
 
-![Scoreboard read flow](docs/public/scoreboard-flow.png)
+![Scoreboard read flow](docs/public/scoreboard-read.png)
 
-<sub>Source: [`02-flow-scoreboard.excalidraw`](docs/architecture/02-flow-scoreboard.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+<sub>Source: [`02-flow-scoreboard.excalidraw`](docs/architecture/02-flow-scoreboard.excalidraw) · PNG exported at `92c5755` · source verified at `92c5755`</sub>
 
 **Per-team instance lifecycle** — the reason to use OSCTF over a CTFd-class tool. Per-team locking,
 quota, DB-arbitrated port allocation, container hardening, and background sweeps (expiry, reap,
 reconcile) that all take the same per-team lock.
 
-![Per-team instance lifecycle flow](docs/public/instance-flow.png)
+![Per-team instance lifecycle flow](docs/public/instance-lifecycle.png)
 
-<sub>Source: [`03-flow-instance.excalidraw`](docs/architecture/03-flow-instance.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+<sub>Source: [`03-flow-instance.excalidraw`](docs/architecture/03-flow-instance.excalidraw) · PNG exported at `92c5755` · source verified at `92c5755`</sub>
 
 **Plugin lifecycle.** Boot runs in a goroutine and never gates HTTP serving; an 8-state supervisor
 with guarded transitions; register-on-ready / revert-before-death; a two-level in-flight budget; and
 an ordered shutdown (HTTP drain → plugin drain → background workers) under one shared budget.
 
-![Plugin lifecycle flow](docs/public/plugin-flow.png)
+![Plugin lifecycle flow](docs/public/plugin-lifecycle.png)
 
-<sub>Source: [`04-flow-plugin.excalidraw`](docs/architecture/04-flow-plugin.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+<sub>Source: [`04-flow-plugin.excalidraw`](docs/architecture/04-flow-plugin.excalidraw) · PNG exported at `92c5755` · source verified at `92c5755`</sub>
 
 </details>
 

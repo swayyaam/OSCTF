@@ -18,7 +18,9 @@ construction* (e.g. `crypto/subtle`) with no behavioural test, or is *documented
 enforced*, that is stated plainly rather than dressed up as a mitigation.
 
 To report a vulnerability, and for the maintainer's disclosure policy and in/out-of-scope
-statement, see [`SECURITY.md`](SECURITY.md).
+statement, see [`SECURITY.md`](SECURITY.md). For where these controls sit in the system — the
+isolation gate on the container-deploy path, the fail-closed rate limiter, the plugin
+process boundary — see the [architecture diagrams in `docs/architecture/`](docs/architecture/).
 
 ## Trust boundaries
 

@@ -13,7 +13,10 @@ separate) is deliberate: a second place where invariants "live" drifts from the 
 release.
 
 The security-specific view — adversaries, what each can reach, what is accepted — is
-[`THREAT_MODEL.md`](THREAT_MODEL.md).
+[`THREAT_MODEL.md`](THREAT_MODEL.md). The **structural** view — how these guarantees sit in the
+code and where state lives — is the [architecture diagrams in `docs/architecture/`](docs/architecture/):
+the isolation gate is on the deploy path in flow 3, the Redis-outage degrade-vs-fail-closed split
+is in flow 2, and the locked-at-solve scored record the board reads is in flows 1–2.
 
 ---
 

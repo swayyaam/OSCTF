@@ -8,11 +8,14 @@ network, an optional per-team unique flag — created on demand and lifecycle-ma
 built-in **scheduler** (TTL, extend, per-team quota, automatic teardown at event end). That
 per-team-instance model, not the scoreboard, is the reason to use it over a CTFd-class tool.
 
-> **Network isolation is enforced on Linux only.** On **Docker Desktop (macOS/Windows)**
-> per-team containers are reachable across networks when ports are published — isolation is
-> *not* enforced there. Run real events on a Linux host. Detail:
-> [`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md) ·
-> [issue #2](https://github.com/swayam-mishra/OSCTF/issues/2).
+> **Per-team network isolation is enforced on Linux only — and container challenges now fail
+> closed without it.** On **Docker Desktop (macOS/Windows)** per-team containers are reachable
+> across networks once a port is published, so isolation is *not* enforced there. OSCTF now
+> **refuses to start container instances** on any daemon whose per-team isolation it cannot
+> verify (the isolation gate, [#2](https://github.com/swayam-mishra/OSCTF/issues/2)); the only
+> override is `OSCTF_ALLOW_UNISOLATED_INSTANCES=true`, for a **local trial only** and logged
+> loudly. Run real events on a Linux host. Detail:
+> [`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md).
 
 CTFs are the entry point; the durable goal is to be the open infrastructure layer
 universities, communities, and companies build their security education on. Vision and
@@ -23,10 +26,16 @@ roadmap: [`docs/project-desc.md`](docs/project-desc.md).
 One Go binary — a modular monolith — serves the JSON API **and** the embedded React dashboard,
 with **Postgres** as the source of truth, **Redis** for ephemeral state (sessions, rate limits,
 the board cache), **MinIO** for attachments, the host **Docker** daemon for per-team containers,
-and **0..N out-of-process plugins** over gRPC. The diagrams below are verified against `main`;
-read each top-to-bottom.
+and **0..N out-of-process plugins** over gRPC. Read each top-to-bottom.
+
+> **The editable [`docs/architecture/`](docs/architecture/) canvases are the source of truth.**
+> The PNGs below are periodic exports that lag their source between renders — each caption stamps
+> the commit it was exported from, so drift is visible rather than silent. If a PNG and its canvas
+> disagree, the canvas wins. Sources are verified at `92c5755`.
 
 ![OSCTF architecture — the clients, the packages inside the binary, and where state lives](docs/public/overview.png)
+
+<sub>Source: [`00-overview.excalidraw`](docs/architecture/00-overview.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
 
 <details>
 <summary><b>Request flows</b> — flag submission, scoreboard read, per-team instances, plugin lifecycle (click to expand)</summary>
@@ -41,6 +50,8 @@ never fail the solve.
 
 ![Flag submission flow](docs/public/submission-flow.png)
 
+<sub>Source: [`01-flow-submission.excalidraw`](docs/architecture/01-flow-submission.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+
 **Scoreboard read.** Read-repair makes *served == the solve log* by construction rather than by
 timing. Plugin scores are **locked at solve** and read from a per-solve record, so the served board
 equals a from-scratch recompute over the log **even with every plugin down**; a background worker
@@ -48,17 +59,23 @@ backfills missing/pending records off the read path.
 
 ![Scoreboard read flow](docs/public/scoreboard-flow.png)
 
+<sub>Source: [`02-flow-scoreboard.excalidraw`](docs/architecture/02-flow-scoreboard.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+
 **Per-team instance lifecycle** — the reason to use OSCTF over a CTFd-class tool. Per-team locking,
 quota, DB-arbitrated port allocation, container hardening, and background sweeps (expiry, reap,
 reconcile) that all take the same per-team lock.
 
 ![Per-team instance lifecycle flow](docs/public/instance-flow.png)
 
+<sub>Source: [`03-flow-instance.excalidraw`](docs/architecture/03-flow-instance.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
+
 **Plugin lifecycle.** Boot runs in a goroutine and never gates HTTP serving; an 8-state supervisor
 with guarded transitions; register-on-ready / revert-before-death; a two-level in-flight budget; and
 an ordered shutdown (HTTP drain → plugin drain → background workers) under one shared budget.
 
 ![Plugin lifecycle flow](docs/public/plugin-flow.png)
+
+<sub>Source: [`04-flow-plugin.excalidraw`](docs/architecture/04-flow-plugin.excalidraw) · PNG exported at `6c3e2f0` · source verified at `92c5755`</sub>
 
 </details>
 
@@ -71,7 +88,9 @@ cp .env.example .env
 # Change OSCTF_ADMIN_PASSWORD (default: change-me-now) before exposing this to anyone.
 
 # On Linux, give the platform access to the host Docker socket group, or every
-# container challenge fails at instance-start time (Docker Desktop can skip this):
+# container challenge fails at instance-start time. (Docker Desktop doesn't need this
+# GID — but it can't isolate per-team networks, so container challenges are refused
+# there by default regardless; see the note above.)
 echo "OSCTF_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
 
 docker compose up -d --build --wait

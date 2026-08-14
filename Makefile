@@ -97,6 +97,10 @@ lint: ## Run all linters (Go, TS, OpenAPI)
 	cd dashboard && npm run lint && npm run typecheck
 	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
 
+.PHONY: diagram-staleness
+diagram-staleness: ## Warn (never fail) when api/ code moved past a diagram's verified-at stamp
+	@bash scripts/check-diagram-staleness.sh
+
 # Build tags vet-tags compiles. TAG_ALLOWLIST names tags deliberately NOT compiled here,
 # with the reason. The guard in vet-tags fails if the tree uses a tag in neither list, so a
 # fifth build tag added later can't silently reintroduce the partial-compile gap — the same
@@ -195,7 +199,8 @@ ci-sync-check: ## Fail if any CI job is not runnable via ci-local / ci-local-ful
 
 .PHONY: ci-local
 ci-local: ci-sync-check vet-tags ci-generate-drift ci-api-lint ci-api-test ci-api-integration ci-web ## Run every CI job that needs no compose stack (the pre-push gate)
-	@echo "== ci-local PASS: matches CI jobs [$(CI_LOCAL_JOBS)] + vet-tags/tag-coverage =="
+	@bash scripts/check-diagram-staleness.sh
+	@echo "== ci-local PASS: matches CI jobs [$(CI_LOCAL_JOBS)] + vet-tags/tag-coverage + diagram-staleness (advisory) =="
 
 .PHONY: ci-local-full
 ci-local-full: ci-local ci-image ci-smoke ci-e2e ## ci-local plus the image / smoke / e2e (docker-compose) tier

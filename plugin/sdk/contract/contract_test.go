@@ -1,0 +1,33 @@
+package contract_test
+
+import (
+	"testing"
+
+	"github.com/osctf/platform/plugin/sdk"
+	"github.com/osctf/platform/plugin/sdk/contract"
+)
+
+// End-to-end proof of the entire author path using ONLY the public API: an example plugin that
+// imports plugin/sdk is built and verified through plugin/sdk/contract — exactly what an
+// out-of-tree author does, with no internal/* anywhere in this file.
+func TestVerifyScoring_Example(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a plugin subprocess; skipped in -short")
+	}
+	bin := contract.Build(t, "testdata/examplescorer")
+	contract.VerifyScoring(t, bin, []contract.ScoringCase{
+		{Name: "no solves", In: sdk.Score{Initial: 500, Min: 100, Decay: 50, Solves: 0}, Want: 500},
+		{Name: "some decay", In: sdk.Score{Initial: 500, Min: 100, Decay: 50, Solves: 3}, Want: 350},
+		{Name: "clamped at floor", In: sdk.Score{Initial: 500, Min: 100, Decay: 50, Solves: 20}, Want: 100},
+	})
+}
+
+func TestVerifyNotification_Example(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a plugin subprocess; skipped in -short")
+	}
+	bin := contract.Build(t, "testdata/examplenotifier")
+	contract.VerifyNotification(t, bin, []contract.NotificationCase{
+		{Name: "solved", Event: sdk.Event{Name: "challenge.solved", ID: "e1", Data: map[string]string{"team": "alpha"}}},
+	})
+}

@@ -149,6 +149,12 @@ linters:
           deny: *peer-services
   exclusions:
     generated: lax
+    # node_modules can contain stray vendored .go files (e.g. flatted). It is gitignored and
+    # absent from the CI Go jobs, but a local checkout that has run `npm ci` would otherwise get
+    # them linted now that the Go module is the repo root. (examples/ is excluded structurally by
+    # its own nested go.mod — it is an independent, per-image program set, not the platform module.)
+    paths:
+      - node_modules
     rules:
       # The CLI entrypoint is allowed to print to stdout/stderr.
       - path: cmd/

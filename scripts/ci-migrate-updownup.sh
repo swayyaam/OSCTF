@@ -24,7 +24,7 @@ for _ in $(seq 1 60); do
 done
 
 port=$(docker port "$cid" 5432/tcp | head -1 | sed 's/.*://')
-dir="$(git rev-parse --show-toplevel)/api/internal/db/migrations"
+dir="$(git rev-parse --show-toplevel)/internal/db/migrations"
 dsn="postgres://osctf:osctf@127.0.0.1:${port}/osctf?sslmode=disable"
 # Belt-and-suspenders: retry the first connection while the published port settles.
 for _ in $(seq 1 15); do

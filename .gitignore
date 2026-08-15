@@ -1,6 +1,6 @@
 # Go
-/api/platform
-/api/bin/
+/platform
+/bin/
 *.test
 *.out
 coverage.txt
@@ -18,7 +18,7 @@ dashboard/e2e/.run-admin.json
 dashboard/e2e/.run-admin-state.json
 
 # Embedded SPA (built into the binary at image-build time)
-api/internal/webdist/static/
+internal/webdist/static/
 
 # Env & secrets
 .env

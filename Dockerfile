@@ -14,9 +14,11 @@ RUN npm run build
 FROM golang:1.25-alpine AS build
 RUN apk add --no-cache git
 WORKDIR /src
-COPY api/go.mod api/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
-COPY api/ ./
+# The Go module is the repo root; copy only the source the binary needs (not dashboard/, docs/…).
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
 # Embed the freshly built SPA into the binary.
 COPY --from=web /web/dist ./internal/webdist/static
 ARG VERSION=dev

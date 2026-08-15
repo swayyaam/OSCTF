@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import backendFrameTypes from "../../../api/internal/ws/frame_types.json";
+import backendFrameTypes from "../../../internal/ws/frame_types.json";
 
 import { KNOWN_FRAME_TYPES } from "./scoreboard-socket";
 

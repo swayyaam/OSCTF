@@ -5,10 +5,10 @@ name: CI
 # into ci-local) fails if a job added here is not also runnable locally. Job commands live in
 # the Makefile / scripts, never inline, so there is one source of truth.
 #
-# Go setup is cached: go-version comes from api/go.mod (single source of truth) and the module
-# + build cache is keyed on api/go.sum (which lives in api/, NOT the repo root — the default
-# path never found it, so caching had silently no-op'd on every run). This also warms the build
-# cache the `setup-tools` installs (buf, golangci-lint, protoc-gen-*) reuse.
+# Go setup is cached: go-version comes from go.mod (single source of truth) and the module +
+# build cache is keyed on go.sum. The Go module lives at the repo root (its module path is
+# github.com/osctf/platform, so `go get github.com/osctf/platform/...` resolves). This also warms
+# the build cache the `setup-tools` installs (buf, golangci-lint, protoc-gen-*) reuse.
 
 on:
   push:
@@ -26,8 +26,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -42,8 +42,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make setup-tools
       - run: make ci-api-lint
 
@@ -54,8 +54,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make ci-api-test
 
   api-integration:
@@ -65,8 +65,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       # integration (testcontainers) + dockerint (real daemon, strict isolation) + 2-min soak
       # + migration up/down/up. See `ci-api-integration` in the Makefile.
       - run: make ci-api-integration

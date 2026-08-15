@@ -55,7 +55,7 @@ dev: ## Start Postgres, Redis, MinIO for local development
 
 .PHONY: dev-api
 dev-api: ## Run the API locally against dev services
-	cd api && set -a && source ../.env && set +a && \
+	set -a && source .env && set +a && \
 	OSCTF_DATABASE_URL="postgres://osctf:osctf@localhost:55432/osctf?sslmode=disable" \
 	OSCTF_REDIS_URL="redis://localhost:6379/0" \
 	OSCTF_S3_ENDPOINT="localhost:9000" \
@@ -75,9 +75,9 @@ dev-down: ## Stop dev services
 # --- codegen ------------------------------------------------------------------
 .PHONY: generate
 generate: proto-version-check ## Regenerate all committed generated code (proto/buf, oapi-codegen, sqlc, TS types)
-	cd api && buf generate
-	cd api && oapi-codegen -config openapi/oapi-codegen.yaml openapi/openapi.yaml
-	cd api && sqlc generate
+	buf generate
+	oapi-codegen -config openapi/oapi-codegen.yaml openapi/openapi.yaml
+	sqlc generate
 	cd dashboard && npm run generate:api
 
 .PHONY: proto-version-check
@@ -93,12 +93,12 @@ proto-version-check: ## Fail LOUDLY if buf / codegen plugin versions differ from
 # --- quality ------------------------------------------------------------------
 .PHONY: lint
 lint: ## Run all linters (Go, TS, OpenAPI)
-	cd api && golangci-lint run
+	golangci-lint run
 	cd dashboard && npm run lint && npm run typecheck
-	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
+	vacuum lint -r openapi/vacuum-ruleset.yaml -d openapi/openapi.yaml
 
 .PHONY: diagram-staleness
-diagram-staleness: ## Warn (never fail) when api/ code moved past a diagram's verified-at stamp
+diagram-staleness: ## Warn (never fail) when Go code moved past a diagram's verified-at stamp
 	@bash scripts/check-diagram-staleness.sh
 
 # Build tags vet-tags compiles. TAG_ALLOWLIST names tags deliberately NOT compiled here,
@@ -110,7 +110,7 @@ VET_TAGS := integration dockerint soak crashtest
 # absent in a plain checkout, so vetting it here would fail on the missing embed.
 TAG_ALLOWLIST := embed_spa
 # GOOS constraints (the plugin loader's SysProcAttr split — Pdeathsig exists only in Linux's
-# syscall package) are covered NOT by -tags but by cross-compiling the whole api module for
+# syscall package) are covered NOT by -tags but by cross-compiling the whole module for
 # each GOOS in CROSS_GOOS. The tag guard counts a CROSS_GOOS entry as covered, so a GOOS build
 # tag can satisfy the guard ONLY by actually being cross-built here — a new GOOS split (e.g.
 # //go:build windows anywhere in the tree) keeps failing vet-tags until its GOOS is added to
@@ -120,7 +120,7 @@ CROSS_GOOS := linux darwin
 
 .PHONY: vet-tags
 vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered tag
-	@present=$$(grep -rhoE '^//go:build .*' api --include='*.go' | sed 's|//go:build||' | grep -oE '[a-z_][a-z0-9_]*' | sort -u); \
+	@present=$$(grep -rhoE '^//go:build .*' cmd internal plugin --include='*.go' | sed 's|//go:build||' | grep -oE '[a-z_][a-z0-9_]*' | sort -u); \
 	known=" $(VET_TAGS) $(TAG_ALLOWLIST) $(CROSS_GOOS) "; \
 	missing=""; \
 	for t in $$present; do case "$$known" in *" $$t "*) ;; *) missing="$$missing $$t" ;; esac; done; \
@@ -130,29 +130,29 @@ vet-tags: ## Type-check every test build tag; fail if the tree uses an uncovered
 	  exit 1; \
 	fi; \
 	echo "vet-tags: all tree build tags covered ($$(echo $$present | tr '\n' ' '))"
-	cd api && go vet -tags "$(VET_TAGS)" ./...
+	go vet -tags "$(VET_TAGS)" ./...
 	@for os in $(CROSS_GOOS); do \
-	  echo "vet-tags: cross-compiling api for GOOS=$$os (platform-specific files)"; \
-	  (cd api && CGO_ENABLED=0 GOOS=$$os go build ./...) || exit 1; \
+	  echo "vet-tags: cross-compiling the module for GOOS=$$os (platform-specific files)"; \
+	  (CGO_ENABLED=0 GOOS=$$os go build ./...) || exit 1; \
 	done
 
 .PHONY: test
 test: vet-tags ## Type-check every build tag, then run unit tests (Go -short + web)
-	cd api && go test ./... -short
+	go test ./... -short
 	cd dashboard && npm test
 
 .PHONY: test-integration
 test-integration: ## Run integration tests (testcontainers spin up PG/Redis/MinIO)
-	cd api && go test ./... -run Integration
+	go test ./... -run Integration
 
 # --- build --------------------------------------------------------------------
 .PHONY: build
 build: ## Build the dashboard, embed it, and build the Go binary
 	cd dashboard && npm run build
-	rm -rf api/internal/webdist/static
-	mkdir -p api/internal/webdist/static
-	cp -r dashboard/dist/* api/internal/webdist/static/
-	cd api && CGO_ENABLED=0 go build -trimpath -tags embed_spa -o platform ./cmd/platform
+	rm -rf internal/webdist/static
+	mkdir -p internal/webdist/static
+	cp -r dashboard/dist/* internal/webdist/static/
+	CGO_ENABLED=0 go build -trimpath -tags embed_spa -o platform ./cmd/platform
 
 .PHONY: image
 image: ## Build the production Docker image
@@ -214,18 +214,18 @@ ci-generate-drift: generate ## CI job 'generate drift': regenerate + fail on any
 
 .PHONY: ci-api-lint
 ci-api-lint: ## CI job 'api lint': golangci-lint + vacuum (zero warnings)
-	cd api && golangci-lint run
-	vacuum lint -r api/openapi/vacuum-ruleset.yaml -d api/openapi/openapi.yaml
+	golangci-lint run
+	vacuum lint -r openapi/vacuum-ruleset.yaml -d openapi/openapi.yaml
 
 .PHONY: ci-api-test
 ci-api-test: vet-tags ## CI job 'api test': tag/GOOS build coverage, then unit tier, race + shuffle
-	cd api && go test ./... -race -shuffle=on
+	go test ./... -race -shuffle=on
 
 .PHONY: ci-api-integration
 ci-api-integration: ## CI job 'api integration': integration + dockerint + soak + migrations
-	cd api && go test ./... -race -shuffle=on -tags 'integration crashtest'
-	cd api && OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
-	@out=$$(mktemp); cd api && go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee $$out; \
+	go test ./... -race -shuffle=on -tags 'integration crashtest'
+	OSCTF_ISOLATION_ENFORCED=1 go test -tags dockerint -race -shuffle=on ./internal/runtime/...
+	@out=$$(mktemp); go test -tags soak -run TestSoak -v ./internal/soak -timeout 6m -args -duration=2m -seed=1 | tee $$out; \
 		grep -q '^--- PASS: TestSoak' $$out || { echo '::error:: soak produced no PASS for TestSoak — it exercised nothing'; rm -f $$out; exit 1; }; rm -f $$out
 	@bash scripts/ci-migrate-updownup.sh
 
@@ -253,8 +253,8 @@ ci-e2e: ## CI job 'e2e': compose up, playwright, tear down
 .PHONY: migrate-new
 migrate-new: ## Create a new empty goose migration: make migrate-new name=<slug>
 	@test -n "$(name)" || (echo "usage: make migrate-new name=<slug>" && exit 1)
-	goose -dir api/internal/db/migrations create $(name) sql
+	goose -dir internal/db/migrations create $(name) sql
 
 .PHONY: seed
 seed: ## Run 'platform seed' against the dev database
-	cd api && set -a && source ../.env && set +a && go run ./cmd/platform seed
+	set -a && source .env && set +a && go run ./cmd/platform seed

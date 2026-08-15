@@ -3,14 +3,14 @@
 # Warns (never fails) when the code a diagram describes has moved past the commit the diagram
 # was verified at. The stamp lives in each canvas's subtitle ("verified at HEAD <sha>").
 #
-# Deliberately COARSE: it treats all non-test Go under api/ as "code the diagrams describe",
+# Deliberately COARSE: it treats all non-test Go under cmd/internal/plugin as "code the diagrams describe",
 # rather than mapping each diagram to specific packages. Such a map would itself drift and go
 # stale — the exact failure this check exists to catch — so we err toward warning instead.
 #
 # Exit code is always 0: this is a nudge to re-verify, not a gate.
 #
 # NEGATIVE CONTROL (why this is not noise — do not delete it on that assumption): the diagrams
-# were verified at 6c3e2f0, then the v0.3 security pass changed 13 non-test api/ files (the
+# were verified at 6c3e2f0, then the v0.3 security pass changed 13 non-test Go files (the
 # isolation gate, the Redis-unavailable behaviour, the writable-plugins-dir boot check, and
 # their wiring) WITHOUT anyone re-stamping the canvases. Point this check at a canvas still
 # stamped 6c3e2f0 and it flags exactly those 13 files — the real drift that went unnoticed for
@@ -38,15 +38,15 @@ for f in docs/architecture/*.excalidraw; do
   fi
 
   gap=$(git rev-list --count "${sha}..HEAD")
-  changed=$(git diff --name-only "${sha}..HEAD" -- api | grep -E '\.go$' | grep -v '_test\.go$' || true)
+  changed=$(git diff --name-only "${sha}..HEAD" -- cmd internal plugin | grep -E '\.go$' | grep -v '_test\.go$' || true)
   if [ -n "$changed" ]; then
     n=$(printf '%s\n' "$changed" | wc -l | tr -d ' ')
-    echo "WARN  $base: stamped $sha is $gap commit(s) behind HEAD ($head_short); $n non-test Go file(s) under api/ changed since — re-verify and re-stamp:"
+    echo "WARN  $base: stamped $sha is $gap commit(s) behind HEAD ($head_short); $n non-test Go file(s) under the module changed since — re-verify and re-stamp:"
     printf '%s\n' "$changed" | head -12 | sed 's/^/        /'
     [ "$n" -gt 12 ] && echo "        ... and $((n - 12)) more"
     warned=1
   else
-    echo "ok    $base: $gap commit(s) behind HEAD, but no api/ code changed since $sha"
+    echo "ok    $base: $gap commit(s) behind HEAD, but no Go code changed since $sha"
   fi
 done
 

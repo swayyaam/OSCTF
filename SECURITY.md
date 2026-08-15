@@ -7,7 +7,7 @@ disclosed in coordination — please do **not** open a public issue for one.
 
 - **Preferred:** GitHub **private vulnerability reporting** — the *"Report a vulnerability"*
   button on the repository's **Security** tab
-  ([open one here](https://github.com/swayam-mishra/OSCTF/security/advisories/new)). It goes
+  ([open one here](https://github.com/osctf/platform/security/advisories/new)). It goes
   straight to the maintainer and stays private.
 - **Fallback:** if you can't use GitHub, email **swayammishra1504@gmail.com** with
   `OSCTF security` in the subject.
@@ -33,7 +33,7 @@ Only the **latest release** receives security fixes at this stage.
 
 | Version | Supported |
 |---|---|
-| Latest release ([Releases](https://github.com/swayam-mishra/OSCTF/releases)) | Yes |
+| Latest release ([Releases](https://github.com/osctf/platform/releases)) | Yes |
 | Anything older | No — upgrade to the latest |
 
 ## Scope
@@ -62,7 +62,7 @@ is accepted-and-documented, and what is out of scope — see [`THREAT_MODEL.md`]
   ([runtime doc](docs/v0.1/08-challenge-runtime.md)).
 - **Cross-team network isolation not holding on Docker Desktop (macOS/Windows).** A
   documented limitation — run events on Linux
-  ([issue #2](https://github.com/swayam-mishra/OSCTF/issues/2),
+  ([issue #2](https://github.com/osctf/platform/issues/2),
   [runtime doc](docs/v0.2/03-runtime.md)).
 - **Anything requiring admin credentials or host access the operator already controls.** The
   admin is trusted, and mounting the host Docker socket is root-equivalent by design — run on

@@ -120,7 +120,7 @@ deploy. Linux mitigation pinned (`dockerint`) by
 `:: TestVerifyIsolationSelfCheckIntegration`; the gate (off refuses, on permits, unknown fails
 closed) by `runtime.TestIsolationGate`. **Run real events on a Linux host** — the override is for a
 local trial only ([`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md), issue
-[#2](https://github.com/swayam-mishra/OSCTF/issues/2)).
+[#2](https://github.com/osctf/platform/issues/2)).
 
 **The host — Accepted (bounded, not sandboxed).** The Docker socket is mounted into the platform
 and is **root-equivalent on the host by design** — documented in the runtime and deployment docs;
@@ -316,7 +316,7 @@ Mirrors [`SECURITY.md`](SECURITY.md) — do not report these:
 - **Challenge containers being intentionally vulnerable or running as root.** That is the product
   ([runtime doc](docs/v0.1/08-challenge-runtime.md)).
 - **Cross-team isolation not holding on Docker Desktop.** Documented (§2, issue
-  [#2](https://github.com/swayam-mishra/OSCTF/issues/2)); run events on Linux.
+  [#2](https://github.com/osctf/platform/issues/2)); run events on Linux.
 - **Anything requiring the admin credentials or host access the operator already controls.** The
   admin is trusted; the Docker socket mount is root-equivalent by design.
 - **Missing hardening on a deployment run against [`docs/v0.1/10-deployment.md`](docs/v0.1/10-deployment.md)**

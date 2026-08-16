@@ -3,6 +3,7 @@ package plugintest
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +87,33 @@ func DialWithConfig(t *testing.T, bin string, cfg map[string]string) (*goplugin.
 		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		Logger:           hclog.NewNullLogger(),
+	})
+	rpc, err := c.Client()
+	if err != nil {
+		c.Kill()
+		t.Fatalf("dial %q: %v", bin, err)
+	}
+	raw, err := rpc.Dispense(plugin.KeyScoring)
+	if err != nil {
+		c.Kill()
+		t.Fatalf("dispense scoring from %q: %v", bin, err)
+	}
+	return c, raw.(pluginpb.ScoringClient)
+}
+
+// DialCaptureStderr is Dial with the plugin's STDERR streamed to w. go-plugin redirects the
+// plugin's os.Stderr over a gRPC stdio stream to the client's SyncStderr — that (not the Logger)
+// is the plugin→host log path, and it is what sdk.Log() output travels on.
+func DialCaptureStderr(t *testing.T, bin string, w io.Writer) (*goplugin.Client, pluginpb.ScoringClient) {
+	t.Helper()
+	c := goplugin.NewClient(&goplugin.ClientConfig{
+		HandshakeConfig: plugin.Handshake,
+		Plugins:         plugin.HostPluginSet(),
+		//nolint:gosec // G204: launches the built double under test; go-plugin owns its lifecycle.
+		Cmd:              exec.CommandContext(context.Background(), bin),
+		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
+		Logger:           hclog.NewNullLogger(),
+		SyncStderr:       w,
 	})
 	rpc, err := c.Client()
 	if err != nil {

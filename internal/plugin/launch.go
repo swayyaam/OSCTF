@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sync/atomic"
@@ -88,6 +89,11 @@ type launchSpec struct {
 	// here it is already valid — the child can trust it.
 	configEnv string
 
+	// stderr receives this plugin's stderr (its sdk.Log output) over go-plugin's gRPC stdio stream —
+	// a per-plugin sink that tags, rate-limits, truncates, and re-emits through the host log. Nil
+	// discards plugin logs.
+	stderr io.Writer
+
 	// noPdeathsig forces the macOS process attributes (Setpgid only, no kernel parent-death)
 	// even on Linux, so the orphan-sweep test can reproduce the developer-path orphan window on
 	// the Linux CI runner. Production leaves this false (Pdeathsig on Linux).
@@ -128,7 +134,8 @@ func realLaunch(spec launchSpec) launchFn {
 			Plugins:          HostPluginSet(),
 			Cmd:              cmd,
 			AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
-			Logger:           hclog.NewNullLogger(),
+			Logger:           hclog.NewNullLogger(), // go-plugin's own client diagnostics: discarded
+			SyncStderr:       spec.stderr,           // the PLUGIN's stderr (sdk.Log) → per-plugin sink
 			StartTimeout:     st,
 		})
 

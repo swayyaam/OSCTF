@@ -326,7 +326,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		StartTimeout: cfg.PluginStartTimeout,
 		HealthStable: cfg.PluginHealthStable,
 		MaxAttempts:  cfg.PluginRestartCap,
-		Log:          log,
+		Log:          log, // a plugin's sdk.Log output is streamed to a per-plugin sink built from this
 		Registrar:    pluginRegistrar{challengeTypes: challengeTypes, scoring: scoringPluginReg, notifications: notificationPluginReg},
 	})
 	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be

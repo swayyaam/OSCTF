@@ -205,6 +205,16 @@ var (
 		Help: "Host→plugin calls shed at an in-flight cap, by plugin and cap level (per_plugin, global).",
 	}, []string{"plugin", "level"})
 
+	// PluginLogDropped counts plugin log LINES dropped by the host's rate limiter — a chatty or
+	// crash-looping plugin must not be able to flood/degrade the host through a channel that exists
+	// for the plugin's benefit (same reasoning as the WS broadcast-drop counting). Any sustained
+	// nonzero value means a plugin is logging past the budget; the dropped lines are gone, not
+	// queued, but they were the plugin's own output, never the platform's.
+	PluginLogDropped = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "osctf_plugin_log_dropped_total",
+		Help: "Plugin log lines dropped by the host rate limiter (a plugin logging past its budget).",
+	})
+
 	// PluginLoadFailed gauges plugins quarantined at LOAD (e.g. invalid config) — set to 1 by
 	// plugin name, so `osctf_plugin_load_failed{plugin="webhook"} 1` names exactly which plugin an
 	// organizer's notifier stopped being. A quarantined plugin never serves; alert on any nonzero.
@@ -283,7 +293,7 @@ func init() {
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
 		ScoreboardStaleReads, ScoreboardStaleServed, ScoreboardDegradedServed,
-		PluginCallDuration, PluginInflight, PluginInflightShed, PluginLoadFailed,
+		PluginCallDuration, PluginInflight, PluginInflightShed, PluginLoadFailed, PluginLogDropped,
 		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
 		PluginEventsDropped, WSBroadcastsDropped,
 	)

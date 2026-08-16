@@ -155,6 +155,11 @@ func (l *Loader) launchDiscovered(ctx context.Context, d discovered) {
 		pollInterval: 250 * time.Millisecond,
 		configEnv:    encodeConfig(cfg),
 	}
+	if l.cfg.Log != nil {
+		// Plugin stderr (its sdk.Log output) streams to this sink: tagged plugin=<name>,
+		// rate-limited + truncated, re-emitted through the host log. See logsink.go.
+		spec.stderr = newPluginStderrSink(d.manifest.Name, l.cfg.Log, nil)
+	}
 	l.track(d.manifest.Name)
 	l.setType(d.manifest.Name, d.manifest.Type)
 	sup := newSupervisor(l, d.manifest.Name, realLaunch(spec), l.superConfig())

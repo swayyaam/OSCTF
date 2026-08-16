@@ -13,10 +13,16 @@ type Score struct {
 	Min     int // floor the value never drops below
 	Decay   int // per-solve decay step (from challenge config)
 	Solves  int // valid solves so far, INCLUDING this solve — so the first solver sees Solves == 1
-	// Params is RESERVED for challenge-scoped scoring params. The host does not populate it in v0.3
-	// (a scoring plugin's per-challenge inputs are exactly Initial/Min/Decay/Solves), so it is
-	// always empty today. Do not depend on it; tune with those four, a fixed rule, or sdk.Config
-	// (which is per-plugin, not per-challenge).
+	// Params is RESERVED and ALWAYS EMPTY in v0.3 — do not read it. There is no per-challenge
+	// scoring-params source today: the host has no column to hold author-defined scoring params, and
+	// the scoring service has no validation RPC to check them at challenge-write time, so nothing is
+	// ever put here. Populating it is a v0.4 candidate — it needs a schema change plus a write-time
+	// validation path, not a workaround — so treat this field as absent, not merely unset.
+	//
+	// What you DO have: a scoring plugin is configured PER-DEPLOYMENT via sdk.Config — one set of
+	// values for the whole plugin, from the manifest and host env — NOT per-challenge. Its only
+	// per-challenge inputs are Initial/Min/Decay/Solves above. Tune with those four, a fixed rule,
+	// or sdk.Config. Never Params.
 	Params map[string]string
 }
 
@@ -28,6 +34,13 @@ type Score struct {
 // retroactively lower an early solver — it sets what each solver locks in at the moment they solve
 // (Solves is the count at that instant). Value is off the read path (the board reads the record,
 // never the plugin), which is why it must be PURE: same Score in, same value out, no I/O.
+//
+// NO TIME INPUT — deliberate, not an oversight. Score carries solve ORDER (Solves), never a clock.
+// Value must be a pure function of (Initial, Min, Decay, Solves) so the recorded value stays
+// reproducible from the solve log alone. A time-dependent curve — time-based decay, solve-rate, or
+// "first blood within N minutes" — would make the recorded value un-recomputable from the record,
+// so it is excluded by design. Time-aware scoring is not a missing argument you can add later; it
+// requires extending the recorded-value model, and is out of scope until that exists.
 type Scorer interface {
 	Info() Info
 	Value(Score) int

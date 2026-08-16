@@ -9,9 +9,17 @@ import (
 )
 
 // A config SECRET (e.g. a webhook URL with an embedded token) is a new class of secret. Like a
-// flag or a token, its value must never surface — here on the two host surfaces a config value can
-// reach: the admin plugin-view REASON and the boot LOG. Both derive from the resolveConfig error,
-// so the redaction is exercised at its single source (not a parallel path).
+// flag or a token, its value must never surface — here on the two HOST-POPULATED surfaces a config
+// value can reach: the admin plugin-view REASON and the boot LOG. Both derive from the resolveConfig
+// error, so the redaction is exercised at its single source (not a parallel path).
+//
+// sdk.Log (added after this test) is a THIRD surface, but a different kind: it carries content the
+// PLUGIN AUTHOR writes, forwarded by the host's stderr sink tagged with the plugin name. The host
+// cannot redact a secret it doesn't know an author chose to log, so that surface is governed by the
+// "never log a secret or config value" rule in the SDK/template docs, not by host redaction — there
+// is no host-populated path that puts a config value into a plugin log line (verified: no
+// slog/Log call in internal/plugin logs a resolved config value; the only config-derived host log
+// is the redacted reason asserted below). So these two remain the surfaces host redaction owns.
 //
 // To prove this bites, temporarily drop the `if decl.Secret` redaction in resolveConfig (echo the
 // value like a non-secret): this test then fails on both surfaces. Same discipline as

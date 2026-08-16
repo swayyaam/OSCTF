@@ -221,8 +221,17 @@ func staticChallengeBody(title, flag string) string {
 }
 
 func perInstanceBody(title string) string {
-	return fmt.Sprintf(`{"title":%q,"category":"web","kind":"container","flag":"OSCTF{placeholder}","image":"osctf/example:0.1","internal_port":8000,"connection_template":"http://{host}:{port}","scoring":"static","points_initial":100,"visible":true,"instancing":"per_team","flag_mode":"per_instance"}`, title)
+	return fmt.Sprintf(`{"title":%q,"category":"web","kind":"container","flag":"OSCTF{placeholder}","image":"osctf/example:0.1","internal_port":8000,"connection_template":"http://{host}:{port}","scoring":"static","points_initial":100,"visible":true,"instancing":"per_team","flag_mode":"per_instance","container_env":{"PROBE":%q}}`, title, sentinelEnv)
 }
+
+// sentinelEnv is an author-defined container_env value, unique enough never to collide with a
+// legitimate string in any response. It rides the per-instance challenge's container_env so the
+// scanner treats container_env like `type`: an admin-only author map that must reach admin
+// challenge views but NEVER a participant Challenge/ChallengeDetail. container_env is where an
+// author puts things that must not be public (build args, seed values), and it was previously kept
+// off participant surfaces only by DTO omission + the serialization goldens — the same passive
+// guard `type` had before it got a sentinel. This gives the live-path scanner active coverage too.
+const sentinelEnv = "probe-marker-env-4c7d1e"
 
 // sentinelType is a challenge-type id unique enough to never collide with a legitimate
 // string in any response. The static challenge is created with it so the flag-containment
@@ -384,6 +393,9 @@ func TestFlagContainmentIntegration(t *testing.T) {
 		// `type` is admin-visible, participant-omitted: it may appear on admin challenge
 		// views but must not ride any participant Challenge/ChallengeDetail response.
 		{name: "challenge-type", value: sentinelType, allowed: map[string]bool{"admin": true}},
+		// container_env is the other admin-only author map: admin challenge views carry it,
+		// participant DTOs omit it (build args / seed values must not be public).
+		{name: "container-env", value: sentinelEnv, allowed: map[string]bool{"admin": true}},
 		// A live token is a secret allowed to nobody — it must not appear in ANY response,
 		// log, audit row, or metric.
 		{name: "api-token", value: apiToken, allowed: map[string]bool{}},

@@ -1359,6 +1359,10 @@ export interface components {
             kind: components["schemas"]["ChallengeKind"];
             /** @description Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs. */
             type: string;
+            /** @description Per-challenge config for the challenge type's plugin (author-defined, validated + normalized at write time). Admin-only; may contain challenge-sensitive data and never appears on any participant DTO. */
+            type_config: {
+                [key: string]: string;
+            };
             /** @description The flag, verbatim. */
             flag: string;
             /** @description Case-insensitive matching. */
@@ -1428,6 +1432,10 @@ export interface components {
             kind?: components["schemas"]["ChallengeKind"];
             /** @description Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it. */
             type?: string;
+            /** @description Per-challenge config for the challenge type's plugin. Validated by the type's ValidateConfig at write time (a bad value is a 422 with per-field errors); the STORED value is the plugin's normalized form. May contain challenge-sensitive data — it is admin-only, and plugins must never log it. */
+            type_config?: {
+                [key: string]: string;
+            };
             /** @description The flag, stored verbatim. */
             flag: string;
             /** @description Case-insensitive matching (default false). */
@@ -1479,6 +1487,10 @@ export interface components {
             description?: string;
             /** @description Challenge-type id; omit to leave unchanged. Must be a registered type. */
             type?: string;
+            /** @description Per-challenge config for the challenge type's plugin; omit to leave unchanged. When present it is re-validated by the type's ValidateConfig and REFUSED (fail closed) if the plugin is unavailable — a non-config edit is not blocked by a down plugin. May contain challenge-sensitive data; plugins must never log it. */
+            type_config?: {
+                [key: string]: string;
+            };
             /** @description Set null to clear. */
             difficulty?: components["schemas"]["Difficulty"] | null;
             /** @description The flag, stored verbatim. */

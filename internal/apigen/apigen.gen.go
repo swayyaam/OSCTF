@@ -364,6 +364,9 @@ type ChallengeAdmin struct {
 	// Type Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs.
 	Type string `json:"type"`
 
+	// TypeConfig Per-challenge config for the challenge type's plugin (author-defined, validated + normalized at write time). Admin-only; may contain challenge-sensitive data and never appears on any participant DTO.
+	TypeConfig map[string]string `json:"type_config"`
+
 	// UpdatedAt Last update time.
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -447,6 +450,9 @@ type ChallengeAdminCreate struct {
 
 	// Type Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it.
 	Type *string `json:"type,omitempty"`
+
+	// TypeConfig Per-challenge config for the challenge type's plugin. Validated by the type's ValidateConfig at write time (a bad value is a 422 with per-field errors); the STORED value is the plugin's normalized form. May contain challenge-sensitive data — it is admin-only, and plugins must never log it.
+	TypeConfig *map[string]string `json:"type_config,omitempty"`
 
 	// Visible Whether participants can see it (default false).
 	Visible *bool `json:"visible,omitempty"`
@@ -539,6 +545,9 @@ type ChallengeAdminUpdate struct {
 
 	// Type Challenge-type id; omit to leave unchanged. Must be a registered type.
 	Type *string `json:"type,omitempty"`
+
+	// TypeConfig Per-challenge config for the challenge type's plugin; omit to leave unchanged. When present it is re-validated by the type's ValidateConfig and REFUSED (fail closed) if the plugin is unavailable — a non-config edit is not blocked by a down plugin. May contain challenge-sensitive data; plugins must never log it.
+	TypeConfig *map[string]string `json:"type_config,omitempty"`
 
 	// Visible Whether participants can see it.
 	Visible *bool `json:"visible,omitempty"`

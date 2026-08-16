@@ -301,18 +301,30 @@ type ConfigValidation struct {
 ```
 
 - The built-in `standard`/`container` behaviour is registered as the default type; a
-  challenge references a type id. Author-time validation (admin create/update, the CLI
-  `validate`, and the seeder) calls `ValidateConfig`.
+  challenge references a type id.
+- **Per-challenge `type_config` (v0.3).** A challenge carries an author-defined `type_config`
+  map — a **shared** `jsonb` column (challenge-type config now, the reserved scoring
+  `sdk.Score.Params` later; never a second per-challenge config column). On create/update the
+  host **dials** the type's `ValidateConfig(type_config)`: `OK=false` rejects the save with
+  per-field `422` errors the admin sees; the `Normalized` result is stored in place of the raw
+  input (empty ⇒ input stored unchanged). The dial fails **closed** — a type whose plugin can't
+  be reached refuses the save (503) — but **only when `type_config` is being changed**, so a
+  down plugin never blocks an unrelated edit (e.g. a title change). At submit time the stored
+  `type_config` is passed to `CheckFlag`. Locked-at-solve is unaffected: editing `type_config`
+  changes only how FUTURE submissions are judged. `type_config` is admin-only and MAY CONTAIN
+  CHALLENGE-SENSITIVE DATA (a regex revealing flag structure) — it never rides a participant DTO,
+  and plugins must never log it.
 - **An unregistered type is rejected at write time**, with an error naming it — a `422` like
   `unknown challenge type "regex-flag": no such type is registered`. An admin typo, or a
   challenge authored against a plugin *this* deployment doesn't have, fails on create/update
   rather than silently storing a `type` nothing can resolve. (The default `standard` is always
   registered, so v0.2-shaped authoring is unaffected.)
-- **`type` is admin-visible, participant-omitted.** Authors set and see the type on the admin
-  challenge DTO; it never appears on any participant-facing DTO (board, detail, WS). A new
-  column on a table whose participant view is protected by type separation is exactly where
-  that protection gets accidentally widened, so the serialization goldens and the
-  flag-containment scanner both assert its absence from participant responses.
+- **`type` and `type_config` are admin-visible, participant-omitted.** Authors set and see them
+  on the admin challenge DTO; they never appear on any participant-facing DTO (board, detail,
+  WS). A new column on a table whose participant view is protected by field separation is exactly
+  where that protection gets accidentally widened, so the serialization goldens and the
+  flag-containment scanner both assert the absence of `type` and `type_config` (each with a
+  sentinel value) from participant responses.
 - A type with a custom `CheckFlag` participates in the **existing** submissions transaction:
   the host still locks the challenge, enforces solved/attempt rules, rate limits, and
   logging (v0.1), and calls the plugin only to answer correctness — inside the same

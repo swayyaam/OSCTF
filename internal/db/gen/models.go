@@ -63,6 +63,7 @@ type Challenge struct {
 	Egress              bool
 	WritablePaths       []byte
 	Type                string
+	TypeConfig          []byte
 }
 
 type ChallengeAttachment struct {

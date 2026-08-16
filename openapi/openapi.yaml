@@ -1774,7 +1774,7 @@ components:
       type: object
       description: Full challenge as stored, including the flag and container config.
       required:
-        [id, slug, title, category, description, kind, type, flag, flag_case_insensitive,
+        [id, slug, title, category, description, kind, type, type_config, flag, flag_case_insensitive,
          scoring, points_initial, visible, mem_limit_mb, cpu_millis, container_env,
          instancing, flag_mode, egress, writable_paths,
          attachments, solves, current_points, created_at, updated_at]
@@ -1791,6 +1791,10 @@ components:
           description: Difficulty label, if set.
         kind: { $ref: "#/components/schemas/ChallengeKind" }
         type: { type: string, description: "Challenge-type id — who decides correctness (built-in comparison or a plugin). Orthogonal to kind. Admin-only; never on participant DTOs." }
+        type_config:
+          type: object
+          description: "Per-challenge config for the challenge type's plugin (author-defined, validated + normalized at write time). Admin-only; may contain challenge-sensitive data and never appears on any participant DTO."
+          additionalProperties: { type: string }
         flag: { type: string, description: "The flag, verbatim." }
         flag_case_insensitive: { type: boolean, description: Case-insensitive matching. }
         scoring: { $ref: "#/components/schemas/ScoringMode" }
@@ -1870,6 +1874,10 @@ components:
         difficulty: { $ref: "#/components/schemas/Difficulty" }
         kind: { $ref: "#/components/schemas/ChallengeKind" }
         type: { type: string, description: "Challenge-type id; omit to default to the built-in 'standard' (the server applies it). Must be a registered type. NOTE: no OpenAPI `default:` here — openapi-typescript would then type this request field as required, and the create body must allow omitting it." }
+        type_config:
+          type: object
+          description: "Per-challenge config for the challenge type's plugin. Validated by the type's ValidateConfig at write time (a bad value is a 422 with per-field errors); the STORED value is the plugin's normalized form. May contain challenge-sensitive data — it is admin-only, and plugins must never log it."
+          additionalProperties: { type: string }
         flag:
           type: string
           minLength: 1
@@ -1959,6 +1967,10 @@ components:
         category: { $ref: "#/components/schemas/Category" }
         description: { type: string, description: Markdown body. }
         type: { type: string, description: "Challenge-type id; omit to leave unchanged. Must be a registered type." }
+        type_config:
+          type: object
+          description: "Per-challenge config for the challenge type's plugin; omit to leave unchanged. When present it is re-validated by the type's ValidateConfig and REFUSED (fail closed) if the plugin is unavailable — a non-config edit is not blocked by a down plugin. May contain challenge-sensitive data; plugins must never log it."
+          additionalProperties: { type: string }
         difficulty:
           allOf:
             - $ref: "#/components/schemas/Difficulty"

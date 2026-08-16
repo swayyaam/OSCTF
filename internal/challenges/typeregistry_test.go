@@ -1,6 +1,7 @@
 package challenges
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -10,8 +11,10 @@ import (
 
 type stubType struct{ id string }
 
-func (s stubType) ID() string                                      { return s.id }
-func (stubType) ValidateConfig(map[string]string) ConfigValidation { return ConfigValidation{OK: true} }
+func (s stubType) ID() string { return s.id }
+func (stubType) ValidateConfig(context.Context, map[string]string) (ConfigValidation, error) {
+	return ConfigValidation{OK: true}, nil
+}
 
 // TestTypeRegistryDeregister: a plugin type is removed on deregister; a plugin that OVERRODE a
 // built-in restores the built-in; a bare built-in is a no-op.

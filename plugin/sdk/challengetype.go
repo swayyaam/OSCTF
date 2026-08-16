@@ -7,10 +7,14 @@ import (
 )
 
 // FlagCheck is the input to a flag check. Submitted is what the player sent; Config is the
-// challenge's author-time config; Instance is the per-team instance context (e.g. a per-instance
-// secret) when the challenge is containerised, empty otherwise. The real static flag is NEVER
-// sent to a plugin — a challenge-type plugin decides correctness from Config/Instance, not by
-// being handed the answer.
+// challenge's per-challenge type_config (author-defined, validated + normalized at author time by
+// ValidateConfig); Instance is the per-team instance context (e.g. a per-instance secret) when the
+// challenge is containerised, empty otherwise. The real static flag is NEVER sent to a plugin — a
+// challenge-type plugin decides correctness from Config/Instance, not by being handed the answer.
+//
+// Config MAY CONTAIN CHALLENGE-SENSITIVE DATA — a regex or rule that reveals the flag's structure is
+// the obvious case. NEVER log it, or any value derived from it: sdk.Log output reaches the host log,
+// and a flag hint leaked there defeats the challenge.
 type FlagCheck struct {
 	Submitted string
 	Config    map[string]string
@@ -29,8 +33,11 @@ type ConfigValidation struct {
 // Checker is implemented by a challenge-type plugin.
 type Checker interface {
 	Info() Info
-	// ValidateConfig runs at author time (when a challenge is created/edited), not on the
-	// submit path — reject bad config before an event, not during one.
+	// ValidateConfig runs at author time (when a challenge is created/edited), not on the submit
+	// path — reject bad config before an event, not during one. Return OK=false with per-field
+	// messages to reject the save (the admin sees a 422 with those fields); return Normalized to
+	// canonicalise what the host stores. The config is per-challenge author input and MAY CONTAIN
+	// CHALLENGE-SENSITIVE DATA (see FlagCheck.Config) — never log it.
 	ValidateConfig(config map[string]string) ConfigValidation
 	// CheckFlag decides whether a submission is correct. Returning an error means "could not
 	// decide" (the host fails the check closed — the attempt is not consumed), which is

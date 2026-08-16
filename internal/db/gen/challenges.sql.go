@@ -85,7 +85,7 @@ INSERT INTO challenges (
     flag, flag_case_insensitive, scoring, points_initial, points_min, decay,
     max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis,
     container_env, connection_template,
-    instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type
+    instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
     $17, $18, $19, $20, $21,
@@ -94,9 +94,10 @@ INSERT INTO challenges (
     $24::int,
     coalesce($25::boolean, true),
     coalesce($26::jsonb, '[]'::jsonb),
-    coalesce($27::text, 'standard')
+    coalesce($27::text, 'standard'),
+    coalesce($28::jsonb, '{}'::jsonb)
 )
-RETURNING id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type
+RETURNING id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config
 `
 
 type CreateChallengeParams struct {
@@ -127,6 +128,7 @@ type CreateChallengeParams struct {
 	Egress              *bool
 	WritablePaths       []byte
 	Type                *string
+	TypeConfig          []byte
 }
 
 func (q *Queries) CreateChallenge(ctx context.Context, arg CreateChallengeParams) (Challenge, error) {
@@ -158,6 +160,7 @@ func (q *Queries) CreateChallenge(ctx context.Context, arg CreateChallengeParams
 		arg.Egress,
 		arg.WritablePaths,
 		arg.Type,
+		arg.TypeConfig,
 	)
 	var i Challenge
 	err := row.Scan(
@@ -190,6 +193,7 @@ func (q *Queries) CreateChallenge(ctx context.Context, arg CreateChallengeParams
 		&i.Egress,
 		&i.WritablePaths,
 		&i.Type,
+		&i.TypeConfig,
 	)
 	return i, err
 }
@@ -237,7 +241,7 @@ func (q *Queries) GetAttachment(ctx context.Context, arg GetAttachmentParams) (C
 }
 
 const getChallengeByID = `-- name: GetChallengeByID :one
-SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type FROM challenges WHERE id = $1
+SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config FROM challenges WHERE id = $1
 `
 
 func (q *Queries) GetChallengeByID(ctx context.Context, id uuid.UUID) (Challenge, error) {
@@ -273,12 +277,13 @@ func (q *Queries) GetChallengeByID(ctx context.Context, id uuid.UUID) (Challenge
 		&i.Egress,
 		&i.WritablePaths,
 		&i.Type,
+		&i.TypeConfig,
 	)
 	return i, err
 }
 
 const getChallengeBySlug = `-- name: GetChallengeBySlug :one
-SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type FROM challenges WHERE slug = $1
+SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config FROM challenges WHERE slug = $1
 `
 
 func (q *Queries) GetChallengeBySlug(ctx context.Context, slug string) (Challenge, error) {
@@ -314,12 +319,13 @@ func (q *Queries) GetChallengeBySlug(ctx context.Context, slug string) (Challeng
 		&i.Egress,
 		&i.WritablePaths,
 		&i.Type,
+		&i.TypeConfig,
 	)
 	return i, err
 }
 
 const getChallengeForUpdate = `-- name: GetChallengeForUpdate :one
-SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type FROM challenges WHERE id = $1 FOR UPDATE
+SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config FROM challenges WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetChallengeForUpdate(ctx context.Context, id uuid.UUID) (Challenge, error) {
@@ -355,6 +361,7 @@ func (q *Queries) GetChallengeForUpdate(ctx context.Context, id uuid.UUID) (Chal
 		&i.Egress,
 		&i.WritablePaths,
 		&i.Type,
+		&i.TypeConfig,
 	)
 	return i, err
 }
@@ -392,7 +399,7 @@ func (q *Queries) ListAttachments(ctx context.Context, challengeID uuid.UUID) ([
 }
 
 const listChallengesAdmin = `-- name: ListChallengesAdmin :many
-SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type FROM challenges
+SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config FROM challenges
 WHERE ($3::text IS NULL OR category = $3)
   AND ($4::boolean IS NULL OR visible = $4)
   AND ($5::text IS NULL OR kind = $5)
@@ -453,6 +460,7 @@ func (q *Queries) ListChallengesAdmin(ctx context.Context, arg ListChallengesAdm
 			&i.Egress,
 			&i.WritablePaths,
 			&i.Type,
+			&i.TypeConfig,
 		); err != nil {
 			return nil, err
 		}
@@ -465,7 +473,7 @@ func (q *Queries) ListChallengesAdmin(ctx context.Context, arg ListChallengesAdm
 }
 
 const listVisibleChallenges = `-- name: ListVisibleChallenges :many
-SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type FROM challenges WHERE visible ORDER BY category, points_initial, title
+SELECT id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config FROM challenges WHERE visible ORDER BY category, points_initial, title
 `
 
 func (q *Queries) ListVisibleChallenges(ctx context.Context) ([]Challenge, error) {
@@ -507,6 +515,7 @@ func (q *Queries) ListVisibleChallenges(ctx context.Context) ([]Challenge, error
 			&i.Egress,
 			&i.WritablePaths,
 			&i.Type,
+			&i.TypeConfig,
 		); err != nil {
 			return nil, err
 		}
@@ -553,9 +562,10 @@ UPDATE challenges SET
     egress                = coalesce($32, egress),
     writable_paths        = coalesce($33, writable_paths),
     type                  = coalesce($34, type),
+    type_config           = coalesce($35, type_config),
     updated_at            = now()
 WHERE id = $1
-RETURNING id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type
+RETURNING id, slug, title, category, description, difficulty, kind, flag, flag_case_insensitive, scoring, points_initial, points_min, decay, max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis, container_env, connection_template, created_at, updated_at, instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config
 `
 
 type UpdateChallengeParams struct {
@@ -593,6 +603,7 @@ type UpdateChallengeParams struct {
 	Egress                *bool
 	WritablePaths         []byte
 	Type                  *string
+	TypeConfig            []byte
 }
 
 func (q *Queries) UpdateChallenge(ctx context.Context, arg UpdateChallengeParams) (Challenge, error) {
@@ -631,6 +642,7 @@ func (q *Queries) UpdateChallenge(ctx context.Context, arg UpdateChallengeParams
 		arg.Egress,
 		arg.WritablePaths,
 		arg.Type,
+		arg.TypeConfig,
 	)
 	var i Challenge
 	err := row.Scan(
@@ -663,6 +675,7 @@ func (q *Queries) UpdateChallenge(ctx context.Context, arg UpdateChallengeParams
 		&i.Egress,
 		&i.WritablePaths,
 		&i.Type,
+		&i.TypeConfig,
 	)
 	return i, err
 }

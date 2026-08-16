@@ -25,9 +25,11 @@ type ConfigValidation struct {
 // additionally implements FlagChecker and owns correctness.
 type ChallengeType interface {
 	ID() string
-	// ValidateConfig checks type-specific config at authoring time: OK=false with per-field
-	// messages rejects the write (422). The built-in types validate nothing extra and accept.
-	ValidateConfig(cfg map[string]string) ConfigValidation
+	// ValidateConfig checks a challenge's per-challenge type config at authoring time. OK=false
+	// with per-field messages rejects the write (422); a non-nil error means the type could not be
+	// reached to validate (its plugin is down) and the write fails CLOSED, rather than storing
+	// unvalidated config. The built-in types reach nothing and always accept. ctx bounds the dial.
+	ValidateConfig(ctx context.Context, cfg map[string]string) (ConfigValidation, error)
 }
 
 // FlagChecker is implemented ONLY by a plugin-provided challenge-type: it decides correctness
@@ -42,8 +44,8 @@ type FlagChecker interface {
 type builtinType struct{ id string }
 
 func (b builtinType) ID() string { return b.id }
-func (builtinType) ValidateConfig(map[string]string) ConfigValidation {
-	return ConfigValidation{OK: true}
+func (builtinType) ValidateConfig(context.Context, map[string]string) (ConfigValidation, error) {
+	return ConfigValidation{OK: true}, nil
 }
 
 type ctEntry struct {

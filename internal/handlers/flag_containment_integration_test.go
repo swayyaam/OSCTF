@@ -247,14 +247,23 @@ const sentinelType = "probe-marker-type-9f3a2b"
 type probeType struct{}
 
 func (probeType) ID() string { return sentinelType }
-func (probeType) ValidateConfig(map[string]string) challenges.ConfigValidation {
-	return challenges.ConfigValidation{OK: true}
+func (probeType) ValidateConfig(context.Context, map[string]string) (challenges.ConfigValidation, error) {
+	return challenges.ConfigValidation{OK: true}, nil
 }
 
-// typedStaticBody is staticChallengeBody with an explicit challenge type spliced in.
+// sentinelTypeConfig is an author-defined type_config value, unique enough never to collide with a
+// legitimate string. It rides the static challenge's type_config (its type is sentinelType, whose
+// ValidateConfig accepts anything), so the scanner proves type_config is admin-only: per-challenge
+// author config reaches admin challenge views but NEVER a participant DTO. This is the realistic
+// leak — an author puts flag-structure hints or secrets in a challenge type's config — so it gets
+// the same active coverage `type`/container_env have, not just DTO omission + goldens.
+const sentinelTypeConfig = "probe-marker-typecfg-8b2e5d"
+
+// typedStaticBody is staticChallengeBody with an explicit challenge type + a sentinel type_config
+// spliced in.
 func typedStaticBody(title, flag, ctype string) string {
 	b := staticChallengeBody(title, flag)
-	return strings.TrimSuffix(b, "}") + `,"type":"` + ctype + `"}`
+	return strings.TrimSuffix(b, "}") + `,"type":"` + ctype + `","type_config":{"PROBE":"` + sentinelTypeConfig + `"}}`
 }
 
 func meOf(t *testing.T, srv http.Handler, jar *cookieJar) (userID, teamID string) {
@@ -396,6 +405,9 @@ func TestFlagContainmentIntegration(t *testing.T) {
 		// container_env is the other admin-only author map: admin challenge views carry it,
 		// participant DTOs omit it (build args / seed values must not be public).
 		{name: "container-env", value: sentinelEnv, allowed: map[string]bool{"admin": true}},
+		// type_config is per-challenge author config for a challenge type's plugin: admin-visible,
+		// participant-omitted. A regex or hint revealing flag structure is the realistic case.
+		{name: "type-config", value: sentinelTypeConfig, allowed: map[string]bool{"admin": true}},
 		// A live token is a secret allowed to nobody — it must not appear in ANY response,
 		// log, audit row, or metric.
 		{name: "api-token", value: apiToken, allowed: map[string]bool{}},

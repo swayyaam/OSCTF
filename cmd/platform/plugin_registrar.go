@@ -42,11 +42,25 @@ type challengeTypeAdapter struct {
 
 func (a challengeTypeAdapter) ID() string { return a.id }
 
-// ValidateConfig is stubbed here (this commit reconciles the signature only). The author-time dial
-// to the plugin lands with the per-challenge config channel; until an author-time path calls it,
-// returning OK preserves today's behaviour — no per-challenge config exists to reject.
-func (challengeTypeAdapter) ValidateConfig(map[string]string) challenges.ConfigValidation {
-	return challenges.ConfigValidation{OK: true}
+// ValidateConfig dials the plugin's author-time config check through the loader's Caller (readiness
+// gate + in-flight budget applied). A dial error — the plugin is down / not ready — is returned so
+// the write path fails CLOSED rather than storing config nothing validated. The plugin never sees
+// the flag; ValidateConfig runs off the submit path (author time), not during an event.
+func (a challengeTypeAdapter) ValidateConfig(ctx context.Context, cfg map[string]string) (challenges.ConfigValidation, error) {
+	var out challenges.ConfigValidation
+	err := a.caller.Call(ctx, "ValidateConfig", func(ctx context.Context, client any) error {
+		resp, e := client.(pluginpb.ChallengeTypeClient).ValidateConfig(ctx, &pluginpb.ValidateRequest{Config: cfg})
+		if e != nil {
+			return e
+		}
+		out = challenges.ConfigValidation{
+			OK:          resp.GetOk(),
+			FieldErrors: resp.GetFieldErrors(),
+			Normalized:  resp.GetNormalized(),
+		}
+		return nil
+	})
+	return out, err
 }
 
 func (a challengeTypeAdapter) CheckFlag(ctx context.Context, submitted string, config, instance map[string]string) (bool, error) {

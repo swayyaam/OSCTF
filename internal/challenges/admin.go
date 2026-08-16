@@ -22,7 +22,8 @@ type CreateInput struct {
 	Description         string
 	Difficulty          *string
 	Kind                string
-	Type                string // challenge-type id; "" defaults to the built-in "standard"
+	Type                string            // challenge-type id; "" defaults to the built-in "standard"
+	TypeConfig          map[string]string // per-challenge config for the type's plugin; validated at write time
 	Flag                string
 	FlagCaseInsensitive bool
 	Scoring             string
@@ -79,6 +80,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 		return gen.Challenge{}, err
 	}
 
+	// Author-time type-config validation: the type validates its per-challenge config and returns
+	// the normalized form to store. A plugin type that can't be reached fails the write CLOSED.
+	storedTC, tcErr := validateTypeConfig(ctx, in.Type, in.TypeConfig)
+	if tcErr != nil {
+		return gen.Challenge{}, tcErr
+	}
+
 	envJSON := []byte("{}")
 	if len(in.ContainerEnv) > 0 {
 		b, err := json.Marshal(in.ContainerEnv)
@@ -115,6 +123,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (gen.Challenge, er
 		Image: in.Image, InternalPort: i32p(in.InternalPort), ConnectionTemplate: in.ConnectionTemplate,
 		Instancing: &in.Instancing, FlagMode: &in.FlagMode,
 		InstanceTtlSeconds: i32p(in.InstanceTTLSeconds), Egress: &egress, WritablePaths: wpJSON,
+		TypeConfig: configJSON(storedTC),
 	}
 	if in.MemLimitMB != nil {
 		params.MemLimitMb = clampI32(*in.MemLimitMB)
@@ -205,7 +214,8 @@ type UpdateInput struct {
 	Flag                *string
 	FlagCaseInsensitive *bool
 	Scoring             *string
-	Type                *string // challenge-type id; nil leaves it unchanged
+	Type                *string           // challenge-type id; nil leaves it unchanged
+	TypeConfig          map[string]string // nil = unchanged; non-nil = set (re-validated, fail-closed if plugin down)
 	PointsInitial       *int
 	SetPointsMin        bool
 	PointsMin           *int
@@ -276,6 +286,20 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (gen
 		}
 		params.WritablePaths = b
 	}
+	// Re-validate type_config ONLY when the author is changing it — fail closed only on a config
+	// change, so a down plugin never blocks an unrelated edit (e.g. a title change). Validate
+	// against the new type when the type is also changing, else the current type.
+	if in.TypeConfig != nil {
+		typeID := cur.Type
+		if in.Type != nil {
+			typeID = *in.Type
+		}
+		storedTC, tcErr := validateTypeConfig(ctx, typeID, in.TypeConfig)
+		if tcErr != nil {
+			return gen.Challenge{}, tcErr
+		}
+		params.TypeConfig = configJSON(storedTC)
+	}
 
 	c, err := s.q.UpdateChallenge(ctx, params)
 	if err != nil {
@@ -303,6 +327,49 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, eventRunning, confir
 		return fmt.Errorf("challenges: delete: %w", err)
 	}
 	return nil
+}
+
+// validateTypeConfig runs the challenge type's author-time ValidateConfig on the per-challenge
+// config and returns the value to STORE — the plugin's normalized form, or the author's input
+// unchanged when the plugin returns nothing (empty Normalized ⇒ store input as-is). A rejected
+// config becomes a 422 with per-field errors; a type whose plugin cannot be reached fails CLOSED
+// (503), so a challenge is never stored with config nothing validated. Built-in types accept
+// everything and return the input unchanged.
+func validateTypeConfig(ctx context.Context, typeID string, cfg map[string]string) (map[string]string, error) {
+	ct, ok := defaultTypeRegistry.Get(typeID)
+	if !ok {
+		// validateCreate/validateUpdate already reject an unregistered type; a race to here is
+		// treated as unavailable rather than storing unvalidated config.
+		return nil, &apperr.Unavailable{Detail: fmt.Sprintf("challenge type %q is not available", typeID)}
+	}
+	res, err := ct.ValidateConfig(ctx, cfg)
+	if err != nil {
+		return nil, &apperr.Unavailable{Detail: fmt.Sprintf("challenge type %q is temporarily unavailable; try again", typeID)}
+	}
+	if !res.OK {
+		v := apperr.NewValidation()
+		for field, msg := range res.FieldErrors {
+			v.Add("type_config."+field, msg)
+		}
+		if !v.HasErrors() {
+			v.Add("type_config", "rejected by the challenge type")
+		}
+		return nil, v
+	}
+	if len(res.Normalized) > 0 {
+		return res.Normalized, nil
+	}
+	return cfg, nil
+}
+
+// configJSON encodes a config map to jsonb for storage ('{}' when empty). A map[string]string
+// always marshals, so the error is impossible.
+func configJSON(m map[string]string) []byte {
+	if len(m) == 0 {
+		return []byte("{}")
+	}
+	b, _ := json.Marshal(m)
+	return b
 }
 
 func i32p(p *int) *int32 {

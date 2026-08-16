@@ -6,6 +6,7 @@ package submissions
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -150,13 +151,25 @@ func (s *Service) pluginVerdict(ctx context.Context, ch gen.Challenge, in Input)
 	if solved, serr := s.q.HasTeamSolved(ctx, gen.HasTeamSolvedParams{ChallengeID: ch.ID, TeamID: in.TeamID}); serr == nil && solved {
 		return nil, apperr.Conflictf("your team has already solved this challenge")
 	}
-	// Per-challenge type config is a later feature; the plugin judges from the guess + its own
-	// (env/manifest) config. Never send the flag.
-	verdict, verr := fc.CheckFlag(ctx, in.Flag, map[string]string{}, map[string]string{})
+	// Pass the challenge's stored per-challenge type_config — author-defined, validated and
+	// normalized at author time (off the submit path). The instance map stays empty (per-instance
+	// metadata is a later feature). Never send the flag.
+	verdict, verr := fc.CheckFlag(ctx, in.Flag, decodeTypeConfig(ch.TypeConfig), map[string]string{})
 	if verr != nil {
 		return nil, retryUnavailable()
 	}
 	return &verdict, nil
+}
+
+// decodeTypeConfig decodes a challenge's stored type_config jsonb into the config map handed to a
+// plugin checker. An absent/empty value yields an empty (non-nil) map, so a plugin always receives
+// a usable map.
+func decodeTypeConfig(raw []byte) map[string]string {
+	cfg := map[string]string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &cfg)
+	}
+	return cfg
 }
 
 // Input is a validated submission request.

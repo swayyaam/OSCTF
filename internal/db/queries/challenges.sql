@@ -4,7 +4,7 @@ INSERT INTO challenges (
     flag, flag_case_insensitive, scoring, points_initial, points_min, decay,
     max_attempts, visible, image, internal_port, mem_limit_mb, cpu_millis,
     container_env, connection_template,
-    instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type
+    instancing, flag_mode, instance_ttl_seconds, egress, writable_paths, type, type_config
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
     $17, $18, $19, $20, $21,
@@ -13,7 +13,8 @@ INSERT INTO challenges (
     sqlc.narg('instance_ttl_seconds')::int,
     coalesce(sqlc.narg('egress')::boolean, true),
     coalesce(sqlc.narg('writable_paths')::jsonb, '[]'::jsonb),
-    coalesce(sqlc.narg('type')::text, 'standard')
+    coalesce(sqlc.narg('type')::text, 'standard'),
+    coalesce(sqlc.narg('type_config')::jsonb, '{}'::jsonb)
 )
 RETURNING *;
 
@@ -58,6 +59,7 @@ UPDATE challenges SET
     egress                = coalesce(sqlc.narg('egress'), egress),
     writable_paths        = coalesce(sqlc.narg('writable_paths'), writable_paths),
     type                  = coalesce(sqlc.narg('type'), type),
+    type_config           = coalesce(sqlc.narg('type_config'), type_config),
     updated_at            = now()
 WHERE id = $1
 RETURNING *;

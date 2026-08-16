@@ -352,15 +352,12 @@ func (s *Service) Submit(ctx context.Context, in Input) (Result, error) {
 		// hot write path. Best-effort: a dropped event never affects the solve.
 		if s.bus != nil {
 			s.bus.Publish(events.Event{
-				Name:       "challenge.solved",
+				Name:       events.EventChallengeSolved,
 				ID:         solveID.String(),
 				OccurredAt: s.clock(),
-				Data: map[string]string{
-					"team_id":        in.TeamID.String(),
-					"user_id":        in.UserID.String(),
-					"challenge_id":   ch.ID.String(),
-					"challenge_slug": ch.Slug,
-				},
+				// Built via the shared builder so the emitted keys are exactly events.Schema — the
+				// plugin-facing event docs cannot drift from this (TestSchemaMatchesBuilders).
+				Data: events.SolvedData(in.TeamID.String(), in.UserID.String(), ch.ID.String(), ch.Slug),
 			})
 		}
 	}

@@ -15,7 +15,7 @@ type Event struct {
 	Name       string            // e.g. "challenge.solved"
 	ID         string            // unique event id (for dedupe if the author needs it)
 	OccurredAt string            // RFC3339 timestamp, as a string on the wire
-	Data       map[string]string // event-specific fields
+	Data       map[string]string // event-specific fields — the documented keys are EventKeys(Name)
 }
 
 // Notifier is implemented by a notification plugin.

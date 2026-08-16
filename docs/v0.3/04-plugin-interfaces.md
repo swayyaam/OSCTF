@@ -280,11 +280,23 @@ conflate deployment with verification. In P1 the registry only carries the type 
 it (P4).
 
 ```go
+// A challenge-type plugin (SDK: sdk.Checker). ValidateConfig runs at author time; CheckFlag
+// (optional) decides correctness inside the host's submission flow.
 type ChallengeType interface {
     ID() string                                   // "standard" | "container" | plugin id
-    ValidateConfig(cfg map[string]string) (normalized map[string]string, fieldErrs map[string][]string)
-    // Optional: custom correctness check inside the host's submission flow.
+    ValidateConfig(cfg map[string]string) ConfigValidation
     CheckFlag(submitted string, cfg, instance map[string]string) (correct bool, err error)
+}
+
+// ConfigValidation is ONE reconciled shape spoken by the wire (ValidateResponse), the host
+// (challenges.ConfigValidation), and the SDK (sdk.ConfigValidation) alike — previously these three
+// disagreed. OK reports the config is usable; FieldErrors is one message per rejected field (→ the
+// 422 errors map an admin sees); Normalized is the canonicalised config the host stores in place of
+// the author's raw input (when empty, the input is stored unchanged).
+type ConfigValidation struct {
+    OK          bool
+    FieldErrors map[string]string
+    Normalized  map[string]string
 }
 ```
 

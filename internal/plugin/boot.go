@@ -163,6 +163,7 @@ func (l *Loader) launchDiscovered(ctx context.Context, d discovered) {
 	l.track(d.manifest.Name)
 	l.setType(d.manifest.Name, d.manifest.Type)
 	sup := newSupervisor(l, d.manifest.Name, realLaunch(spec), l.superConfig())
+	sup.expectType = d.manifest.Type // cross-checked against the binary's Info at ready
 	l.mu.Lock()
 	l.sups = append(l.sups, sup)
 	l.mu.Unlock()

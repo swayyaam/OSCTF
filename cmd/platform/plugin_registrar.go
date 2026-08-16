@@ -7,6 +7,7 @@ import (
 
 	"github.com/osctf/platform/internal/challenges"
 	"github.com/osctf/platform/internal/events"
+	"github.com/osctf/platform/internal/metrics"
 	"github.com/osctf/platform/internal/plugin"
 	"github.com/osctf/platform/internal/plugin/pluginpb"
 	"github.com/osctf/platform/internal/scoring"
@@ -39,8 +40,14 @@ type challengeTypeAdapter struct {
 	caller plugin.Caller
 }
 
-func (a challengeTypeAdapter) ID() string                                         { return a.id }
-func (challengeTypeAdapter) ValidateConfig(map[string]string) map[string][]string { return nil }
+func (a challengeTypeAdapter) ID() string { return a.id }
+
+// ValidateConfig is stubbed here (this commit reconciles the signature only). The author-time dial
+// to the plugin lands with the per-challenge config channel; until an author-time path calls it,
+// returning OK preserves today's behaviour — no per-challenge config exists to reject.
+func (challengeTypeAdapter) ValidateConfig(map[string]string) challenges.ConfigValidation {
+	return challenges.ConfigValidation{OK: true}
+}
 
 func (a challengeTypeAdapter) CheckFlag(ctx context.Context, submitted string, config, instance map[string]string) (bool, error) {
 	var correct bool
@@ -203,14 +210,22 @@ func notifyWants(c plugin.Caller) func(string) bool {
 
 // notifyHandler dispatches an event to the plugin's Notify RPC through the loader's Caller (ready
 // gate + in-flight budget). A returned error is counted by the bus as a delivery drop; it never
-// blocks the publisher.
-func notifyHandler(c plugin.Caller) events.Handler {
+// blocks the publisher. A delivery the plugin ACKs but reports it could not act on
+// (NotifyAck.handled=false) is NOT a drop — it succeeded — but it is counted for the operator, the
+// same reasoning as counting drops: a notifier that silently no-ops on events is worth seeing.
+func notifyHandler(name string, c plugin.Caller) events.Handler {
 	return func(ctx context.Context, e events.Event) error {
 		return c.Call(ctx, "Notify", func(ctx context.Context, client any) error {
-			_, err := client.(pluginpb.NotificationClient).Notify(ctx, &pluginpb.Event{
+			ack, err := client.(pluginpb.NotificationClient).Notify(ctx, &pluginpb.Event{
 				Name: e.Name, Id: e.ID, OccurredAt: e.OccurredAt.Format(time.RFC3339), Data: e.Data,
 			})
-			return err
+			if err != nil {
+				return err
+			}
+			if !ack.GetHandled() {
+				metrics.PluginEventsUnhandled.WithLabelValues(name, e.Name).Inc()
+			}
+			return nil
 		})
 	}
 }
@@ -235,7 +250,7 @@ func (r pluginRegistrar) Register(name, ptype string, c plugin.Caller) error {
 		}
 		r.scoring.add(name, c)
 	case "notification":
-		r.notifications.subscribe(name, notifyWants(c), notifyHandler(c))
+		r.notifications.subscribe(name, notifyWants(c), notifyHandler(name, c))
 	}
 	return nil // auth lands with its phase
 }

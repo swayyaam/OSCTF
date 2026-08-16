@@ -50,6 +50,8 @@ type supervisor struct {
 	launch launchFn
 	cfg    superConfig
 
+	expectType string // manifest `type`, cross-checked against the binary's Info at ready (set before start)
+
 	launches atomic.Int32   // observable spawn count (tests/metrics); incremented before each launch
 	curPID   atomic.Int64   // OS pid of the live instance (0 when none); updated on ready + reload swap
 	reloadCh chan reloadReq // hot-reload requests; read only while ready or parked in `failed`
@@ -106,6 +108,17 @@ func (s *supervisor) run(ctx context.Context) {
 		c := s.launchWithRetry(ctx)
 		if c == nil {
 			return // context stopped, or quarantined then stopped (the park handles reload)
+		}
+		// Cross-check the running binary against its manifest before serving: a type/name/ABI
+		// mismatch — or a binary that cannot answer Info on the manifest-typed service — is a
+		// PERMANENT load fault, quarantined at once with no crash-loop retries. Re-checked on every
+		// relaunch, so a wrong binary swapped in on disk is caught on the next launch too.
+		if reason := s.verifyIdentity(c); reason != "" {
+			c.kill()
+			if s.quarantineIdentity(ctx, reason) {
+				return // stopped while parked in quarantine
+			}
+			continue // operator reload → relaunch fresh
 		}
 		s.attachDrain(c)
 		if s.serve(ctx, c) == outcomeStopped {
@@ -257,20 +270,7 @@ func (s *supervisor) backoffOrQuarantine(ctx context.Context, atCap bool) (stop 
 		s.l.revert(s.name) // remove the provider before the plugin becomes terminal (revert-before-death)
 		s.quarantine()
 		s.cfg.log.Error("plugin quarantined after crash loop", "plugin", s.name, "attempts", s.attempts)
-		// Park in `failed`: a quarantine never clears on its own. The ONLY exits are a stop
-		// (ctx) or an explicit operator reload, which resets the counter and relaunches fresh
-		// (failed → launching, the sole legal exit). A reload here reports success as soon as the
-		// relaunch is initiated, not once ready — unlike a reload of a healthy plugin, which
-		// swaps only on ready.
-		select {
-		case <-ctx.Done():
-			return true // stopped
-		case req := <-s.reloadCh:
-			s.attempts = 0
-			s.cfg.log.Info("operator reload leaving quarantine", "plugin", s.name)
-			req.result <- nil
-			return false // relaunch
-		}
+		return s.parkUntilReload(ctx)
 	}
 	s.transition(StateRestarting)
 	d := backoffDelay(s.cfg.baseBackoff, s.cfg.maxBackoff, s.attempts)
@@ -278,6 +278,24 @@ func (s *supervisor) backoffOrQuarantine(ctx context.Context, atCap bool) (stop 
 		return true // ctx cancelled during backoff
 	}
 	return false
+}
+
+// parkUntilReload holds a quarantined plugin in `failed` until the context ends (a stop) or an
+// operator reload arrives. A quarantine never clears on its own: the ONLY exits are the stop or the
+// reload, which resets the attempt counter and relaunches fresh (failed → launching, the sole legal
+// exit). A reload here reports success as soon as the relaunch is initiated, not once ready — unlike
+// a reload of a healthy plugin, which swaps only on ready. Returns true to STOP (the actor exits),
+// false to relaunch. Shared by the crash-loop and identity-mismatch quarantines.
+func (s *supervisor) parkUntilReload(ctx context.Context) (stop bool) {
+	select {
+	case <-ctx.Done():
+		return true
+	case req := <-s.reloadCh:
+		s.attempts = 0
+		s.cfg.log.Info("operator reload leaving quarantine", "plugin", s.name)
+		req.result <- nil
+		return false
+	}
 }
 
 // backoffDelay is full-jitter exponential backoff: base·2^(attempt-1), capped, then a uniform

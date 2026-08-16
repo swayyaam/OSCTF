@@ -133,6 +133,19 @@ func (l *Loader) failLoad(name, ptype, reason string) {
 	}
 }
 
+// setLoadReason records an admin-visible quarantine reason and the load-failed metric for a plugin
+// the supervisor is quarantining AFTER launch (e.g. an identity mismatch with the manifest). Unlike
+// failLoad it does not drive the state transition — the supervisor does that via quarantine() — it
+// only attaches the reason (redacted of secrets by the caller) and raises the metric.
+func (l *Loader) setLoadReason(name, reason string) {
+	l.mu.Lock()
+	if mg, ok := l.plugins[name]; ok {
+		mg.reason = reason
+	}
+	l.mu.Unlock()
+	metrics.PluginLoadFailed.WithLabelValues(name).Set(1)
+}
+
 // Loader discovers, launches, supervises, and routes to plugins. It holds the tracked set under
 // a mutex, dispatches calls only to `ready` plugins, and bounds concurrent host→plugin work with
 // the two-level budget.

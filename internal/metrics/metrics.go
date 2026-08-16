@@ -269,6 +269,16 @@ var (
 		Help: "Notification-bus events dropped, by subscriber, event, and reason (backpressure, delivery, shutdown).",
 	}, []string{"name", "event", "reason"})
 
+	// PluginEventsUnhandled counts deliveries a notification plugin ACKed but reported it could NOT
+	// act on (NotifyAck.handled=false), by subscriber and event. Distinct from a drop: the delivery
+	// SUCCEEDED — the notifier received the event and answered — but it did nothing with it. A
+	// notifier that accepts events and silently no-ops is exactly the condition an operator wants
+	// visible (same reasoning as counting drops).
+	PluginEventsUnhandled = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "osctf_plugin_events_unhandled_total",
+		Help: "Notification deliveries a plugin ACKed but reported unhandled (handled=false), by subscriber and event.",
+	}, []string{"name", "event"})
+
 	// WSBroadcastsDropped counts WebSocket broadcasts dropped because the hub's ingress channel was
 	// full, by frame kind ("scoreboard" — superseded by the next snapshot, benign; "phase" — a
 	// transition frame lost, which read-repair/reconnect eventually corrects but is worth watching).
@@ -295,7 +305,7 @@ func init() {
 		ScoreboardStaleReads, ScoreboardStaleServed, ScoreboardDegradedServed,
 		PluginCallDuration, PluginInflight, PluginInflightShed, PluginLoadFailed, PluginLogDropped,
 		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
-		PluginEventsDropped, WSBroadcastsDropped,
+		PluginEventsDropped, PluginEventsUnhandled, WSBroadcastsDropped,
 	)
 }
 

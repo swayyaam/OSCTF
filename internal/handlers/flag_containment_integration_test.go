@@ -237,8 +237,10 @@ const sentinelType = "probe-marker-type-9f3a2b"
 // through validateCreate (which rejects unregistered types).
 type probeType struct{}
 
-func (probeType) ID() string                                           { return sentinelType }
-func (probeType) ValidateConfig(map[string]string) map[string][]string { return nil }
+func (probeType) ID() string { return sentinelType }
+func (probeType) ValidateConfig(map[string]string) challenges.ConfigValidation {
+	return challenges.ConfigValidation{OK: true}
+}
 
 // typedStaticBody is staticChallengeBody with an explicit challenge type spliced in.
 func typedStaticBody(title, flag, ctype string) string {

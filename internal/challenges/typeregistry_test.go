@@ -10,8 +10,8 @@ import (
 
 type stubType struct{ id string }
 
-func (s stubType) ID() string                                         { return s.id }
-func (stubType) ValidateConfig(map[string]string) map[string][]string { return nil }
+func (s stubType) ID() string                                      { return s.id }
+func (stubType) ValidateConfig(map[string]string) ConfigValidation { return ConfigValidation{OK: true} }
 
 // TestTypeRegistryDeregister: a plugin type is removed on deregister; a plugin that OVERRODE a
 // built-in restores the built-in; a bare built-in is a no-op.

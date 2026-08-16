@@ -7,15 +7,27 @@ import (
 	"sync/atomic"
 )
 
+// ConfigValidation is the result of author-time challenge-type config validation — the host mirror
+// of the wire ValidateResponse and the SDK's sdk.ConfigValidation, so all three layers speak ONE
+// reconciled shape. OK reports whether the config is usable; FieldErrors carries ONE message per
+// rejected field (rendered into the 422 errors map an admin sees); Normalized is the canonicalised
+// config the host stores in place of the raw author input. When Normalized is empty the host stores
+// the author's input unchanged.
+type ConfigValidation struct {
+	OK          bool
+	FieldErrors map[string]string
+	Normalized  map[string]string
+}
+
 // ChallengeType decides a challenge's author-time config validation and (via the optional
 // FlagChecker below) its custom flag check. The built-in types (standard/container) implement
 // only this interface and defer correctness to the platform's flag comparison; a plugin type
 // additionally implements FlagChecker and owns correctness.
 type ChallengeType interface {
 	ID() string
-	// ValidateConfig checks type-specific config at authoring time, returning per-field
-	// errors (empty = ok). The built-in types validate nothing extra here.
-	ValidateConfig(cfg map[string]string) map[string][]string
+	// ValidateConfig checks type-specific config at authoring time: OK=false with per-field
+	// messages rejects the write (422). The built-in types validate nothing extra and accept.
+	ValidateConfig(cfg map[string]string) ConfigValidation
 }
 
 // FlagChecker is implemented ONLY by a plugin-provided challenge-type: it decides correctness
@@ -29,8 +41,10 @@ type FlagChecker interface {
 
 type builtinType struct{ id string }
 
-func (b builtinType) ID() string                                         { return b.id }
-func (builtinType) ValidateConfig(map[string]string) map[string][]string { return nil }
+func (b builtinType) ID() string { return b.id }
+func (builtinType) ValidateConfig(map[string]string) ConfigValidation {
+	return ConfigValidation{OK: true}
+}
 
 type ctEntry struct {
 	ct        ChallengeType

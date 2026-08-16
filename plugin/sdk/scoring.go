@@ -7,17 +7,27 @@ import (
 	"github.com/osctf/platform/internal/plugin/pluginpb"
 )
 
-// Score is the input to a scoring computation — the plain-Go mirror of the wire request. A
-// scoring plugin is PURE: the same Score in yields the same value out, with no I/O.
+// Score is the input to a scoring computation — the plain-Go mirror of the wire request.
 type Score struct {
-	Initial int               // configured initial points
-	Min     int               // floor the value never drops below
-	Decay   int               // per-solve decay step (from challenge config)
-	Solves  int               // valid solves so far
-	Params  map[string]string // challenge-scoped scoring params (author-defined keys)
+	Initial int // configured initial points
+	Min     int // floor the value never drops below
+	Decay   int // per-solve decay step (from challenge config)
+	Solves  int // valid solves so far, INCLUDING this solve — so the first solver sees Solves == 1
+	// Params is RESERVED for challenge-scoped scoring params. The host does not populate it in v0.3
+	// (a scoring plugin's per-challenge inputs are exactly Initial/Min/Decay/Solves), so it is
+	// always empty today. Do not depend on it; tune with those four, a fixed rule, or sdk.Config
+	// (which is per-plugin, not per-challenge).
+	Params map[string]string
 }
 
 // Scorer is implemented by a scoring plugin.
+//
+// LOCKED AT SOLVE — the one thing to know before writing Value. Value is called EXACTLY ONCE per
+// solve, at that solve, and the result is RECORDED on the solve. It is not re-evaluated: when a
+// later team solves, earlier solvers keep the value they were given. So a decay curve does not
+// retroactively lower an early solver — it sets what each solver locks in at the moment they solve
+// (Solves is the count at that instant). Value is off the read path (the board reads the record,
+// never the plugin), which is why it must be PURE: same Score in, same value out, no I/O.
 type Scorer interface {
 	Info() Info
 	Value(Score) int

@@ -31,7 +31,7 @@ type pendingInvariant struct {
 	reason string // why it can't be written even as a failing test yet
 }
 
-var knownPhases = map[string]bool{"P3-c": true, "P3-d": true, "P3-e": true}
+var knownPhases = map[string]bool{"P3-c": true, "P3-d": true, "P3-e": true, "v0.3.1": true}
 
 // completedPhases marks the sub-steps whose loader/isolation/wiring now EXISTS. When a phase
 // lands, add it here — the guard then fails for every entry still tagged with it, forcing each
@@ -52,10 +52,27 @@ var completedPhases = map[string]bool{
 	// httpserver + a never-ready nohandshake subprocess → /healthz 200). No P3-e entry may remain.
 }
 
-// pendingInvariants is EMPTY: every v0.3 plugin-loader spec invariant is now pinned by a real test.
-// The self-emptying guard below stays as the forcing function for any FUTURE phase that adds
-// entries — an empty manifest is the goal state, not the absence of the mechanism.
-var pendingInvariants = []pendingInvariant{}
+// pendingInvariants: every v0.3 plugin-loader spec invariant is pinned by a real test. The one
+// remaining entry is not an untested invariant but an UNREACHABLE one — the reload path below is
+// fully tested yet has no production caller, so recording it here keeps the gap from being
+// forgotten (the self-emptying guard forces it to become a real, production-triggered test when
+// the v0.3.1 phase lands). Same shape as a dormant FakeRuntime.Reconcile: correct, pinned, and
+// never exercised by the thing it exists for.
+var pendingInvariants = []pendingInvariant{
+	{
+		id:    "reload-reachable-from-a-production-trigger",
+		phase: "v0.3.1",
+		reason: "supervisor.reload's drain + swap-on-ready + cancel-then-kill is pinned by " +
+			"supervisor_test.go, but NOTHING in the running platform calls it — no admin endpoint, " +
+			"no signal, no CLI. So hot-reload (and re-resolving a changed manifest's config) is " +
+			"unreachable in production today; config resolves at boot. DECIDED trigger for v0.3.1: an " +
+			"authenticated, audited admin endpoint POST /admin/plugins/{name}/reload (per-plugin, " +
+			"requireAdmin, audit_log) — it pairs with the admin plugin view that surfaces a " +
+			"quarantined plugin, so an admin fixes the config and reloads from the same surface. A " +
+			"SIGHUP is coarse and bypasses the admin auth/audit model; the v0.3.1 CLI wraps the " +
+			"endpoint. When that lands, replace this entry with a test that reloads via the endpoint.",
+	},
+}
 
 // TestPendingInvariantsSelfEmpty forces the manifest to shrink. It also catches a typo'd phase
 // (one that could never be marked complete and so would never be forced out).

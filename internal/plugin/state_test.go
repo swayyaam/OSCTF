@@ -12,7 +12,7 @@ func TestStateMachineLegalTransitions(t *testing.T) {
 	// The spec table (docs/v0.3/03-plugin-loader.md → "Legal transitions"). Anything not
 	// listed here must be rejected.
 	legal := map[State][]State{
-		StateDiscovered: {StateLaunching},
+		StateDiscovered: {StateLaunching, StateFailed}, // failed: quarantined at load (invalid config), never launched
 		StateLaunching:  {StateReady, StateRestarting, StateFailed},
 		StateReady:      {StateUnhealthy, StateDraining},
 		StateUnhealthy:  {StateReady, StateRestarting, StateDraining},

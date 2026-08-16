@@ -82,6 +82,12 @@ type launchSpec struct {
 	pidfileDir string
 	name       string
 
+	// configEnv is the plugin's resolved config as a JSON object, passed to the child process in
+	// the OSCTF_PLUGIN_CONFIG env var (empty = no config). The SDK's Config() reads it. Resolved
+	// and validated at launch (a config error quarantines before launch), so by the time it is
+	// here it is already valid — the child can trust it.
+	configEnv string
+
 	// noPdeathsig forces the macOS process attributes (Setpgid only, no kernel parent-death)
 	// even on Linux, so the orphan-sweep test can reproduce the developer-path orphan window on
 	// the Linux CI runner. Production leaves this false (Pdeathsig on Linux).
@@ -102,6 +108,11 @@ func realLaunch(spec launchSpec) launchFn {
 		// an exec context that could SIGKILL it from under go-plugin. Same pattern as the harness.
 		//nolint:gosec // G204: launches a configured plugin binary (path from the validated manifest).
 		cmd := exec.CommandContext(context.Background(), spec.bin, args...)
+		if spec.configEnv != "" {
+			// Inherit the host env (PATH, etc.) and add the resolved config. Set only when non-empty
+			// so a plugin with no config sees no OSCTF_PLUGIN_CONFIG at all.
+			cmd.Env = append(os.Environ(), PluginConfigEnv+"="+spec.configEnv)
+		}
 		if spec.noPdeathsig {
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // simulate the macOS path (no parent-death)
 		} else {

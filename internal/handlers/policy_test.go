@@ -84,6 +84,7 @@ var policyTable = map[string]policy{
 	"adminGetEvent":            {role: "admin"},
 	"adminUpdateEvent":         {role: "admin"},
 	"adminGetStats":            {role: "admin"},
+	"adminListPlugins":         {role: "admin"},
 	"adminListUsers":           {role: "admin"},
 	"adminGetInstance":         {role: "admin"},
 	"adminUpdateUser":          {role: "admin"},

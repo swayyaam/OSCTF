@@ -16,6 +16,7 @@ import (
 	"github.com/osctf/platform/internal/auth"
 	"github.com/osctf/platform/internal/challenges"
 	"github.com/osctf/platform/internal/events"
+	"github.com/osctf/platform/internal/plugin"
 	"github.com/osctf/platform/internal/redisx"
 	"github.com/osctf/platform/internal/runtime"
 	"github.com/osctf/platform/internal/scheduler"
@@ -40,10 +41,14 @@ type Deps struct {
 	Scoreboard  *scoreboard.Service
 	Runtime     *runtime.Manager
 	Scheduler   *scheduler.Scheduler
-	Auth        *auth.Registry
-	Sessions    *auth.SessionStore
-	Limiter     *redisx.Limiter
-	Audit       *audit.Logger
+
+	// PluginSnapshot returns the current status of every tracked plugin for the admin plugin view
+	// (including plugins quarantined at load). Nil (no loader wired) yields an empty list.
+	PluginSnapshot func() []plugin.PluginStatus
+	Auth           *auth.Registry
+	Sessions       *auth.SessionStore
+	Limiter        *redisx.Limiter
+	Audit          *audit.Logger
 	// Tokens issues/lists/revokes API tokens (P2-b). Nil disables the token endpoints.
 	Tokens *auth.TokenService
 	// Token lifetime policy: a create without an explicit lifetime gets TokenDefaultTTL; a

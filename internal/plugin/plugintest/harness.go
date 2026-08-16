@@ -2,6 +2,8 @@ package plugintest
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -52,6 +54,39 @@ func clientConfig(bin string) *goplugin.ClientConfig {
 func Dial(t *testing.T, bin string) (*goplugin.Client, pluginpb.ScoringClient) {
 	t.Helper()
 	c := goplugin.NewClient(clientConfig(bin))
+	rpc, err := c.Client()
+	if err != nil {
+		c.Kill()
+		t.Fatalf("dial %q: %v", bin, err)
+	}
+	raw, err := rpc.Dispense(plugin.KeyScoring)
+	if err != nil {
+		c.Kill()
+		t.Fatalf("dispense scoring from %q: %v", bin, err)
+	}
+	return c, raw.(pluginpb.ScoringClient)
+}
+
+// DialWithConfig is Dial, but launches the plugin with a resolved config in the shared
+// OSCTF_PLUGIN_CONFIG env var (plugin.PluginConfigEnv — the SAME const the host writes and the SDK
+// reads), so a double that calls sdk.Config() receives it. This exercises the host→plugin config
+// path end to end, and the shared const means the read side and write side cannot drift.
+func DialWithConfig(t *testing.T, bin string, cfg map[string]string) (*goplugin.Client, pluginpb.ScoringClient) {
+	t.Helper()
+	blob, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	//nolint:gosec // G204: launches the built double under test; go-plugin owns its lifecycle.
+	cmd := exec.CommandContext(context.Background(), bin)
+	cmd.Env = append(os.Environ(), plugin.PluginConfigEnv+"="+string(blob))
+	c := goplugin.NewClient(&goplugin.ClientConfig{
+		HandshakeConfig:  plugin.Handshake,
+		Plugins:          plugin.HostPluginSet(),
+		Cmd:              cmd,
+		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
+		Logger:           hclog.NewNullLogger(),
+	})
 	rpc, err := c.Client()
 	if err != nil {
 		c.Kill()

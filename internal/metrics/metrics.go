@@ -205,6 +205,16 @@ var (
 		Help: "Host→plugin calls shed at an in-flight cap, by plugin and cap level (per_plugin, global).",
 	}, []string{"plugin", "level"})
 
+	// PluginLoadFailed gauges plugins quarantined at LOAD (e.g. invalid config) — set to 1 by
+	// plugin name, so `osctf_plugin_load_failed{plugin="webhook"} 1` names exactly which plugin an
+	// organizer's notifier stopped being. A quarantined plugin never serves; alert on any nonzero.
+	// (No reload trigger exists yet to clear it — see the loader doc; today it clears only on a
+	// serve restart once the config is fixed.)
+	PluginLoadFailed = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "osctf_plugin_load_failed",
+		Help: "Plugins quarantined at load (1 = failed to load, e.g. invalid config), by plugin.",
+	}, []string{"plugin"})
+
 	// PluginScoreRecordFailures counts post-commit scoring-record WRITE failures — the solve
 	// committed but its scored_value did not land, leaving a MISSING record. This is the write-path
 	// durability signal; the repair worker backfills it, but a rising rate means writes are failing.
@@ -273,7 +283,7 @@ func init() {
 		UnadoptedContainers, UnadoptedNetworks, ReconcileActions, ReconcileGraceSkipped, ReconcileFutureRows,
 		ReconcileActionsTotal, ReconcileLastSuccess, ExpiryLastSuccess, ReapLastSuccess,
 		ScoreboardStaleReads, ScoreboardStaleServed, ScoreboardDegradedServed,
-		PluginCallDuration, PluginInflight, PluginInflightShed,
+		PluginCallDuration, PluginInflight, PluginInflightShed, PluginLoadFailed,
 		PluginScoreRecordFailures, PluginScoresMissing, PluginScoresPending, PluginScoresRepaired,
 		PluginEventsDropped, WSBroadcastsDropped,
 	)

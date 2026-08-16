@@ -159,6 +159,26 @@ type AdminPasswordResetRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
+// AdminPluginList Tracked plugins and their lifecycle state.
+type AdminPluginList struct {
+	Plugins []AdminPluginStatus `json:"plugins"`
+}
+
+// AdminPluginStatus One plugin's lifecycle state. Reason is admin-facing and never carries a secret config value.
+type AdminPluginStatus struct {
+	// Name Manifest name / registry key.
+	Name string `json:"name"`
+
+	// Reason Why it is in this state when that needs explaining (e.g. a quarantine cause). Redacted of secret values.
+	Reason *string `json:"reason,omitempty"`
+
+	// State Lifecycle state: discovered | launching | ready | unhealthy | restarting | failed | draining | stopped.
+	State string `json:"state"`
+
+	// Type Plugin type: scoring | notification | challenge_type | auth.
+	Type string `json:"type"`
+}
+
 // AdminStats Admin dashboard tiles.
 type AdminStats struct {
 	// InstancesRunning Instances in running state.
@@ -1483,6 +1503,9 @@ type ServerInterface interface {
 	// Destroy any instance
 	// (DELETE /admin/instances/{id})
 	AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request, id IdPath)
+	// Plugin status
+	// (GET /admin/plugins)
+	AdminListPlugins(w http.ResponseWriter, r *http.Request)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(w http.ResponseWriter, r *http.Request)
@@ -1684,6 +1707,12 @@ func (_ Unimplemented) AdminListInstances(w http.ResponseWriter, r *http.Request
 // Destroy any instance
 // (DELETE /admin/instances/{id})
 func (_ Unimplemented) AdminDestroyInstanceById(w http.ResponseWriter, r *http.Request, id IdPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Plugin status
+// (GET /admin/plugins)
+func (_ Unimplemented) AdminListPlugins(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2440,6 +2469,28 @@ func (siw *ServerInterfaceWrapper) AdminDestroyInstanceById(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AdminDestroyInstanceById(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminListPlugins operation middleware
+func (siw *ServerInterfaceWrapper) AdminListPlugins(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminListPlugins(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3649,6 +3700,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/admin/instances/{id}", wrapper.AdminDestroyInstanceById)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/plugins", wrapper.AdminListPlugins)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/stats", wrapper.AdminGetStats)
 	})
 	r.Group(func(r chi.Router) {
@@ -4669,6 +4723,44 @@ type AdminDestroyInstanceById503ApplicationProblemPlusJSONResponse struct {
 func (response AdminDestroyInstanceById503ApplicationProblemPlusJSONResponse) VisitAdminDestroyInstanceByIdResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListPluginsRequestObject struct {
+}
+
+type AdminListPluginsResponseObject interface {
+	VisitAdminListPluginsResponse(w http.ResponseWriter) error
+}
+
+type AdminListPlugins200JSONResponse AdminPluginList
+
+func (response AdminListPlugins200JSONResponse) VisitAdminListPluginsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListPlugins401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListPlugins401ApplicationProblemPlusJSONResponse) VisitAdminListPluginsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminListPlugins403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminListPlugins403ApplicationProblemPlusJSONResponse) VisitAdminListPluginsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -6336,6 +6428,9 @@ type StrictServerInterface interface {
 	// Destroy any instance
 	// (DELETE /admin/instances/{id})
 	AdminDestroyInstanceById(ctx context.Context, request AdminDestroyInstanceByIdRequestObject) (AdminDestroyInstanceByIdResponseObject, error)
+	// Plugin status
+	// (GET /admin/plugins)
+	AdminListPlugins(ctx context.Context, request AdminListPluginsRequestObject) (AdminListPluginsResponseObject, error)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(ctx context.Context, request AdminGetStatsRequestObject) (AdminGetStatsResponseObject, error)
@@ -6901,6 +6996,30 @@ func (sh *strictHandler) AdminDestroyInstanceById(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AdminDestroyInstanceByIdResponseObject); ok {
 		if err := validResponse.VisitAdminDestroyInstanceByIdResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdminListPlugins operation middleware
+func (sh *strictHandler) AdminListPlugins(w http.ResponseWriter, r *http.Request) {
+	var request AdminListPluginsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminListPlugins(ctx, request.(AdminListPluginsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminListPlugins")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminListPluginsResponseObject); ok {
+		if err := validResponse.VisitAdminListPluginsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

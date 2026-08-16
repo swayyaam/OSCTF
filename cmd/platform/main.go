@@ -401,14 +401,15 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	h := handlers.New(handlers.Deps{
-		Users:       usersSvc,
-		Teams:       teamsSvc,
-		Events:      eventsSvc,
-		Challenges:  challengesSvc,
-		Submissions: submissionsSvc,
-		Scoreboard:  scoreboardSvc,
-		Runtime:     rtMgr,
-		Scheduler:   sched,
+		Users:          usersSvc,
+		Teams:          teamsSvc,
+		Events:         eventsSvc,
+		Challenges:     challengesSvc,
+		Submissions:    submissionsSvc,
+		Scoreboard:     scoreboardSvc,
+		Runtime:        rtMgr,
+		Scheduler:      sched,
+		PluginSnapshot: pluginLoader.Snapshot, // admin plugin view (incl. quarantined-at-load)
 		Recompute: func(rctx context.Context) {
 			if err := scoreboardSvc.Recompute(rctx); err != nil {
 				log.Warn("scoreboard recompute failed", "error", err.Error())

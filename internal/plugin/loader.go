@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -82,6 +83,54 @@ type managed struct {
 	cur        *conn         // the current instance's connection; nil unless ready
 	sem        chan struct{} // per-plugin in-flight semaphore (cap = budget.perPluginCap)
 	registered bool          // provider wired into its type registry (register-once, revert-on-terminal)
+	reason     string        // why the plugin is in its current state when that needs explaining (e.g. a quarantine cause); surfaced to admins
+}
+
+// PluginStatus is one plugin's state for the admin view — enough to answer "why isn't my
+// notifier working?" without reading boot logs. Reason is redacted of secret config values.
+type PluginStatus struct {
+	Name   string
+	Type   string
+	State  string
+	Reason string
+}
+
+// Snapshot returns the current status of every tracked plugin (including those quarantined at
+// load), for the admin plugin view. Ordering is by name for a stable admin display.
+func (l *Loader) Snapshot() []PluginStatus {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]PluginStatus, 0, len(l.plugins))
+	for _, p := range l.plugins {
+		out = append(out, PluginStatus{Name: p.name, Type: p.ptype, State: string(p.m.state), Reason: p.reason})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// failLoad quarantines a plugin that could not be LOADED (e.g. invalid config) before it was ever
+// launched: it records the plugin in `failed` state with a reason an admin can read, and counts
+// it. The reason must NOT contain a secret config value (resolveConfig redacts those). This is the
+// "fail at load, not at first call" path — the plugin never serves, and why is visible.
+func (l *Loader) failLoad(name, ptype, reason string) {
+	l.mu.Lock()
+	mg, ok := l.plugins[name]
+	if !ok {
+		cap := l.budget.perPluginCap
+		if cap <= 0 {
+			cap = 64
+		}
+		mg = &managed{name: name, m: machine{state: StateDiscovered}, sem: make(chan struct{}, cap)}
+		l.plugins[name] = mg
+	}
+	mg.ptype = ptype
+	mg.reason = reason
+	_ = mg.m.to(StateFailed) // discovered -> failed is legal; ignore the (impossible-here) error
+	l.mu.Unlock()
+	metrics.PluginLoadFailed.WithLabelValues(name).Set(1)
+	if l.cfg.Log != nil {
+		l.cfg.Log.Error("plugin quarantined at load — NOT launched (fix and reload)", "name", name, "reason", reason)
+	}
 }
 
 // Loader discovers, launches, supervises, and routes to plugins. It holds the tracked set under

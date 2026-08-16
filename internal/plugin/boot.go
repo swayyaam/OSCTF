@@ -134,6 +134,17 @@ func (l *Loader) launchDiscovered(ctx context.Context, d discovered) {
 		l.cfg.Log.Error("could not mint a start token; skipping plugin", "name", d.manifest.Name, "err", err)
 		return
 	}
+	// Resolve + validate config against the manifest schema BEFORE launching (fail at load, not at
+	// first call). A missing required key or a wrong-typed value quarantines the plugin here: it is
+	// not launched and never reaches ready, with a clear, actionable message — better than a plugin
+	// that starts and then fails every request because a URL was empty.
+	cfg, err := resolveConfig(d.manifest, nil)
+	if err != nil {
+		// Fail at LOAD: quarantine with a readable reason (failed state + metric + admin view),
+		// never launch. The reason carries no secret value (resolveConfig redacts those).
+		l.failLoad(d.manifest.Name, d.manifest.Type, err.Error())
+		return
+	}
 	spec := launchSpec{
 		bin:          d.executable,
 		key:          d.manifest.dispenseKey(),
@@ -142,6 +153,7 @@ func (l *Loader) launchDiscovered(ctx context.Context, d discovered) {
 		pidfileDir:   l.cfg.RuntimeDir,
 		startTimeout: l.cfg.StartTimeout,
 		pollInterval: 250 * time.Millisecond,
+		configEnv:    encodeConfig(cfg),
 	}
 	l.track(d.manifest.Name)
 	l.setType(d.manifest.Name, d.manifest.Type)

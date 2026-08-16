@@ -14,7 +14,7 @@ const (
 	StateReady      State = "ready"      // launched, configured, registered, health passing — SERVES
 	StateUnhealthy  State = "unhealthy"  // was ready; a health check or call failed; supervisor deciding
 	StateRestarting State = "restarting" // being torn down + relaunched; backoff between attempts
-	StateFailed     State = "failed"     // restart cap exhausted → quarantined; not retried automatically
+	StateFailed     State = "failed"     // restart cap exhausted OR failed to load (e.g. invalid config) → quarantined; not retried automatically
 	StateDraining   State = "draining"   // reload/shutdown; no new calls, in-flight allowed to finish
 	StateStopped    State = "stopped"    // process exited, resources reclaimed, entry removed — terminal
 )
@@ -22,7 +22,7 @@ const (
 // legalTransitions[from] is the set of states `from` may move to. Anything absent is a bug
 // the state-machine test rejects. Mirrors the "Legal transitions" table in the spec.
 var legalTransitions = map[State]map[State]struct{}{
-	StateDiscovered: {StateLaunching: {}},
+	StateDiscovered: {StateLaunching: {}, StateFailed: {}}, // -> failed: quarantined at load (invalid config), never launched
 	StateLaunching:  {StateReady: {}, StateRestarting: {}, StateFailed: {}},
 	StateReady:      {StateUnhealthy: {}, StateDraining: {}},
 	StateUnhealthy:  {StateReady: {}, StateRestarting: {}, StateDraining: {}},

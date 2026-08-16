@@ -86,6 +86,14 @@ register/subscribe → [serve + health] → drain → stop
 5. **Reload.** `POST /api/v1/admin/plugins/{name}/reload` (admin) re-reads the manifest and
    relaunches the one plugin. A full rescan happens on `serve` restart; hot add/remove of
    plugin *directories* is a rescan, not watched live in v0.3.
+
+   > **Not yet triggerable (as of v0.3).** The reload *mechanism* — drain, swap-on-ready,
+   > cancel-then-kill — is implemented and pinned by tests, but **no production caller invokes it**:
+   > the endpoint above is not wired, and there is no signal or CLI trigger. So a running platform
+   > cannot hot-reload, and dropping a changed manifest does nothing until the next `serve` restart;
+   > plugin **config is resolved at boot**, not on reload. The trigger is scoped for **v0.3.1** as
+   > this admin endpoint (authenticated + audited, per-plugin), recorded in the pending-invariants
+   > manifest (`internal/plugin/plugintest/invariants_pending_test.go`) so it can't be forgotten.
 6. **Shutdown.** On `serve` shutdown the loader signals every plugin to exit (go-plugin
    `Kill`) and reaps children within the existing 10 s drain window.
 
@@ -140,6 +148,7 @@ Legal transitions (anything not listed is a bug the tests reject):
 |---|---|---|
 | — | `discovered` | manifest found + validated on scan/reload |
 | `discovered` | `launching` | loader starts the process |
+| `discovered` | `failed` | quarantined at load — config invalid against the manifest schema; never launched (fail at load, not at first call) |
 | `launching` | `ready` | handshake + `Info` + `Configure` succeed → registered |
 | `launching` | `restarting` | launch/handshake/configure failed, attempts remain |
 | `launching` | `failed` | launch failed with the restart cap already reached |

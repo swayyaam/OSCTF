@@ -1118,6 +1118,23 @@ paths:
               schema: { $ref: "#/components/schemas/AdminStats" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/plugins:
+    get:
+      tags: [admin]
+      operationId: adminListPlugins
+      summary: Plugin status
+      description: >
+        Every tracked plugin and its lifecycle state, including plugins QUARANTINED at load
+        (e.g. invalid config) — so an organizer can see WHY a plugin isn't working without
+        reading boot logs. Reasons never contain a secret config value.
+      responses:
+        "200":
+          description: Plugin statuses.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPluginList" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
 components:
   securitySchemes:
@@ -2331,3 +2348,20 @@ components:
         solves: { type: integer, description: Correct submissions. }
         instances_running: { type: integer, description: Instances in running state. }
         ws_connections: { type: integer, description: Open WebSocket connections. }
+    AdminPluginList:
+      type: object
+      description: Tracked plugins and their lifecycle state.
+      required: [plugins]
+      properties:
+        plugins:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPluginStatus" }
+    AdminPluginStatus:
+      type: object
+      description: One plugin's lifecycle state. Reason is admin-facing and never carries a secret config value.
+      required: [name, type, state]
+      properties:
+        name: { type: string, description: Manifest name / registry key. }
+        type: { type: string, description: "Plugin type: scoring | notification | challenge_type | auth." }
+        state: { type: string, description: "Lifecycle state: discovered | launching | ready | unhealthy | restarting | failed | draining | stopped." }
+        reason: { type: string, description: "Why it is in this state when that needs explaining (e.g. a quarantine cause). Redacted of secret values." }

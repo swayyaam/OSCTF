@@ -31,3 +31,17 @@ func TestVerifyNotification_Example(t *testing.T) {
 		{Name: "solved", Event: sdk.Event{Name: "challenge.solved", ID: "e1", Data: map[string]string{"team": "alpha"}}},
 	})
 }
+
+func TestVerifyChallengeType_Example(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a plugin subprocess; skipped in -short")
+	}
+	bin := contract.Build(t, "testdata/examplechecker")
+	contract.VerifyChallengeType(t, bin, contract.ChallengeTypeCases{
+		ValidConfig:     map[string]string{"answer": "  OSCTF{win}  "}, // normalized (trimmed) → OSCTF{win}
+		RejectedConfigs: []map[string]string{{}, {"answer": "   "}},    // missing / blank → per-field error
+		Correct:         []string{"OSCTF{win}"},                        // equals the normalized answer
+		Incorrect:       []string{"OSCTF{nope}", "  OSCTF{win}  "},     // wrong, incl. the un-trimmed form (checked vs normalized)
+		Undecidable:     []string{""},                                  // blank → CheckFlag errors (fail closed), not false
+	})
+}

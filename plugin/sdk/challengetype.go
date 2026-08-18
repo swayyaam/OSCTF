@@ -8,9 +8,15 @@ import (
 
 // FlagCheck is the input to a flag check. Submitted is what the player sent; Config is the
 // challenge's per-challenge type_config (author-defined, validated + normalized at author time by
-// ValidateConfig); Instance is the per-team instance context (e.g. a per-instance secret) when the
-// challenge is containerised, empty otherwise. The real static flag is NEVER sent to a plugin — a
-// challenge-type plugin decides correctness from Config/Instance, not by being handed the answer.
+// ValidateConfig). The real static flag is NEVER sent to a plugin — a challenge-type plugin decides
+// correctness from Config (and, once wired, Instance), not by being handed the answer.
+//
+// Instance is RESERVED and ALWAYS EMPTY today — do not read it. It is meant to carry per-team
+// instance context (e.g. a per-instance secret) for a containerised per_instance challenge, but the
+// host currently passes an empty map: a challenge that is BOTH per_instance and plugin-typed is not
+// a wired combination yet (the built-in per_instance path handles per-team flags today). It will be
+// populated from the instances table when that combination is supported, so treat it as absent, not
+// merely unset — the same reserved-until-wired shape as sdk.Score.Params.
 //
 // Config MAY CONTAIN CHALLENGE-SENSITIVE DATA — a regex or rule that reveals the flag's structure is
 // the obvious case. NEVER log it, or any value derived from it: sdk.Log output reaches the host log,

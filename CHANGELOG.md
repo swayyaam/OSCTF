@@ -39,6 +39,22 @@ backported to **v0.2.4** (below) because they affect released versions.
   change — only the previously-silent drop is now observable, in keeping with the plugin event
   bus's "a drop is never silent" contract (new `osctf_plugin_events_dropped_total{name,event,reason}`).
 
+### Docs (roadmap)
+
+- **AI-security challenges — design landed, not a feature.** A design for a challenge family whose
+  target is a live LLM agent (prompt injection, indirect injection, tool abuse, guardrail bypass,
+  system-prompt extraction), attacked over multiple turns, as a `ChallengeType` plugin. It is written
+  to reconcile against the existing invariants rather than around them: deterministic vs graded scoring
+  (a graded value **cannot** be recomputed, so the deterministic tier is preferred as a technical
+  consequence, not a style choice); async grading as a post-commit path that ships with a repair worker
+  or not at all (INVARIANTS #11); a host-owned session transcript (a plugin holds no hidden session
+  state); a two-meter attempt model; host-cappable **turns** vs uncappable **token spend** (an accepted
+  risk with a real bill); and inert tools in place of a sandbox the platform does not provide. New:
+  [`docs/ai-challenges.md`](docs/ai-challenges.md); a planned adversary in
+  [`THREAT_MODEL.md`](THREAT_MODEL.md) §7; the ABI extension it requires (additive, capability-gated,
+  ABI-minor) in [`docs/v0.3/02-plugin-abi.md`](docs/v0.3/02-plugin-abi.md). **No code — a design, not
+  shipped functionality.**
+
 ## v0.2.4 — Redis-unavailability hardening
 
 Two production bugs, **live in v0.2.3 and every earlier release**, that surface only when Redis

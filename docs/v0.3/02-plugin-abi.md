@@ -151,6 +151,52 @@ of the boundary: the host still enforces solve/attempt rules and logging; the pl
 answers "is this submission correct for this config/instance." A plugin without the
 `check` capability falls back to the core's standard flag comparison.
 
+#### Multi-turn agent extension (planned)
+
+*Planned, not implemented — the full design is [`../ai-challenges.md`](../ai-challenges.md).* An
+AI-security challenge (`ai-challenge`) is a challenge-type whose instance is a live LLM agent the
+competitor talks to over **multiple turns**, not a single `CheckFlag`. It needs a session lifecycle the
+stateless `CheckFlag` lacks. By the versioning rule above these are **additive optional RPCs,
+capability-gated (`agent-session`) — a MINOR bump, not a major break**: a plugin that does not
+advertise the capability is never used for an `ai-challenge`.
+
+```proto
+// Additive to the ChallengeType service (planned; capability "agent-session").
+service ChallengeType {
+  // ... existing Info / ValidateConfig / CheckFlag ...
+  rpc OpenSession(OpenSessionRequest) returns (SessionHandle); // start an agent session
+  rpc Turn(TurnRequest)               returns (TurnResponse);   // one competitor message -> agent reply
+  rpc CloseSession(SessionHandle)     returns (CloseAck);       // end / submit for evaluation
+}
+message OpenSessionRequest { map<string,string> config = 1; }          // the challenge's type_config
+message SessionHandle      { string session_id = 1; }
+message TurnRequest  { string session_id = 1; repeated Turn transcript = 2; string message = 3; }
+message TurnResponse { string reply = 1; repeated string tool_calls = 2; UsageReport usage = 3; }
+message Turn         { string role = 1; string content = 2; }
+message UsageReport  { int64 input_tokens = 1; int64 output_tokens = 2; } // SELF-REPORTED (see below)
+message CloseAck     { bool ok = 1; }
+```
+
+The load-bearing points, each reconciled in [`../ai-challenges.md`](../ai-challenges.md):
+
+- **The host passes the transcript on every `Turn`; the plugin holds no hidden session state.** A
+  plugin restart must not drop a live session, so the transcript is host-owned (Postgres) and
+  re-supplied; the plugin re-hydrates the agent from it. Agents with server-side mutable state are
+  excluded.
+- **`UsageReport` is self-reported, trusted for accounting only.** The host caps *turns* (each `Turn`
+  is a host RPC it counts) but **cannot cap token spend** (it cannot see the provider's tokens) — see
+  the design's cost-control section and [`THREAT_MODEL.md`](../../THREAT_MODEL.md) §7.
+- **Correctness stays host-side.** The deterministic verdict — a canary in a `reply`, a forbidden name
+  in `tool_calls` — is decided by the host against the recorded transcript, never self-reported by the
+  plugin, the same posture as `CheckFlag`'s host-side re-validation.
+- **Graded scoring is post-commit and non-deterministic**, recorded once and read from the record; a
+  judge is a host call or an additional optional RPC (`graded` capability) — both **MINOR** — and it
+  ships with a repair worker or it does not ship (INVARIANTS #11).
+
+`type_config` stays flat `map<string,string>`; structured agent config (tool schemas, a rubric) is
+JSON-encoded into string values the plugin's `ValidateConfig` parses. Richening `ValidateRequest.config`
+to a structured type would be an **ABI-MAJOR** break and is deliberately avoided.
+
 ## Generation & drift
 
 - `.proto` is the source of truth; a `make generate` step runs `protoc`/`buf` to produce

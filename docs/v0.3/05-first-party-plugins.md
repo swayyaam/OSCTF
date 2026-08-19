@@ -78,6 +78,38 @@ Proves the **challenge-type** interface (validate + check).
   non-matching values, assert solve/no-solve and that the audit log + attempt counting
   behave exactly as for a static challenge.
 
+## 5. `ai-challenge` — an LLM-agent challenge type (roadmap)
+
+*Roadmap, not built — the full design is [`../ai-challenges.md`](../ai-challenges.md). Listed as a
+fifth reference so the interface it needs is visible alongside the shipped four; the cross-cutting
+requirements below are what it would follow when built.*
+
+Proves the **challenge-type** interface's **planned multi-turn extension** (`agent-session` capability,
+[`02-plugin-abi.md`](02-plugin-abi.md)). The instance is a live LLM agent — a pinned model, a system
+prompt, optional **inert** tools, and an optional retrieval corpus (challenge attachments) — that the
+competitor attacks over several turns.
+
+- **Config (`type_config`, flat string→string; structured values JSON-encoded):** `model` (pinned,
+  required), `system_prompt`, `win` (`deterministic` | `graded`), `canary` (deterministic tier),
+  `max_turns` (host turn cap), `tools` (JSON, inert), and for the graded variant `judge_model` +
+  `rubric` (JSON).
+- **ValidateConfig:** rejects an unpinned model, malformed tool/rubric JSON, or a `deterministic` win
+  with no canary — the authoring errors an organizer sees before an event.
+- **Session:** `OpenSession` / `Turn` / `CloseSession`; the host owns the transcript and passes it each
+  turn (the plugin is stateless-per-turn).
+- **Proves:** a challenge whose target is a model, not a binary — solved by prompt injection, tool
+  abuse, or extraction — authored and graded with no core changes; a `standard` challenge is
+  unaffected. **Prefer the deterministic tier**: a canary check is recomputable, a graded value is a
+  frozen judgment ([`../ai-challenges.md`](../ai-challenges.md) → Scoring).
+- **Test target:** a stub/local model so the contract test is deterministic and free; assert a canary
+  win records `ai:deterministic:canary`, the turn cap is host-enforced, and the verdict is decided
+  host-side from the transcript, not self-reported.
+
+It is the reference that would drive the `agent-session` RPCs, host-owned transcripts, async graded
+scoring + its repair worker, and the cost meters — all planned, all in
+[`../ai-challenges.md`](../ai-challenges.md). Fitting the plugin-first principle: if the interface can't
+express it, the interface is what gets fixed ([`../project-desc.md`](../project-desc.md) §3).
+
 ## Cross-cutting requirements for all four
 
 - Import only `plugin/sdk` + `pluginpb`; **zero** imports of `github.com/osctf/platform/

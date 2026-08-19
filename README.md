@@ -19,7 +19,9 @@ per-team-instance model, not the scoreboard, is the reason to use it over a CTFd
 
 CTFs are the entry point; the durable goal is to be the open infrastructure layer
 universities, communities, and companies build their security education on. Vision and
-roadmap: [`docs/project-desc.md`](docs/project-desc.md).
+roadmap: [`docs/project-desc.md`](docs/project-desc.md). One direction on that roadmap is
+**AI-security challenges** — challenges whose target is a live LLM agent rather than a binary or web
+app, attacked over multiple turns (roadmap, not shipped: [`docs/ai-challenges.md`](docs/ai-challenges.md)).
 
 ## How it works
 
@@ -174,6 +176,14 @@ ordered drain) and its **challenge-type**, **scoring**, and **notification** wir
 **auth** plugins (redirect/OAuth), the first-party plugin set, and API v1's full stability
 guarantees. Specs: [`docs/v0.3/`](docs/v0.3/README.md) · [`docs/v0.3.1/`](docs/v0.3.1/README.md).
 There are no API stability promises before v1.0.
+
+**On the roadmap — AI-security challenges (design, not built).** A challenge family where the target
+is a live **LLM agent** — a system prompt, optional tools, an optional retrieval corpus — that a
+competitor attacks over multiple turns (prompt injection, indirect injection, tool abuse, guardrail
+bypass, system-prompt extraction) instead of submitting a static flag. It is a `ChallengeType` plugin,
+not a core change. The design, the scoring model (deterministic vs graded, and why deterministic is
+preferred), the cost and isolation limits, and the ABI extensions it requires are in
+[`docs/ai-challenges.md`](docs/ai-challenges.md). It is a design, not a feature.
 
 ## License
 

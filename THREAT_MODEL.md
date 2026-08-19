@@ -208,6 +208,18 @@ alone: crash-loops quarantine, a slow plugin cannot stall others, and boot never
 `:: TestPluginScorePendingWhenDeferred`); a dropped notification is always counted, and the action
 still commits (`events/bus_test.go :: TestBackpressureDropsCounted`, `:: TestDeliveryErrorCounted`).
 
+**An `ai-challenge` plugin holding provider credentials — Accepted, a larger position (planned).**
+*(Planned functionality — [`docs/ai-challenges.md`](docs/ai-challenges.md) is a design, not shipped;
+recorded here so the position is on the map before the code is.)* An AI-security challenge-type plugin
+is a bigger trust position than a flag-checker: it holds a model provider's API key (`sdk.Config`,
+env-only), makes **outbound network calls** to that provider, and executes the challenge's tools.
+"Isolated for availability, not authorization" still applies — process isolation does not stop a
+compromised such plugin from exfiltrating its provider key, running unbounded spend against it, or
+abusing its own tool execution. Reference challenges keep tools **inert** (the win is the recorded
+call, not execution); a real tool needs a sandbox the platform does not provide (next line). Installing
+an ai-challenge plugin is an operator trust decision on the footing of the outbound credentials it
+carries.
+
 **Out of scope:** a syscall sandbox for plugin code. v0.3 does not add one — a plugin is trusted
 within its type ([`docs/v0.3/03-plugin-loader.md`](docs/v0.3/03-plugin-loader.md)).
 
@@ -306,6 +318,39 @@ timing symmetry *is* behaviourally tested (`TestEnumerationHiddenChallengeIndist
 asserts median timing), but the **constant-time property of the compare functions themselves is
 enforced only by `crypto/subtle`, not by a timing test** — stated honestly as a construction
 guarantee, not a measured one.
+
+---
+
+## 7. A competitor against an AI-challenge agent (planned)
+
+*(Planned functionality — [`docs/ai-challenges.md`](docs/ai-challenges.md) is a design, not shipped.
+Recorded here so the adversary is on the map before the code is; no control below is implemented or
+test-pinned yet.)* An authenticated participant interacting with a live LLM agent instead of submitting
+a flag, whose goal is to make the agent violate its stated policy. The blast radius is new.
+
+**Inducing a forbidden tool call — bounded to inert tools; real tools out of scope.** The win
+condition of a tool-abuse challenge is that a forbidden tool **was called** — recorded in the
+transcript; the tool is **inert** and executes nothing. An author who wires a tool with real side
+effects (a shell, a file write, an outbound request) is relying on a sandbox the platform **does not
+provide** — the same class of limit as cross-team isolation on Docker Desktop (§2): a property of the
+plugin trust model, not a bug OSCTF can fix. Run tool-abuse challenges with inert tools; a real-tool
+challenge is unsupported.
+
+**Driving up inference cost — turns capped, spend accepted.** Every turn is inference the operator pays
+for, so cost is an economic/availability adversary. The host **can hard-cap turns** (each turn is a
+host RPC; a per-team turn budget is enforceable, like the instance quota). The host **cannot cap token
+spend** — it does not see the provider's tokens; a per-turn token count is **self-reported by the
+plugin**, and a compromised or buggy plugin under-reporting it is an **unbounded-spend path with a real
+bill attached**. **Accepted:** the enforceable mitigation is the **turn cap**, and the operator must
+set a provider-side spend limit — the platform cannot be the backstop for spend it cannot observe.
+
+**Extracting more than the canary — the host holds correctness; the agent holds only its own config.**
+Extraction challenges are won by recovering a *canary*, checked **host-side** against the recorded
+transcript — the plugin runs the agent, the host decides the verdict, so the agent never adjudicates
+its own defeat. An agent must be scoped to its own challenge's `type_config` and corpus, with no access
+to other challenges' secrets, provider credentials beyond what the plugin injects, or platform
+internals. Keeping the agent's reachable context scoped is a **planned mitigation, not yet enforced by
+a test** — it must not outlive the "no ai-challenge plugin exists yet" that makes it currently moot.
 
 ---
 

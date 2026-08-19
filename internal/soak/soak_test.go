@@ -204,7 +204,7 @@ func TestSoak(t *testing.T) {
 	h := handlers.New(handlers.Deps{
 		Users: usersSvc, Teams: teamsSvc, Events: ev,
 		Challenges:  challenges.New(q, &memStore{m: map[string][]byte{}}),
-		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())).WithScorer(soakScoringPlugin).WithBus(eventBus),
+		Submissions: submissions.New(pool, ev, clk, audit.New(q, testsupport.DiscardLogger())).WithScorer(soakScoringPlugin).WithBus(eventBus).WithChallengeTypes(soakCheckerResolver{}),
 		Scoreboard:  sb, Runtime: mgr, Scheduler: sched,
 		Recompute: func(rctx context.Context) {
 			if !*fBreakSB { // -break-scoreboard: stop refreshing the cache so REST goes stale
@@ -290,6 +290,20 @@ func TestSoak(t *testing.T) {
 		go func() { defer wg.Done(); a.run(runCtx, m) }()
 	}
 	wg.Wait() // actors + background + faults + invariants done; WS clients still live
+
+	// The challenge-type challenge must actually have been solved: its correctness comes only from
+	// CheckFlag reading the per-challenge type_config, so zero correct solves would mean type_config
+	// never reached CheckFlag under load — the one path the submission-suite regression check cannot
+	// structurally cover (a built-in challenge returns before CheckFlag). This asserts the path ran.
+	var checkerSolves int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM submissions s JOIN challenges c ON c.id = s.challenge_id
+		WHERE c.slug = 'chal-checker' AND s.correct`).Scan(&checkerSolves); err != nil {
+		t.Fatalf("count chal-checker solves: %v", err)
+	}
+	if checkerSolves == 0 {
+		t.Errorf("chal-checker got 0 correct solves — type_config did not reach CheckFlag under load (the path this run exists to exercise)")
+	}
+	t.Logf("chal-checker : %d correct solves decided by CheckFlag(type_config) — type_config → CheckFlag exercised under load", checkerSolves)
 
 	if *fPluginOutage {
 		assertPluginOutageConverged(ctx, t, pool, m)
@@ -378,6 +392,29 @@ func (s *soakScorer) Score(_ context.Context, mode string, p scoring.ChallengeSc
 // the -recompute-via-plugin negative control recomputes through it.
 var soakScoringPlugin = &soakScorer{}
 
+// soakChecker is the in-process stand-in for a challenge-TYPE plugin. It decides correctness by
+// comparing the submission against the challenge's per-challenge type_config "answer" key — so it is
+// the one path that reads type_config end to end on the submit hot path, the gap the submission-suite
+// regression check structurally cannot reach (a built-in challenge returns before CheckFlag). If
+// type_config did not flow to CheckFlag, config["answer"] would be empty and chal-checker would never
+// be solved.
+type soakChecker struct{}
+
+func (soakChecker) CheckFlag(_ context.Context, submitted string, config, _ map[string]string) (bool, error) {
+	return submitted == config["answer"], nil
+}
+
+// soakCheckerResolver routes the "soak-checker" type to the in-process checker (the pre-transaction
+// verdict path), and every other (built-in) type to the in-transaction flag comparison, unchanged.
+type soakCheckerResolver struct{}
+
+func (soakCheckerResolver) Resolve(typeID string) (submissions.FlagChecker, bool, bool) {
+	if typeID == "soak-checker" {
+		return soakChecker{}, true, true
+	}
+	return nil, false, true // built-in types → in-tx comparison
+}
+
 // soakNotifier is the bus subscriber name for the deliberately-slow #10 notifier.
 const soakNotifier = "soak-slow-notifier"
 
@@ -460,6 +497,23 @@ func seedWorld(ctx context.Context, t *testing.T, pool *pgxpool.Pool, q *gen.Que
 		Instancing: ptr("shared"), FlagMode: ptr("static"), Egress: ptr(true), WritablePaths: []byte("[]"),
 	})
 	static = append(static, challengeRef{slug: "chal-plugin", flag: pluginFlag})
+
+	// A CHALLENGE-TYPE challenge (type 'soak-checker'): correctness is decided by the in-process
+	// challenge-type checker via CheckFlag against the per-challenge type_config — the ONLY path that
+	// exercises type_config → CheckFlag end to end under load. The correct answer lives in type_config,
+	// NOT the flag column; if type_config did not reach CheckFlag the challenge would never be solved.
+	// Scoring is built-in ('dynamic'), orthogonal to the checker, so it stays recomputable.
+	const checkerAnswer = "OSCTF{checker-scored}"
+	checkerType := "soak-checker"
+	mustCreateChallenge(ctx, t, q, gen.CreateChallengeParams{
+		ID: uuid.Must(uuid.NewV7()), Slug: "chal-checker", Title: "chal-checker", Category: "misc", Kind: "standard",
+		Flag:    "OSCTF{unused-flag-column}", // unused: CheckFlag decides from type_config, not this
+		Scoring: "dynamic", PointsInitial: 500, PointsMin: ptr(int32(100)), Decay: ptr(int32(50)), Visible: true,
+		MemLimitMb: 128, CpuMillis: 500, ContainerEnv: []byte("{}"),
+		Instancing: ptr("shared"), FlagMode: ptr("static"), Egress: ptr(true), WritablePaths: []byte("[]"),
+		Type: &checkerType, TypeConfig: []byte(`{"answer":"` + checkerAnswer + `"}`),
+	})
+	static = append(static, challengeRef{slug: "chal-checker", flag: checkerAnswer})
 
 	if *fBreakScoreRec {
 		// Negative control for the scoring-record-missing invariant: a correct plugin solve with NO

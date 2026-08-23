@@ -1,6 +1,6 @@
 package sdk
 
-import "github.com/swayyaam/OSCTF/internal/events"
+import "github.com/swayyaam/OSCTF/plugin/eventkeys"
 
 // EventKeys returns the Data keys the given event type carries — the fields you can read from an
 // sdk.Event.Data in a Notifier. For example EventKeys("challenge.solved") returns challenge_id,
@@ -9,5 +9,5 @@ import "github.com/swayyaam/OSCTF/internal/events"
 // These are the SAME keys core emits (one shared definition, pinned by a test), so they cannot
 // drift from what your Notifier actually receives. All values are non-secret, non-PII.
 func EventKeys(event string) []string {
-	return append([]string(nil), events.Schema[event]...)
+	return append([]string(nil), eventkeys.Schema[event]...)
 }

@@ -8,8 +8,8 @@ plugins:
   - local: protoc-gen-go
     out: .
     opt:
-      - module=github.com/osctf/platform
+      - module=github.com/swayyaam/OSCTF
   - local: protoc-gen-go-grpc
     out: .
     opt:
-      - module=github.com/osctf/platform
+      - module=github.com/swayyaam/OSCTF

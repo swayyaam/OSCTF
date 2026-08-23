@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/pagination"
 )
 
 // AdminListResult is a page of teams for the admin panel.

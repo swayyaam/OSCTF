@@ -16,7 +16,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/osctf/platform/internal/db"
+	"github.com/swayyaam/OSCTF/internal/db"
 )
 
 // Postgres starts a throwaway Postgres, migrates it, and returns a connected pool.

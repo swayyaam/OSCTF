@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/apperr"
 )
 
 // runConcurrentHashes releases n HashPassword calls simultaneously (a real

@@ -7,7 +7,7 @@ name: CI
 #
 # Go setup is cached: go-version comes from go.mod (single source of truth) and the module +
 # build cache is keyed on go.sum. The Go module lives at the repo root (its module path is
-# github.com/osctf/platform, so `go get github.com/osctf/platform/...` resolves). This also warms
+# github.com/swayyaam/OSCTF, so `go get github.com/swayyaam/OSCTF/...` resolves). This also warms
 # the build cache the `setup-tools` installs (buf, golangci-lint, protoc-gen-*) reuse.
 
 on:

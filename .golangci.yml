@@ -103,19 +103,19 @@ linters:
         foundational-auth:
           files: ["**/internal/auth/**", "!$test"]
           deny: &all-domain-services
-            - pkg: github.com/osctf/platform/internal/auth
+            - pkg: github.com/swayyaam/OSCTF/internal/auth
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/users
+            - pkg: github.com/swayyaam/OSCTF/internal/users
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/teams
+            - pkg: github.com/swayyaam/OSCTF/internal/teams
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/events
+            - pkg: github.com/swayyaam/OSCTF/internal/events
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/challenges
+            - pkg: github.com/swayyaam/OSCTF/internal/challenges
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/submissions
+            - pkg: github.com/swayyaam/OSCTF/internal/submissions
               desc: a foundational service must not import any other domain service
-            - pkg: github.com/osctf/platform/internal/scoreboard
+            - pkg: github.com/swayyaam/OSCTF/internal/scoreboard
               desc: a foundational service must not import any other domain service
         foundational-events:
           files: ["**/internal/events/**", "!$test"]
@@ -125,15 +125,15 @@ linters:
         service-users:
           files: ["**/internal/users/**", "!$test"]
           deny: &peer-services
-            - pkg: github.com/osctf/platform/internal/users
+            - pkg: github.com/swayyaam/OSCTF/internal/users
               desc: domain services must not import one another (depend on foundational auth/events instead)
-            - pkg: github.com/osctf/platform/internal/teams
+            - pkg: github.com/swayyaam/OSCTF/internal/teams
               desc: domain services must not import one another (depend on foundational auth/events instead)
-            - pkg: github.com/osctf/platform/internal/challenges
+            - pkg: github.com/swayyaam/OSCTF/internal/challenges
               desc: domain services must not import one another (depend on foundational auth/events instead)
-            - pkg: github.com/osctf/platform/internal/submissions
+            - pkg: github.com/swayyaam/OSCTF/internal/submissions
               desc: domain services must not import one another (depend on foundational auth/events instead)
-            - pkg: github.com/osctf/platform/internal/scoreboard
+            - pkg: github.com/swayyaam/OSCTF/internal/scoreboard
               desc: domain services must not import one another (depend on foundational auth/events instead)
         service-teams:
           files: ["**/internal/teams/**", "!$test"]

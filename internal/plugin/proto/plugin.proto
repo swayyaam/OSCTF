@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package osctf.plugin.v1;
 
-option go_package = "github.com/osctf/platform/internal/plugin/pluginpb;pluginpb";
+option go_package = "github.com/swayyaam/OSCTF/internal/plugin/pluginpb;pluginpb";
 
 // The OSCTF plugin ABI. Transport is HashiCorp go-plugin: a handshake plus a local gRPC
 // server the plugin serves and the host dials. The ABI MAJOR is the go-plugin handshake

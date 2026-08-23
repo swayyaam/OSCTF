@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // maxPluginLogLine truncates an over-long plugin log line before it reaches host logs — a plugin

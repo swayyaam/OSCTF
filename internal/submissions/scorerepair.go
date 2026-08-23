@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/scoring"
 )
 
 // repairBatch bounds how many missing/pending records one pass backfills, so a large backlog is

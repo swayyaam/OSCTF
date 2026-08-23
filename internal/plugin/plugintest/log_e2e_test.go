@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 // syncBuffer is a mutex-guarded buffer — go-plugin's stderr pump writes it from another goroutine.

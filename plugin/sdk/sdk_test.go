@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // linear is a minimal Scorer for the white-box adapter tests.

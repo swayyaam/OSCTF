@@ -111,4 +111,4 @@ missing and belongs in the API, not the client.
 | Exit codes | Mapped to HTTP classes: `0` ok · `1` runtime · `2` usage · `3` auth · `4` not-found · `5` conflict · `6` validation · `7` server/plugin unavailable. |
 | MCP transport | `osctf mcp` serves **stdio** MCP (primary and only required). SSE/HTTP transport is out of scope. |
 | MCP auth + exposure | API token, resolved like the CLI; the token's **scope bounds the tool surface** (a `read` token sees only read tools); destructive tools require `confirm:true`. Generated tool schemas from the OpenAPI operations, so the tool surface can't drift from the API. |
-| Codename / module path | Unchanged: `OSCTF`, `github.com/osctf/platform`. |
+| Codename / module path | Unchanged: `OSCTF`, `github.com/swayyaam/OSCTF`. |

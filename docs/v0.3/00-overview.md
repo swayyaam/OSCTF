@@ -165,7 +165,7 @@ M7 exit-criterion demo ([`10-milestones.md`](10-milestones.md)).
 | API stability policy | Semver from v1: no breaking change to `/api/v1` without a major bump; additive changes are minor; a deprecation carries a `Deprecation`/`Sunset` header and ≥ one minor release of notice. |
 | Non-cookie auth | **API tokens** (opaque bearer, hashed at rest, scoped, revocable). Sessions remain for the browser. |
 | Event bus | In-process, async, best-effort, at-least-once-not-guaranteed. Core emits typed domain events; notification plugins subscribe by event name. Not durable in v0.3. |
-| Codename / module path | Unchanged: `OSCTF`, `github.com/osctf/platform`. |
+| Codename / module path | Unchanged: `OSCTF`, `github.com/swayyaam/OSCTF`. |
 
 > The **CLI** and **MCP transport** decisions moved to
 > [v0.3.1 fixed decisions](../v0.3.1/00-overview.md).

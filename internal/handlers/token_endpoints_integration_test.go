@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // Token management endpoints (P2-b2): create/list/revoke ownership + expiry + plaintext-once,

@@ -11,12 +11,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/handlers"
-	"github.com/osctf/platform/internal/httpx"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/redisx"
-	"github.com/osctf/platform/internal/webdist"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/handlers"
+	"github.com/swayyaam/OSCTF/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/redisx"
+	"github.com/swayyaam/OSCTF/internal/webdist"
 )
 
 // ReadyFunc reports readiness: it returns a map of component name -> failure

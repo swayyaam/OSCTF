@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 func sinkTo(buf *bytes.Buffer, name string, now func() time.Time) *pluginStderrSink {

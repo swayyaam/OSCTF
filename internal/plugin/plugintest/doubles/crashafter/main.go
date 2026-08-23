@@ -8,8 +8,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 type crashAfter struct{ plugintest.OKScoring }

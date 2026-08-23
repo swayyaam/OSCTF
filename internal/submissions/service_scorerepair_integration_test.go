@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/submissions"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/submissions"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // seedCorrectSolveNoRecord inserts a CORRECT solve with no scoring columns set — exactly the state

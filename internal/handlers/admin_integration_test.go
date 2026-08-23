@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // makeAdmin registers a user then promotes them to admin in the DB, returning a

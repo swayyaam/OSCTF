@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // ErrInvalidCredentials is the single failure mode of Authenticate — callers

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // registerUser registers a user and returns a cookie jar bound to the session.

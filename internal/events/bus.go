@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // Event is a typed domain event published AFTER a transaction commits. Data is flat and carries

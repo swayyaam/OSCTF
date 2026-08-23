@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/osctf/platform/internal/config"
-	"github.com/osctf/platform/internal/fdbudget"
+	"github.com/swayyaam/OSCTF/internal/config"
+	"github.com/swayyaam/OSCTF/internal/fdbudget"
 )
 
 // resourceBudget is the file-descriptor apportionment the composition root derives at startup:

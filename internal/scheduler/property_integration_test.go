@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/scheduler"
+	"github.com/swayyaam/OSCTF/internal/scheduler"
 )
 
 // propPortLo/propPortHi mirror newHarness's port window (30000..30999).

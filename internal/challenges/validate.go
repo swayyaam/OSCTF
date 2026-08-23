@@ -3,9 +3,9 @@ package challenges
 import (
 	"fmt"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/db/gen"
-	scoringpkg "github.com/osctf/platform/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	scoringpkg "github.com/swayyaam/OSCTF/internal/scoring"
 )
 
 // validateCreate mirrors the DB CHECK constraints with precise messages.

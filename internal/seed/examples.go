@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // ExampleSeeder loads the example challenges from disk on first boot.

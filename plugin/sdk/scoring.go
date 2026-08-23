@@ -4,7 +4,7 @@ import (
 	"context"
 	"math"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // Score is the input to a scoring computation — the plain-Go mirror of the wire request.

@@ -16,9 +16,9 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/plugin/sdk"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/plugin/sdk"
 )
 
 // Build compiles the plugin whose main package is in dir to a temporary binary and returns its

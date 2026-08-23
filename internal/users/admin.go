@@ -8,10 +8,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/pagination"
 )
 
 // AdminListFilters narrows the admin user list.

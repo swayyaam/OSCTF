@@ -15,8 +15,8 @@ import (
 
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // ServeScoring runs a Scoring plugin over the OSCTF handshake. Blocks until the host

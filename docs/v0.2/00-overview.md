@@ -120,4 +120,4 @@ zero manual `docker` intervention, and fold the feedback into the v0.3 plan.
 | Who starts a per-team instance | The **team** (any member), from the challenge detail UI, during the `running` phase. Admins may also start/stop/destroy any instance from the admin UI. |
 | Migration | `0002_dynamic_instances.sql`, additive + non-destructive, with a tested down migration. |
 | API version | Still `/api/v0` (unstable until Phase 3). New endpoints are added under it. |
-| Codename / module path | Unchanged: `OSCTF`, `github.com/osctf/platform`. |
+| Codename / module path | Unchanged: `OSCTF`, `github.com/swayyaam/OSCTF`. |

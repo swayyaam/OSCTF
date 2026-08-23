@@ -3,10 +3,10 @@ package handlers
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
 )
 
 // GetEvent returns the public event info (no freeze timestamp).

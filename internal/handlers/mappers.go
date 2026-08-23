@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/teams"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/teams"
 )
 
 // omitEmptySlice returns nil for an empty slice, else a pointer to it. Optional

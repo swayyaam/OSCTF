@@ -13,15 +13,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/audit"
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/flags"
-	"github.com/osctf/platform/internal/runtime"
-	"github.com/osctf/platform/internal/scheduler"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/audit"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/flags"
+	"github.com/swayyaam/OSCTF/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/scheduler"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 func uniq(id uuid.UUID) string { return strings.ReplaceAll(id.String(), "-", "")[20:] }

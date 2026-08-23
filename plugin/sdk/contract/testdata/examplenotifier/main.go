@@ -3,7 +3,7 @@
 // notifier would post to a webhook on its own goroutine; here Notify just accepts.
 package main
 
-import "github.com/osctf/platform/plugin/sdk"
+import "github.com/swayyaam/OSCTF/plugin/sdk"
 
 type notifier struct{}
 

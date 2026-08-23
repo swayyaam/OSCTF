@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/scoring"
 )
 
 // recorder is an ordered, concurrency-safe event log shared by the fake registrar and the fake

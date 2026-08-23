@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/apperr"
 )
 
 // TestRenderUnavailableRetryAfter covers the argon2id hashing gate's shed path:

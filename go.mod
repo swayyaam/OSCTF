@@ -1,4 +1,4 @@
-module github.com/osctf/platform
+module github.com/swayyaam/OSCTF
 
 go 1.25.7
 

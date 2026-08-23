@@ -15,7 +15,7 @@ backported to **v0.2.4** (below) because they affect released versions.
   reach another team's instance). Fail-closed by default, overridable only by an explicit,
   loudly-logged `OSCTF_ALLOW_UNISOLATED_INSTANCES` for local trials; unknown/unverified isolation
   also fails closed. Closes the silent cross-team-reachability gap on a supported path
-  ([#2](https://github.com/osctf/platform/issues/2)). Pinned by `runtime.TestIsolationGate`.
+  (#2). Pinned by `runtime.TestIsolationGate`.
 - **A writable plugins directory is detected and warned at boot** — a compromised core dropping a
   plugin binary for the next boot to launch is now an observed condition, not only a documented
   risk. The recommended posture is a read-only mount. Pinned by `plugin.TestPluginsDirWritable`.
@@ -87,7 +87,7 @@ applying before your next event if you run one on Redis.
 ## v0.2.3 — Scoreboard consistency by construction
 
 A patch release closing an intermittent scoreboard-versus-log divergence
-([#6](https://github.com/osctf/platform/issues/6)) by making the served-equals-log
+(#6) by making the served-equals-log
 invariant structural rather than timing-dependent, plus two supporting reliability fixes
 found while triaging it and the CI-tooling fixes accumulated since `v0.2.2`. **No operator
 action on upgrade;** one new read-only query, no OpenAPI or database-schema change.
@@ -95,7 +95,7 @@ action on upgrade;** one new read-only query, no OpenAPI or database-schema chan
 ### Fixed
 
 - **The served scoreboard could intermittently disagree with the solve log**
-  ([#6](https://github.com/osctf/platform/issues/6); a rare `rest=0 fromscratch=500`
+  (#6; a rare `rest=0 fromscratch=500`
   miss the soak reproduced at ~1 in 8 two-minute runs). The root cause was a **durability
   gap**, not a race: the board's consistency rested on a single best-effort per-solve
   recompute, and nothing guaranteed it followed the committed solve — no outbox, no retry,

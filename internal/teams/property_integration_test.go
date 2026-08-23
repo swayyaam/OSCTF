@@ -19,9 +19,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/teams"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/teams"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 func uniq(id uuid.UUID) string { return strings.ReplaceAll(id.String(), "-", "")[20:] }

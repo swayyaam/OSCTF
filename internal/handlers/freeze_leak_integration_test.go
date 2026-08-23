@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // TestPublicRoutesDoNotLeakPostFreezeSolves is the 3a-i regression: while the event is

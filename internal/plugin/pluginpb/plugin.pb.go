@@ -1058,7 +1058,7 @@ const file_plugin_proto_rawDesc = "" +
 	"\rChallengeType\x12C\n" +
 	"\x04Info\x12\x1c.osctf.plugin.v1.InfoRequest\x1a\x1d.osctf.plugin.v1.InfoResponse\x12U\n" +
 	"\x0eValidateConfig\x12 .osctf.plugin.v1.ValidateRequest\x1a!.osctf.plugin.v1.ValidateResponse\x12J\n" +
-	"\tCheckFlag\x12\x1d.osctf.plugin.v1.CheckRequest\x1a\x1e.osctf.plugin.v1.CheckResponseB=Z;github.com/osctf/platform/internal/plugin/pluginpb;pluginpbb\x06proto3"
+	"\tCheckFlag\x12\x1d.osctf.plugin.v1.CheckRequest\x1a\x1e.osctf.plugin.v1.CheckResponseB=Z;github.com/swayyaam/OSCTF/internal/plugin/pluginpb;pluginpbb\x06proto3"
 
 var (
 	file_plugin_proto_rawDescOnce sync.Once

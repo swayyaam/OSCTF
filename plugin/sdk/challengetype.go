@@ -3,7 +3,7 @@ package sdk
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // FlagCheck is the input to a flag check. Submitted is what the player sent; Config is the

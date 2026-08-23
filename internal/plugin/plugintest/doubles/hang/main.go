@@ -5,8 +5,8 @@ package main
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 type hang struct{ plugintest.OKScoring }

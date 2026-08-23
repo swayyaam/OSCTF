@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/httpx"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/redisx"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/redisx"
 )
 
 // tokenMiddleware resolves an `Authorization: Bearer osctf_pat_…` credential into an Identity

@@ -10,8 +10,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/httpx"
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // statusRecorder captures the response status code for logging and metrics.

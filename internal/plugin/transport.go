@@ -6,7 +6,7 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // Dispense keys — one per plugin type. A plugin serves exactly the one its manifest `type`

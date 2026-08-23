@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/scoring"
 )
 
 // stubEngine is a minimal ScoringEngine for registry tests.

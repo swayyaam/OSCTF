@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // TestTypeConfigMigrationNoOp verifies migration 0008 (add `type_config`) is a no-op for existing

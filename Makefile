@@ -156,7 +156,7 @@ build: ## Build the dashboard, embed it, and build the Go binary
 
 .PHONY: image
 image: ## Build the production Docker image
-	docker build -t ghcr.io/osctf/platform:latest .
+	docker build -t ghcr.io/swayyaam/osctf:latest .
 
 .PHONY: examples
 examples: ## Build the container-kind example challenge images
@@ -239,7 +239,7 @@ ci-web: ## CI job 'web': dashboard lint + typecheck + test + build
 
 .PHONY: ci-image
 ci-image: ## CI job 'image': build the production image
-	docker build -t osctf/platform:ci .
+	docker build -t swayyaam/osctf:ci .
 
 .PHONY: ci-smoke
 ci-smoke: ## CI job 'smoke': compose up, smoke.sh, tear down

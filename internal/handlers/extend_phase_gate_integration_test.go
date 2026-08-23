@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // TestExtendRejectedAfterEventEnd (3a-ix): once the event has ended, extending a

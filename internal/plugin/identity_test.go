@@ -8,8 +8,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 type fakeInfoClient struct {

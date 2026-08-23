@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/osctf/platform/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/apperr"
 )
 
 // Argon2id parameters (docs/v0.1/06-auth.md). Changing them re-hashes stored

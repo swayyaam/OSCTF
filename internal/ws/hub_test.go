@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apigen"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

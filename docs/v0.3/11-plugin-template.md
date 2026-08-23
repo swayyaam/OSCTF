@@ -14,7 +14,7 @@ small Go interface per plugin type and calls `sdk.Serve(...)`:
 ```go
 package main
 
-import "github.com/osctf/platform/plugin/sdk"
+import "github.com/swayyaam/OSCTF/plugin/sdk"
 
 type engine struct{}
 func (engine) Info() sdk.Info { return sdk.Info{Name: "linear-decay", Type: sdk.Scoring, ABI: "1.0", Version: "0.1.0"} }
@@ -41,7 +41,7 @@ per the org roadmap) that clones into a buildable plugin:
 
 ```
 osctf-plugin-template/
-  go.mod                    # requires github.com/osctf/platform (for plugin/sdk only)
+  go.mod                    # requires github.com/swayyaam/OSCTF (for plugin/sdk only)
   main.go                   # a working SCORING plugin by default; comments show the other types
   plugin.yaml               # filled-in manifest with a config example
   Makefile                  # build, test, package

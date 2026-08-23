@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/httpx"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/users"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/users"
 )
 
 // clientIP pulls the caller IP from the stashed request.

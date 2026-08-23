@@ -3,10 +3,10 @@ package handlers
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/pagination"
-	"github.com/osctf/platform/internal/users"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/users"
 )
 
 // AdminListUsers returns a page of users with filters.

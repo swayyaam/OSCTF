@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // validatingType is a registered challenge type that exercises author-time type_config validation

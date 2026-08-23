@@ -3,7 +3,7 @@ package sdk
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // Event is one thing that happened, delivered to a subscribed notification plugin. Data carries

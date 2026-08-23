@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
 )
 
 // GetUser returns a public user profile. Hidden users are 404 to non-admins.

@@ -5,13 +5,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/scoring"
-	"github.com/osctf/platform/internal/submissions"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/submissions"
 )
 
 // challengeTypeResolver adapts the challenge-type registry to the submission path's

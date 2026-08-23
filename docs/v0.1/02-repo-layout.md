@@ -16,7 +16,7 @@ The monorepo root is the directory containing `docs/`. Target layout after M0 (s
 ├── .gitignore                   # Go, Node, dist/, api/internal/webdist/static/
 ├── .github/
 │   └── workflows/ci.yml         # pipeline per 11-testing-ci.md
-├── api/                         # Go module: github.com/osctf/platform
+├── api/                         # Go module: github.com/swayyaam/OSCTF
 │   ├── go.mod                   # go 1.25
 │   ├── .golangci.yml            # lint config per 03-tech-stack.md
 │   ├── sqlc.yaml                # sqlc config → internal/db/gen

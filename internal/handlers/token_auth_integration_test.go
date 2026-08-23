@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // Token auth (P2-b1). These tests prove the security properties of bearer API tokens: the

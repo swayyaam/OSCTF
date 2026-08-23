@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // TokenPrefix marks an OSCTF personal access token. It makes tokens greppable — good for

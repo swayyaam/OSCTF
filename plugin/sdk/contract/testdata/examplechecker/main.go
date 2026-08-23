@@ -13,7 +13,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/osctf/platform/plugin/sdk"
+	"github.com/swayyaam/OSCTF/plugin/sdk"
 )
 
 type checker struct{}

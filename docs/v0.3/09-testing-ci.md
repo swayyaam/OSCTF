@@ -42,7 +42,7 @@ against the ABI — the same way the host will use it in production. Each first-
 - `oidc`: `Begin`/`Complete` against a mock IdP (dex or a stub) yield a valid `Identity`.
 
 Plus a **boundary test**: a static check that no plugin package imports
-`github.com/osctf/platform/internal/*` (grep/`go list` in CI) — proving the plugin boundary
+`github.com/swayyaam/OSCTF/internal/*` (grep/`go list` in CI) — proving the plugin boundary
 is real. And an **isolation test**: kill a plugin process mid-call and assert the host maps
 it to 502, stays up, and restarts the plugin.
 

@@ -12,7 +12,7 @@ per-team-instance model, not the scoreboard, is the reason to use it over a CTFd
 > closed without it.** On **Docker Desktop (macOS/Windows)** per-team containers are reachable
 > across networks once a port is published, so isolation is *not* enforced there. OSCTF now
 > **refuses to start container instances** on any daemon whose per-team isolation it cannot
-> verify (the isolation gate, [#2](https://github.com/osctf/platform/issues/2)); the only
+> verify (the isolation gate, #2); the only
 > override is `OSCTF_ALLOW_UNISOLATED_INSTANCES=true`, for a **local trial only** and logged
 > loudly. Run real events on a Linux host. Detail:
 > [`docs/v0.2/03-runtime.md`](docs/v0.2/03-runtime.md).
@@ -84,7 +84,7 @@ an ordered shutdown (HTTP drain → plugin drain → background workers) under o
 ## Quick start
 
 ```bash
-git clone https://github.com/osctf/platform && cd platform
+git clone https://github.com/swayyaam/OSCTF && cd platform
 cp .env.example .env
 
 # Change OSCTF_ADMIN_PASSWORD (default: change-me-now) before exposing this to anyone.
@@ -164,7 +164,7 @@ every push.
 
 ## Status
 
-**Latest release: see [Releases](https://github.com/osctf/platform/releases)** and the
+**Latest release: see [Releases](https://github.com/swayyaam/OSCTF/releases)** and the
 [CHANGELOG](CHANGELOG.md). Shipped: **v0.1** (MVP) → **v0.2** (per-team instances + scheduler),
 hardened across **v0.2.1** (security), **v0.2.2** (concurrency), and **v0.2.3** (scoreboard
 consistency by construction).

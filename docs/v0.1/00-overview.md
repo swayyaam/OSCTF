@@ -76,7 +76,7 @@ The rule for deferred features: **define the interface, skip the implementation.
 | Decision | Value |
 |---|---|
 | Project codename | `OSCTF` (placeholder; a rename is a find-replace, so don't over-abstract it) |
-| Go module path | `github.com/osctf/platform` (placeholder org) |
+| Go module path | `github.com/swayyaam/OSCTF` (placeholder org) |
 | Server binary name | `platform` (subcommands: `serve`, `migrate`, `seed`) |
 | API base path | `/api/v0` (unstable API; `v1` arrives in Phase 3) |
 | Default flag format | `OSCTF{...}` — convention only; flags are stored verbatim and never validated against the format |

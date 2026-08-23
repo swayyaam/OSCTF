@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // TestChallengeTypeRejectUnregistered pins the write-time rejection of an unregistered

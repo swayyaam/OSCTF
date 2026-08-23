@@ -17,11 +17,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 func TestScoreboardRedisOutageDegradesButFreezeFailsClosedIntegration(t *testing.T) {

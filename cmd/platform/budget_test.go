@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/osctf/platform/internal/config"
+	"github.com/swayyaam/OSCTF/internal/config"
 )
 
 // The composition invariant that no unit test of either half can see: the two consumers' claims

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // fakeStore feeds compute canned rows so the standings algorithm is exercised

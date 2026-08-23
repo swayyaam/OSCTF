@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/scoring"
 )
 
 // Entry is one standings row. This is the internal/cache shape; the wire shape is

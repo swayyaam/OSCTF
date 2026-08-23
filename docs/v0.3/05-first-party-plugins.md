@@ -1,13 +1,16 @@
 # 05 — First-party Reference Plugins
 
-Four reference plugins, one per type, each proving its interface end to end. They live
-**outside** the core packages (`api/plugins/<name>/` or a sibling module) and are loaded
-exactly the way a third-party plugin is — no special path, no core imports beyond
+Four reference plugins, one per type, each proving its interface end to end. Each lives in
+**its own repository**, built from the plugin template, and is loaded exactly the way a
+third-party plugin is — no special path, no core source on disk, no core imports beyond
 `plugin/sdk` + `pluginpb`. They double as the worked examples the template repo
 ([`11-plugin-template.md`](11-plugin-template.md)) points at. Each ships an `AGENTS.md`.
 
-Build output: `osctf/plugin-<name>` binaries + a `plugin.yaml` each; a
-`scripts/build-plugins.sh` builds them, mirroring `build-examples.sh`.
+Build output: one `osctf-plugin-<name>` binary + a `plugin.yaml` per repo, produced by that
+repo's own `make build` / `make package` — the same targets a third-party author runs. There
+is deliberately **no in-tree `plugins/` directory and no core-side build script**: an in-tree
+plugin compiles against core sources sitting on disk and would hide exactly the gaps the exit
+criterion exists to catch (see the Decision log).
 
 ## 1. `oidc` — OpenID Connect / OAuth auth
 
@@ -112,16 +115,23 @@ express it, the interface is what gets fixed ([`../project-desc.md`](../project-
 
 ## Cross-cutting requirements for all four
 
-- Import only `plugin/sdk` + `pluginpb`; **zero** imports of `github.com/osctf/platform/
+- Import only `plugin/sdk` + `pluginpb`; **zero** imports of `github.com/swayyaam/OSCTF/
   internal/*`. This is enforced by a CI check (see [`09-testing-ci.md`](09-testing-ci.md)).
-- Ship `plugin.yaml`, an `AGENTS.md`, and a `README.md`; build reproducibly via
-  `scripts/build-plugins.sh`.
+- Ship `plugin.yaml`, an `AGENTS.md`, and a `README.md`; build reproducibly via that repo's
+  own `make build` / `make package`, inherited from the template.
 - Honour the secrets rule: secret config is env-only; nothing secret is logged or returned.
 - Each has a **contract test** run against its real binary through the loader, and the
   platform e2e loads at least `webhook` + `regex-flag` to prove the end-to-end path
   ([`09-testing-ci.md`](09-testing-ci.md)).
 
 ## Decision log
+
+- **Each reference plugin lives in its own repo, not in a `plugins/` directory here.** An
+  in-tree plugin can reach core sources on disk and can lean on a `replace` directive, so it
+  would build even if the published SDK were incomplete — the exact failure the exit criterion
+  is designed to detect. Out-of-repo, the only way it builds is against the SDK as an author
+  actually consumes it. Consequence: there is no `scripts/build-plugins.sh`, and each repo runs
+  its own contract test via `plugin/sdk/contract`.
 
 - **One reference plugin per type, deliberately small.** They exist to prove the interface
   and seed the template, not to be feature-complete products (a full SSO suite is a

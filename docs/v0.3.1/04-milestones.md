@@ -28,7 +28,7 @@ tree; config/auth; shell completion.
 
 **Acceptance** (the `cli` job, [`03-testing-ci.md`](03-testing-ci.md)):
 ```
-cd api && go build ./cmd/osctf && go test ./cmd/osctf/...
+go build ./cmd/osctf && go test ./cmd/osctf/...
 ```
 - Golden path against a running deployment with a token: `login → whoami → challenge
   validate → challenge create → instance start → submit → scoreboard`, asserting `--json`
@@ -51,7 +51,7 @@ pass problem+json through as tool errors; advertise the resolved scope in the se
 
 **Acceptance**:
 ```
-cd api && go test ./cmd/osctf/... -run MCP
+go test ./cmd/osctf/... -run MCP
 ```
 A minimal MCP client: `tools/list` is scope-gated (a `read` token cannot see admin tools);
 `get_scoreboard` (read) returns standings; a destructive tool is refused without
@@ -69,7 +69,7 @@ the unchanged v0.3 jobs. Tag `v0.3.1`.
 
 **Acceptance**:
 ```
-cd api && go build ./... && go test ./cmd/osctf/...
+go build ./... && go test ./cmd/osctf/...
 # success criterion 1, demonstrated end to end:
 #   point an MCP client at `osctf mcp` with an admin token; have it set an event window,
 #   make three challenges visible, and read the scoreboard — no DB, no shell.

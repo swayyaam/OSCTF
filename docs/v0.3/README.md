@@ -35,7 +35,8 @@ here would put the plugin work behind client tooling. See
 ## How to use these docs (read this first)
 
 1. **The repo root is the directory containing `docs/`.** All paths are relative to it.
-   The shipped code lives at `api/`, `dashboard/`, `examples/` — you are extending it.
+   The Go module is at the repo root (`cmd/`, `internal/`, `plugin/`); the dashboard is at
+   `dashboard/` and the example challenges at `examples/` — you are extending it.
 2. **Build in milestone order.** [`10-milestones.md`](10-milestones.md) is the execution
    plan: M0 → M7, each with tasks and acceptance checks. Do not skip ahead.
 3. **The v0.1 + v0.2 invariants still hold.** Everything in

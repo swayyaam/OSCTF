@@ -46,8 +46,8 @@ executable form of v0.3.1 success criterion 2.
   hashes) from v0.1–v0.3 extends over MCP tool results.
 
 ```
-cd api && go build ./cmd/osctf && go test ./cmd/osctf/...          # unit + golden
-cd api && go test ./cmd/osctf/... -run MCP                          # MCP client harness
+go build ./cmd/osctf && go test ./cmd/osctf/...          # unit + golden
+go test ./cmd/osctf/... -run MCP                          # MCP client harness
 ```
 
 ## What does not change

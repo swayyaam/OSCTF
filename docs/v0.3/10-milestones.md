@@ -24,7 +24,7 @@ where the CLI that consumes it is built — not here.)
 ```
 make generate && git diff --exit-code                 # drift clean (openapi + proto)
 goose ... up && down-to 0 && up                        # 0003 up/down/up
-cd api && go build ./... && go test ./internal/tokens/... ./internal/config/...
+go build ./... && go test ./internal/auth/... ./internal/config/...
 curl /api/v1/event and /api/v0/event                   # both answer; v0 has Deprecation header
 ```
 Backwards check: the dashboard still works against `/api/v0`; v0.2 suite green.
@@ -40,7 +40,7 @@ self-register first (override-protected).
 
 **Acceptance**:
 ```
-cd api && go test ./internal/plugin/... ./internal/events/...
+go test ./internal/plugin/... ./internal/events/...
 ```
 Unit: manifest parse (good + every malformed → skip, host survives); ABI-major mismatch
 refused; registry override protection; config/secret precedence; supervision via an
@@ -54,13 +54,15 @@ authoring time and falls back to `static` on failure. Add the event-bus **emit p
 (publish after commit in `users`/`teams`/`events`/`challenges`/`submissions`/`scheduler`)
 per the payload table in [`04-plugin-interfaces.md`](04-plugin-interfaces.md); the
 `Notification` service + subscription. First-party plugins `linear-decay` + `webhook`
-([`05-first-party-plugins.md`](05-first-party-plugins.md)) built via `scripts/build-plugins.sh`.
+([`05-first-party-plugins.md`](05-first-party-plugins.md)), each built in its own repo from the
+template.
 
 **Acceptance**:
 ```
-bash scripts/build-plugins.sh
-cd api && go test -run Contract ./api/plugins/linear-decay/... ./api/plugins/webhook/...
-cd api && go test ./internal/scoring/... ./internal/submissions/...   # registry routing + solve→event
+# in each reference-plugin repo (built from the template, no core source on disk):
+make build && make test        # contract test via plugin/sdk/contract, real binary
+# in this repo:
+go test ./internal/scoring/... ./internal/submissions/...   # registry routing + solve→event
 ```
 Contract (real binaries through the loader): score vectors match; a `challenge.solved` event
 POSTs to a local sink; a hung sink still lets the solve complete. Boundary check: neither
@@ -88,9 +90,9 @@ provisioning policy (open/invite/off), `GET /auth/providers`. Challenge-type reg
 
 **Acceptance**:
 ```
-cd api && go test ./internal/auth/... ./internal/challenges/... -run 'Registry|Provider|Type'
-cd api && go test -run Contract ./api/plugins/oidc/... ./api/plugins/regex-flag/...
-cd api && go test ./internal/handlers/... -run 'OIDC|ChallengeType|Provision' # integration
+go test ./internal/auth/... ./internal/challenges/... -run 'Registry|Provider|Type'
+make build && make test        # in the oidc + regex-flag repos (contract, real binaries)
+go test ./internal/handlers/... -run 'OIDC|ChallengeType|Provision' # integration
 ```
 Integration: mock-OIDC `Begin`/`Complete` → session; provisioning policies enforced; a
 `regex-flag` challenge authored + solved with the audit log/attempt counting identical to a
@@ -105,7 +107,7 @@ page (health/reload), and provider **login buttons**.
 
 **Acceptance**:
 ```
-cd api && go test ./internal/handlers/... -run 'Token|Plugin'   # integration
+go test ./internal/handlers/... -run 'Token|Plugin'   # integration
 cd dashboard && npm run lint && npm run typecheck && npm test && npm run build
 ```
 Integration: this is the **success-criterion-3 proof** — drive the full event lifecycle
@@ -131,7 +133,7 @@ policy in `info.description`. Tag `v0.3.0`. (The `cli` job ships with the CLI in
 
 **Acceptance**:
 ```
-cd api && go test ./... -race && go test -run Contract ./api/plugins/...
+go test ./... -race                                  # here; `make test` in each plugin repo
 cd dashboard && npm run lint && npm run typecheck && npm test && npm run build
 docker compose up -d --build --wait && npx --prefix dashboard playwright test
 # the exit-criterion self-verifiable gate (00-overview) — no CLI:

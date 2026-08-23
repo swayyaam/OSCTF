@@ -20,14 +20,16 @@ import (
 // the loader logs "ABI major mismatch" and skips it (no crash, no partial init).
 const ABIMajor = 1
 
-// ABIMinor is the host's ABI minor. Minor is forward-compatible: the host may call a plugin
+// ABIMinor is the host's ABI minor. 1.1 added Identity.email_verified, which the auth
+// return path requires before binding a login to an existing account by email; a plugin on 1.0
+// simply leaves it false and fails closed. Minor is forward-compatible: the host may call a plugin
 // advertising an OLDER minor (it won't invoke methods/fields the plugin lacks), and a plugin
 // advertising a NEWER minor is accepted (the host uses only what it knows). Carried per-plugin
 // in the manifest and the Info RPC.
-const ABIMinor = 0
+const ABIMinor = 1
 
 // ABIString is the host's advertised "major.minor".
-const ABIString = "1.0"
+const ABIString = "1.1"
 
 // Handshake gates every plugin connection. The magic cookie guards against launching a
 // non-OSCTF binary; ProtocolVersion is the ABI major (a mismatch is refused pre-call).

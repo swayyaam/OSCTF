@@ -43,6 +43,7 @@ type Querier interface {
 	CountValidSolves(ctx context.Context) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
 	CreateAttachment(ctx context.Context, arg CreateAttachmentParams) (ChallengeAttachment, error)
+	CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (AuthIdentity, error)
 	CreateChallenge(ctx context.Context, arg CreateChallengeParams) (Challenge, error)
 	CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error)
 	CreateInstance(ctx context.Context, arg CreateInstanceParams) (Instance, error)
@@ -67,6 +68,7 @@ type Querier interface {
 	// compares the full hash; the prefix is only an index hint, never the credential check.
 	GetAPITokensByPrefix(ctx context.Context, prefix string) ([]ApiToken, error)
 	GetAttachment(ctx context.Context, arg GetAttachmentParams) (ChallengeAttachment, error)
+	GetAuthIdentity(ctx context.Context, arg GetAuthIdentityParams) (AuthIdentity, error)
 	GetChallengeByID(ctx context.Context, id uuid.UUID) (Challenge, error)
 	GetChallengeBySlug(ctx context.Context, slug string) (Challenge, error)
 	GetChallengeForUpdate(ctx context.Context, id uuid.UUID) (Challenge, error)

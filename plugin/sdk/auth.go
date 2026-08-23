@@ -25,6 +25,13 @@ type Identity struct {
 	Email    string            // may be empty
 	Username string            // suggested username; the host decides the actual one
 	Claims   map[string]string // informational only — see the type doc; NOT authority
+
+	// EmailVerified reports whether YOU verified this address (OIDC's email_verified claim).
+	// Set it truthfully: the host requires it before binding a login to an EXISTING account by
+	// email, so leaving it false is the safe default and simply means the host will not match on
+	// email. Do not set it because the address merely looks plausible — an address you did not
+	// verify lets a user assert someone else's account. Added in ABI 1.1.
+	EmailVerified bool
 }
 
 // BeginRedirect is what a redirect-capability auth plugin returns to start an external login: the
@@ -122,9 +129,10 @@ func (a *authAdapter) Complete(_ context.Context, req *pluginpb.CompleteRequest)
 
 func toWireIdentity(i Identity) *pluginpb.Identity {
 	return &pluginpb.Identity{
-		Subject:  i.Subject,
-		Email:    i.Email,
-		Username: i.Username,
-		Claims:   i.Claims,
+		Subject:       i.Subject,
+		Email:         i.Email,
+		Username:      i.Username,
+		Claims:        i.Claims,
+		EmailVerified: i.EmailVerified,
 	}
 }

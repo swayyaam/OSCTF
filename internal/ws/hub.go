@@ -15,8 +15,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // message is the envelope sent to clients: {"type": ..., "data": ...}.

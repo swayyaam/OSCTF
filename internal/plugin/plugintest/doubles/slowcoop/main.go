@@ -12,8 +12,8 @@ import (
 
 	"google.golang.org/grpc/status"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 type slowCoop struct{ plugintest.OKScoring }

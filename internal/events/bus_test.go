@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 func matchAll(string) bool { return true }

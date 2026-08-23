@@ -11,8 +11,8 @@ import (
 
 	"go.uber.org/goleak"
 
-	"github.com/osctf/platform/internal/plugin/pluginpb"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 // These pin the invariants that CAN be expressed against the P3-a transport + real subprocess

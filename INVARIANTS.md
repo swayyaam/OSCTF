@@ -131,7 +131,7 @@ interrupt, a slow consumer can delay, and a full queue can drop:
 3. the domain-**event publish** (notifications).
 
 This is **not a virtue** — do not describe it as one. It is the tradeoff that produced the
-scoreboard-versus-log flake ([#6](https://github.com/osctf/platform/issues/6)), the missing
+scoreboard-versus-log flake (#6), the missing
 scoring-record case, and notification drops. Because a post-commit effect is best-effort, **every one
 of them must be independently recoverable**, and each has a *named* repair mechanism:
 

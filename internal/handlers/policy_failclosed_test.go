@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/osctf/platform/internal/handlers"
+	"github.com/swayyaam/OSCTF/internal/handlers"
 )
 
 // TestFreezeFailsClosedWithoutEvents (3a-iv): a server with no Events dependency must

@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/scoring"
-	"github.com/osctf/platform/internal/submissions"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/submissions"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // fakeScorer stands in for the plugin scorer. It records what it was asked and returns a canned

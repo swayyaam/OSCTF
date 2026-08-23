@@ -2,7 +2,7 @@
 // host→plugin config path (OSCTF_PLUGIN_CONFIG env → sdk.Config) can be asserted end to end.
 package main
 
-import "github.com/osctf/platform/plugin/sdk"
+import "github.com/swayyaam/OSCTF/plugin/sdk"
 
 type engine struct{}
 

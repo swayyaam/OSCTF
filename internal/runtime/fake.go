@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // FakeRuntime is an in-DB simulation used by handler/service tests that must not

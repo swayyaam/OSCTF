@@ -14,8 +14,8 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // Build compiles a double (its directory name under doubles/) to a temp binary and returns the

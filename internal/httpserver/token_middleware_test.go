@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/osctf/platform/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/auth"
 )
 
 func TestRequiredScope(t *testing.T) {

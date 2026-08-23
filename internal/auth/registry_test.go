@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/auth"
 )
 
 // stubProvider is a minimal AuthProvider for registry tests.

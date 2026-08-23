@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/runtime"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // These use a real Postgres (via testsupport) but the FakeRuntime, so they need

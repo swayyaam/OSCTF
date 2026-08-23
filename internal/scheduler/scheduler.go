@@ -17,14 +17,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/audit"
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/flags"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/audit"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/flags"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/runtime"
 )
 
 // Config holds the tunable scheduler limits (from OSCTF_INSTANCE_* env).

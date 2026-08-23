@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/osctf/platform/internal/db/migrations"
+	"github.com/swayyaam/OSCTF/internal/db/migrations"
 )
 
 // Connect opens a pgx pool and pings it. It retries the initial connection to

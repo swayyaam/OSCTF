@@ -18,8 +18,8 @@ import (
 
 	"go.uber.org/goleak"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // openFDCount returns the number of open file descriptors for this process (Linux, via

@@ -12,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // Mount equivalence (P2-a). /api/v1 is canonical and /api/v0 is a deprecated alias serving

@@ -10,8 +10,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/redisx"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/redisx"
 )
 
 // TestLimitFailsClosedWhenLimiterUnavailable pins the Redis-down behavior of the credential/mutation

@@ -4,8 +4,8 @@
 package main
 
 import (
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 func main() {

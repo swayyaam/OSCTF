@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // 3b — enumeration safety. A hidden (or, before the event starts, any) challenge must be

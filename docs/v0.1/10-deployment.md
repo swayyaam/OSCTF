@@ -8,7 +8,7 @@ One image, multi-stage `Dockerfile` at the repo root:
 2. **Stage `build`**: `golang:1.25-alpine` → copy `api/`, copy `dashboard/dist` → `api/internal/webdist/static/` → `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<git describe>" -o /platform ./cmd/platform`.
 3. **Stage `runtime`**: `gcr.io/distroless/static-debian12:nonroot`? **No** — the runtime needs nothing from the OS, but debugging an event at 2 a.m. does: use `alpine:3.20` + `ca-certificates` + the binary, run as non-root user `10001` (the Docker socket group is granted via compose `group_add`). Entrypoint `/platform`, default cmd `serve`.
 
-Image name: `ghcr.io/osctf/platform:<version>` and `:latest` on main. Example challenge images build separately (see [`13-example-challenges.md`](13-example-challenges.md)) as `osctf/example-<slug>:0.1`, built locally by `make examples` — not pushed to a registry in v0.1.
+Image name: `ghcr.io/swayyaam/osctf:<version>` and `:latest` on main. Example challenge images build separately (see [`13-example-challenges.md`](13-example-challenges.md)) as `osctf/example-<slug>:0.1`, built locally by `make examples` — not pushed to a registry in v0.1.
 
 ## docker-compose.yml (golden path — spec, not listing)
 
@@ -16,7 +16,7 @@ Services:
 
 | Service | Image | Notes |
 |---|---|---|
-| `platform` | built from repo (`build: .`) or `ghcr.io/osctf/platform` | ports `8080:8080`; mounts `/var/run/docker.sock`; `group_add: [<docker gid>]` via env; `env_file: .env`; depends_on with `condition: service_healthy` on the three below; healthcheck `wget -qO- localhost:8080/healthz` |
+| `platform` | built from repo (`build: .`) or `ghcr.io/swayyaam/osctf` | ports `8080:8080`; mounts `/var/run/docker.sock`; `group_add: [<docker gid>]` via env; `env_file: .env`; depends_on with `condition: service_healthy` on the three below; healthcheck `wget -qO- localhost:8080/healthz` |
 | `postgres` | `postgres:17-alpine` | volume `pgdata`; healthcheck `pg_isready`; **no host port** in prod file (dev override adds 5432) |
 | `redis` | `redis:7-alpine` | `--maxmemory 256mb --maxmemory-policy noeviction`; volume optional (sessions are re-creatable; default: no volume, document that a platform restart with Redis loss logs everyone out — acceptable) |
 | `minio` | `minio/minio` | `server /data --console-address :9001`; volume `miniodata`; no host ports in prod (console exposed in dev override) |
@@ -57,11 +57,11 @@ Named volumes: `pgdata`, `miniodata`.
 | `OSCTF_WS_MAX_CONNS_PER_CLIENT` | `256` | — | Live WebSocket connections per client — per authenticated user, or per IP for anonymous connections (0 = unlimited). Raise for large events with many anonymous viewers behind one NAT |
 | `OSCTF_WS_HANDSHAKE_BURST` | `600` | — | WebSocket handshakes per client per window (0 = unlimited) |
 | `OSCTF_WS_HANDSHAKE_WINDOW` | `60s` | — | Sliding window for the handshake rate limit |
-| `OSCTF_REGISTER_IP_BURST` | `500` | — | Registrations allowed per IP per window (0 = disabled). Generous by default for shared-IP venues ([issue #1](https://github.com/osctf/platform/issues/1)); tighten for public-internet deployments |
+| `OSCTF_REGISTER_IP_BURST` | `500` | — | Registrations allowed per IP per window (0 = disabled). Generous by default for shared-IP venues (issue #1); tighten for public-internet deployments |
 | `OSCTF_REGISTER_IP_WINDOW` | `10m` | — | Sliding window for the register-IP limit |
-| `OSCTF_LOGIN_IP_BURST` | `500` | — | Login attempts allowed per IP per window (0 = disabled). Generous by default so a shared-NAT venue can log in at event start ([issue #4](https://github.com/osctf/platform/issues/4)); tighten for public-internet deployments. The per-account limit (5/5min) is the credential-stuffing guard |
+| `OSCTF_LOGIN_IP_BURST` | `500` | — | Login attempts allowed per IP per window (0 = disabled). Generous by default so a shared-NAT venue can log in at event start (issue #4); tighten for public-internet deployments. The per-account limit (5/5min) is the credential-stuffing guard |
 | `OSCTF_LOGIN_IP_WINDOW` | `10m` | — | Sliding window for the login-IP limit |
-| `OSCTF_PASSWORD_HASH_CONCURRENCY` | `0` (derive) | — | Max concurrent argon2id hashes (register + login + timing burn). `0` derives from the host memory limit (¼ mem ÷ 64 MiB, clamped 2–64). Peak hashing memory ≈ value × 64 MiB ([issue #3](https://github.com/osctf/platform/issues/3)) |
+| `OSCTF_PASSWORD_HASH_CONCURRENCY` | `0` (derive) | — | Max concurrent argon2id hashes (register + login + timing burn). `0` derives from the host memory limit (¼ mem ÷ 64 MiB, clamped 2–64). Peak hashing memory ≈ value × 64 MiB (issue #3) |
 | `OSCTF_PASSWORD_HASH_MAX_WAIT` | `5s` | — | Max time a request queues for a hash slot before it is shed with 503 + Retry-After |
 | `OSCTF_CORS_DEV_ORIGIN` | *(empty)* | — | Dev only: allow the Vite origin |
 | `OSCTF_LOG_FORMAT` | `json` | — | `json` \| `text` |
@@ -78,7 +78,7 @@ connections. So a whole campus lab or venue behind one NAT of *logged-in* player
 squeezed through a single IP budget — each user has their own. Only anonymous scoreboard
 viewers behind one IP share a bucket; raise `OSCTF_WS_MAX_CONNS_PER_CLIENT` /
 `OSCTF_WS_HANDSHAKE_BURST` if you expect many. (This is the same shared-IP class as
-[GitHub issue #1](https://github.com/osctf/platform/issues/1) — the register-IP rate limit.)
+GitHub issue #1 — the register-IP rate limit.)
 
 **`OSCTF_TRUST_PROXY` cuts both ways — get it right:**
 

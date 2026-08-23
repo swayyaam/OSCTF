@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/handlers"
-	"github.com/osctf/platform/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/handlers"
+	"github.com/swayyaam/OSCTF/internal/httpx"
 )
 
 // injectHTTP is a strict middleware exposing the raw writer/request to handlers

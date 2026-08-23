@@ -3,8 +3,8 @@ package contract_test
 import (
 	"testing"
 
-	"github.com/osctf/platform/plugin/sdk"
-	"github.com/osctf/platform/plugin/sdk/contract"
+	"github.com/swayyaam/OSCTF/plugin/sdk"
+	"github.com/swayyaam/OSCTF/plugin/sdk/contract"
 )
 
 // End-to-end proof of the entire author path using ONLY the public API: an example plugin that

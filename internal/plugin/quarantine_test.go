@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // A plugin whose config is invalid must be QUARANTINED at load — visible in the admin Snapshot as

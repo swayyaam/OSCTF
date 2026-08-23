@@ -11,19 +11,19 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/audit"
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/handlers"
-	"github.com/osctf/platform/internal/httpserver"
-	"github.com/osctf/platform/internal/redisx"
-	"github.com/osctf/platform/internal/runtime"
-	"github.com/osctf/platform/internal/teams"
-	"github.com/osctf/platform/internal/testsupport"
-	"github.com/osctf/platform/internal/users"
+	"github.com/swayyaam/OSCTF/internal/audit"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/handlers"
+	"github.com/swayyaam/OSCTF/internal/httpserver"
+	"github.com/swayyaam/OSCTF/internal/redisx"
+	"github.com/swayyaam/OSCTF/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/teams"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/users"
 )
 
 // TestInstanceLifecycleWithFakeRuntime exercises the deploy/status/restart/destroy

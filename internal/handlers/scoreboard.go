@@ -3,8 +3,8 @@ package handlers
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/scoreboard"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/scoreboard"
 )
 
 // GetScoreboard returns the standings snapshot. Non-admins during a freeze get

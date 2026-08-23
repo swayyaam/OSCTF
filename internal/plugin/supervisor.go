@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osctf/platform/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/clock"
 )
 
 // errStopped is returned by reload when the supervisor has already stopped.

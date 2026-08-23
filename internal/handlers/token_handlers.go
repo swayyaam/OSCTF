@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/pagination"
 )
 
 // requireSession is requireUser plus a session-only gate: token-management operations reject

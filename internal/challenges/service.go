@@ -11,10 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/scoring"
-	"github.com/osctf/platform/internal/storage"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/scoring"
+	"github.com/swayyaam/OSCTF/internal/storage"
 )
 
 var (

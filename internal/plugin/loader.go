@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // ErrNotReady is returned by dispatch when a plugin is not in `ready` state (including

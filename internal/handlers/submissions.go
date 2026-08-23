@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/submissions"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/submissions"
 )
 
 // SubmitFlag handles a flag submission for the caller's team.

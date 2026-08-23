@@ -21,8 +21,8 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 const (

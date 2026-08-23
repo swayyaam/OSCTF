@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osctf/platform/internal/plugin/plugintest"
+	"github.com/swayyaam/OSCTF/internal/plugin/plugintest"
 )
 
 func main() {

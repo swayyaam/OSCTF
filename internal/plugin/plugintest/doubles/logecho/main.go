@@ -2,7 +2,7 @@
 // go-plugin's stderr channel into the host Logger) can be asserted end to end.
 package main
 
-import "github.com/osctf/platform/plugin/sdk"
+import "github.com/swayyaam/OSCTF/plugin/sdk"
 
 type engine struct{}
 

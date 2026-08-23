@@ -1,6 +1,6 @@
 package sdk
 
-import "github.com/osctf/platform/internal/events"
+import "github.com/swayyaam/OSCTF/internal/events"
 
 // EventKeys returns the Data keys the given event type carries — the fields you can read from an
 // sdk.Event.Data in a Notifier. For example EventKeys("challenge.solved") returns challenge_id,

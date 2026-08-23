@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/runtime"
-	"github.com/osctf/platform/internal/scheduler"
+	"github.com/swayyaam/OSCTF/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/scheduler"
 )
 
 // These drive reconcile THROUGH the fake (not only the pure function). Because the

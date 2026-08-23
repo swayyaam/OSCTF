@@ -18,8 +18,8 @@ package sdk
 import (
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/osctf/platform/internal/plugin"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // PluginType is the kind of provider a plugin implements. It matches the manifest `type`.

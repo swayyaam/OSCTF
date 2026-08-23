@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/osctf/platform/internal/plugin"
+	"github.com/swayyaam/OSCTF/internal/plugin"
 )
 
 // configEnv is the environment variable the host sets on the plugin process carrying its resolved

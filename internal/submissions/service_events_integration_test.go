@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/submissions"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/submissions"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 // A correct solve publishes exactly one challenge.solved event, post-commit, with the solve's ids

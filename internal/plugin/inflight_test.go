@@ -11,9 +11,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/osctf/platform/internal/clock"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/internal/clock"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
 )
 
 // budgetConfig is the supervisor config the in-flight tests share: real clock + sleeper (so the

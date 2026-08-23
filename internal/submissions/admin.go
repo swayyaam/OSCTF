@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // ListAdmin returns a page of logged submissions.

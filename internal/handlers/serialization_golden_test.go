@@ -30,10 +30,10 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/scoreboard"
-	"github.com/osctf/platform/internal/teams"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/scoreboard"
+	"github.com/swayyaam/OSCTF/internal/teams"
 )
 
 var goldenTime = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

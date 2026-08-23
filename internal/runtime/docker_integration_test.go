@@ -12,9 +12,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/runtime"
-	"github.com/osctf/platform/internal/testsupport"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/testsupport"
 )
 
 func TestDockerRuntimeIntegration(t *testing.T) {

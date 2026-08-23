@@ -3,10 +3,10 @@ package handlers
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/db/gen"
-	"github.com/osctf/platform/internal/metrics"
-	"github.com/osctf/platform/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/pagination"
 )
 
 // AdminListSubmissions returns a page of logged submissions with filters.

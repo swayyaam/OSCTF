@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/osctf/platform/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apigen"
 )
 
 // TestHandlerRejectsOverCapCleanly (3a-x): once the global connection cap is reached, a

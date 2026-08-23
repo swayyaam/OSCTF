@@ -9,7 +9,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/osctf/platform/internal/metrics"
+	"github.com/swayyaam/OSCTF/internal/metrics"
 )
 
 // Handler upgrades the request to a WebSocket, registers the connection, and

@@ -8,7 +8,7 @@
 // is unchanged.
 package main
 
-import "github.com/osctf/platform/plugin/sdk"
+import "github.com/swayyaam/OSCTF/plugin/sdk"
 
 type engine struct{}
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/scheduler"
+	"github.com/swayyaam/OSCTF/internal/scheduler"
 )
 
 // TestTeamLockMutualExclusionUnderChurn asserts the behaviour that the refcount

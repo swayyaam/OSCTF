@@ -8,12 +8,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/apperr"
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/events"
-	"github.com/osctf/platform/internal/pagination"
-	"github.com/osctf/platform/internal/runtime"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apperr"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/events"
+	"github.com/swayyaam/OSCTF/internal/pagination"
+	"github.com/swayyaam/OSCTF/internal/runtime"
 )
 
 // AdminListChallenges returns a page of all challenges (including invisible).

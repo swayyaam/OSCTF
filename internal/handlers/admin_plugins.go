@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/osctf/platform/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apigen"
 )
 
 // AdminListPlugins returns every tracked plugin and its lifecycle state — including plugins

@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 // Logger writes audit entries. Failures are logged, not propagated — an audit

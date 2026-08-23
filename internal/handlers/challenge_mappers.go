@@ -3,9 +3,9 @@ package handlers
 import (
 	"encoding/json"
 
-	"github.com/osctf/platform/internal/apigen"
-	"github.com/osctf/platform/internal/challenges"
-	"github.com/osctf/platform/internal/db/gen"
+	"github.com/swayyaam/OSCTF/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
 func decodeEnv(raw []byte) map[string]string {

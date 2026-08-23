@@ -32,7 +32,7 @@ info:
       `GET /api/v0/ws`) is intentionally not modelled here.
   contact:
     name: OSCTF maintainers
-    url: https://github.com/osctf/platform
+    url: https://github.com/swayyaam/OSCTF
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0

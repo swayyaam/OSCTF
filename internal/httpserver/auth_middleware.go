@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/osctf/platform/internal/auth"
-	"github.com/osctf/platform/internal/httpx"
+	"github.com/swayyaam/OSCTF/internal/auth"
+	"github.com/swayyaam/OSCTF/internal/httpx"
 )
 
 // sessionMiddleware resolves the session cookie into an Identity on the context.

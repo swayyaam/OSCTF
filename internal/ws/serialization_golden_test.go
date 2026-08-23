@@ -20,7 +20,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/osctf/platform/internal/apigen"
+	"github.com/swayyaam/OSCTF/internal/apigen"
 )
 
 func wsGolden(t *testing.T, name string, raw []byte) {

@@ -17,8 +17,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 # The Go module is the repo root; copy only the source the binary needs (not dashboard/, docs/…).
+# plugin/ is required: it holds the PUBLIC ABI surface (plugin/abi, plugin/eventkeys) that the
+# host loader and internal/events build on, not just the author-facing SDK.
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+COPY plugin/ ./plugin/
 # Embed the freshly built SPA into the binary.
 COPY --from=web /web/dist ./internal/webdist/static
 ARG VERSION=dev

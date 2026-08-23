@@ -72,6 +72,13 @@ message Identity {
   string email = 2;
   string username = 3;                                     // suggested handle
   map<string, string> claims = 4;
+  // Whether the provider asserts it VERIFIED this email (OIDC's email_verified). The host
+  // requires it before binding a login to an existing account by email address — see the auth
+  // return-path contract in docs/v0.3/04-plugin-interfaces.md. This is not a defense against a
+  // hostile plugin, which could simply set it: it distinguishes an honest provider that verifies
+  // addresses from one where a user can assert any address they like. Added in ABI 1.1; a plugin
+  // on 1.0 leaves it false, which fails closed (no email binding).
+  bool email_verified = 5;
 }
 
 // ------------------------------------------------------------------ Scoring

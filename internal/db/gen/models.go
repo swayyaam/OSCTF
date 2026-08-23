@@ -33,6 +33,13 @@ type AuditLog struct {
 	CreatedAt   time.Time
 }
 
+type AuthIdentity struct {
+	Provider  string
+	Subject   string
+	UserID    uuid.UUID
+	CreatedAt time.Time
+}
+
 type Challenge struct {
 	ID                  uuid.UUID
 	Slug                string

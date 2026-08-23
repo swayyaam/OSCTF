@@ -395,11 +395,18 @@ func (x *CompleteRequest) GetState() string {
 // of the subject, for host-side provisioning) — not host-provided PII. The host maps
 // subject -> local user, then issues its OWN session.
 type Identity struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"` // stable IdP-unique id
-	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"` // suggested handle
-	Claims        map[string]string      `protobuf:"bytes,4,rep,name=claims,proto3" json:"claims,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Subject  string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"` // stable IdP-unique id
+	Email    string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	Username string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"` // suggested handle
+	Claims   map[string]string      `protobuf:"bytes,4,rep,name=claims,proto3" json:"claims,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Whether the provider asserts it VERIFIED this email (OIDC's email_verified). The host
+	// requires it before binding a login to an existing account by email address — see the auth
+	// return-path contract in docs/v0.3/04-plugin-interfaces.md. This is not a defense against a
+	// hostile plugin, which could simply set it: it distinguishes an honest provider that verifies
+	// addresses from one where a user can assert any address they like. Added in ABI 1.1; a plugin
+	// on 1.0 leaves it false, which fails closed (no email binding).
+	EmailVerified bool `protobuf:"varint,5,opt,name=email_verified,json=emailVerified,proto3" json:"email_verified,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -460,6 +467,13 @@ func (x *Identity) GetClaims() map[string]string {
 		return x.Claims
 	}
 	return nil
+}
+
+func (x *Identity) GetEmailVerified() bool {
+	if x != nil {
+		return x.EmailVerified
+	}
+	return false
 }
 
 type ScoreRequest struct {
@@ -973,12 +987,13 @@ const file_plugin_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd0\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf7\x01\n" +
 	"\bIdentity\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12=\n" +
-	"\x06claims\x18\x04 \x03(\v2%.osctf.plugin.v1.Identity.ClaimsEntryR\x06claims\x1a9\n" +
+	"\x06claims\x18\x04 \x03(\v2%.osctf.plugin.v1.Identity.ClaimsEntryR\x06claims\x12%\n" +
+	"\x0eemail_verified\x18\x05 \x01(\bR\remailVerified\x1a9\n" +
 	"\vClaimsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe6\x01\n" +

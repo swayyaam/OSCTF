@@ -6,14 +6,14 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/swayyaam/OSCTF/internal/plugin"
+	"github.com/swayyaam/OSCTF/plugin/abi"
 )
 
 // configEnv is the environment variable the host sets on the plugin process carrying its resolved
-// config. It is the SAME const the host writes (plugin.PluginConfigEnv) — one shared definition, so
+// config. It is the SAME const the host writes (abi.PluginConfigEnv) — one shared definition, so
 // the read side and the write side cannot drift. Used only internally here, so no internal type
 // crosses the public surface.
-const configEnv = plugin.PluginConfigEnv
+const configEnv = abi.PluginConfigEnv
 
 // PluginConfig is the plugin's resolved configuration: the manifest's declared keys plus any
 // OSCTF_PLUGIN_<NAME>_<KEY> environment overrides (env wins; secrets come from env only). The host

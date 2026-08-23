@@ -9,14 +9,6 @@ import (
 	"strings"
 )
 
-// PluginConfigEnv is the single environment variable the host sets on the PLUGIN process carrying
-// its resolved config as a JSON object. It is the SHARED definition: the host writes it here and
-// the public SDK's Config() reads it (plugin/sdk imports this const), so the two sides cannot drift
-// — the pairing is one source of truth, not two strings that must agree. One var (not per-key) so a
-// plugin never reconstructs the host's OSCTF_PLUGIN_<NAME>_<KEY> override names — it just asks for a
-// key.
-const PluginConfigEnv = "OSCTF_PLUGIN_CONFIG"
-
 // configEnvVar is the HOST-side override name for one config key: OSCTF_PLUGIN_<NAME>_<KEY>,
 // upper-cased with every non-alphanumeric rune folded to '_'. This is where an operator sets a
 // secret (a secret has no other source) or overrides a manifest default.

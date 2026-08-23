@@ -18,8 +18,8 @@ package sdk
 import (
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/swayyaam/OSCTF/internal/plugin"
 	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/plugin/abi"
 )
 
 // PluginType is the kind of provider a plugin implements. It matches the manifest `type`.
@@ -53,21 +53,21 @@ func Serve(t PluginType, impl any) {
 		if !ok {
 			panic("sdk.Serve(Scoring, …): impl must implement sdk.Scorer")
 		}
-		serve(plugin.KeyScoring, &plugin.ScoringGRPCPlugin{Impl: &scoringAdapter{impl: s}})
+		serve(abi.KeyScoring, &abi.ScoringGRPCPlugin{Impl: &scoringAdapter{impl: s}})
 	case Notification:
 		n, ok := impl.(Notifier)
 		if !ok {
 			panic("sdk.Serve(Notification, …): impl must implement sdk.Notifier")
 		}
-		serve(plugin.KeyNotification, &plugin.NotificationGRPCPlugin{Impl: &notificationAdapter{impl: n}})
+		serve(abi.KeyNotification, &abi.NotificationGRPCPlugin{Impl: &notificationAdapter{impl: n}})
 	case ChallengeType:
 		c, ok := impl.(Checker)
 		if !ok {
 			panic("sdk.Serve(ChallengeType, …): impl must implement sdk.Checker")
 		}
-		serve(plugin.KeyChallengeType, &plugin.ChallengeTypeGRPCPlugin{Impl: &challengeTypeAdapter{impl: c}})
+		serve(abi.KeyChallengeType, &abi.ChallengeTypeGRPCPlugin{Impl: &challengeTypeAdapter{impl: c}})
 	case Auth:
-		serve(plugin.KeyAuth, &plugin.AuthGRPCPlugin{Impl: newAuthAdapter(impl)})
+		serve(abi.KeyAuth, &abi.AuthGRPCPlugin{Impl: newAuthAdapter(impl)})
 	default:
 		panic("sdk.Serve: unknown plugin type " + string(t))
 	}
@@ -77,7 +77,7 @@ func Serve(t PluginType, impl any) {
 // the type switch above, so no wire type ever appears in an exported signature.
 func serve(key string, p goplugin.Plugin) {
 	goplugin.Serve(&goplugin.ServeConfig{
-		HandshakeConfig: plugin.Handshake,
+		HandshakeConfig: abi.Handshake,
 		Plugins:         goplugin.PluginSet{key: p},
 		GRPCServer:      goplugin.DefaultGRPCServer,
 	})
@@ -89,7 +89,7 @@ func infoResponse(i Info, t pluginpb.PluginType, caps ...string) *pluginpb.InfoR
 	return &pluginpb.InfoResponse{
 		Name:         i.Name,
 		Type:         t,
-		Abi:          plugin.ABIString,
+		Abi:          abi.ABIString,
 		Version:      i.Version,
 		Capabilities: caps,
 	}

@@ -1,20 +1,21 @@
 package events
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/swayyaam/OSCTF/plugin/eventkeys"
+)
 
 // Event names published by core. A name here MUST have a Schema entry and a builder below.
 const (
-	EventChallengeSolved = "challenge.solved"
+	EventChallengeSolved = eventkeys.EventChallengeSolved
 )
 
 // Schema documents the Data keys each event type carries — the contract a notification plugin
-// depends on. It is the ONE source of truth: core builds every event's Data via the builders below
-// (which use exactly these keys), and the public SDK re-exports these keys, so the documented set
-// cannot drift from what core emits. TestSchemaMatchesBuilders pins each builder against its entry.
-// All values are non-secret, non-PII (ids + slugs).
-var Schema = map[string][]string{
-	EventChallengeSolved: {"challenge_id", "challenge_slug", "team_id", "user_id"}, // sorted
-}
+// depends on. It is the ONE source of truth, defined in the shared leaf plugin/eventkeys so the
+// public SDK re-exports the same map core builds from. TestSchemaMatchesBuilders pins each builder
+// against its entry.
+var Schema = eventkeys.Schema
 
 // SolvedData builds the Data for a challenge.solved event. Core uses this, so the emitted keys are
 // exactly Schema[EventChallengeSolved] by construction — add a key here and TestSchemaMatchesBuilders

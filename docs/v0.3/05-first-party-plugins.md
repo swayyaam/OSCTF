@@ -115,8 +115,13 @@ express it, the interface is what gets fixed ([`../project-desc.md`](../project-
 
 ## Cross-cutting requirements for all four
 
-- Import only `plugin/sdk` + `pluginpb`; **zero** imports of `github.com/swayyaam/OSCTF/
-  internal/*`. This is enforced by a CI check (see [`09-testing-ci.md`](09-testing-ci.md)).
+- Import only the public plugin packages — `plugin/sdk`, and `plugin/abi` / `plugin/eventkeys`
+  if needed; **zero** imports of `github.com/swayyaam/OSCTF/internal/*`. Note this is not merely
+  a rule but a property Go enforces: `internal/plugin/pluginpb` is unreachable from any other
+  module, so a plugin cannot import the generated stubs even deliberately — `plugin/sdk` wraps
+  them. The rule that still needs enforcing is on **this** side of the boundary: the public
+  plugin packages must not import `internal/*` beyond `pluginpb`, or every plugin inherits it
+  transitively (see [`09-testing-ci.md`](09-testing-ci.md)).
 - Ship `plugin.yaml`, an `AGENTS.md`, and a `README.md`; build reproducibly via that repo's
   own `make build` / `make package`, inherited from the template.
 - Honour the secrets rule: secret config is env-only; nothing secret is logged or returned.
@@ -125,6 +130,15 @@ express it, the interface is what gets fixed ([`../project-desc.md`](../project-
   ([`09-testing-ci.md`](09-testing-ci.md)).
 
 ## Decision log
+
+- **The ABI surface lives in the public `plugin/abi`, not in `internal/plugin`.** The handshake,
+  ABI version, dispense keys, and gRPC transport bridge are needed by both sides, so the host
+  loader and the SDK both build on a leaf package that imports only go-plugin, grpc, and
+  `pluginpb`. Before this, `plugin/sdk` imported `internal/plugin` (the loader) and
+  `internal/events`, so every plugin transitively linked the platform's Postgres driver and
+  metrics stack — 78MB to build a hello-world plugin, and the "zero `internal/*`" rule above held
+  only in letter, since the SDK broke it underneath the plugin. The event-name/field contract
+  moved to `plugin/eventkeys` for the same reason.
 
 - **Each reference plugin lives in its own repo, not in a `plugins/` directory here.** An
   in-tree plugin can reach core sources on disk and can lean on a `replace` directive, so it

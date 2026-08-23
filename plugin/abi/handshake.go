@@ -1,8 +1,15 @@
-// Package plugin is the host side of the OSCTF plugin ABI: the go-plugin handshake, the gRPC
-// transport bridge to the generated stubs (pluginpb), and (in later sub-steps) the loader,
-// lifecycle, and registry wiring. Plugins run as separate processes; the host dials a local
-// gRPC server each serves. See docs/v0.3/02-plugin-abi.md and 03-plugin-loader.md.
-package plugin
+// Package abi is the OSCTF plugin ABI surface SHARED by the host and by plugin authors: the
+// go-plugin handshake, the ABI version, the dispense keys, and the gRPC transport bridge to the
+// generated stubs (pluginpb).
+//
+// It is deliberately a LEAF: it imports go-plugin, grpc, and pluginpb, and nothing else. The host
+// loader (internal/plugin) and the public SDK (plugin/sdk) both build on it, so a plugin author
+// links the ABI without linking the loader — and therefore without inheriting the platform's
+// server-side dependencies (the database driver, the metrics stack). Keep it that way: an import
+// added here is an import every plugin in existence inherits.
+//
+// See docs/v0.3/02-plugin-abi.md and 03-plugin-loader.md.
+package abi
 
 import (
 	goplugin "github.com/hashicorp/go-plugin"

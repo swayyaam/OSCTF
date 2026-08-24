@@ -1530,6 +1530,9 @@ type ServerInterface interface {
 	// Plugin status
 	// (GET /admin/plugins)
 	AdminListPlugins(w http.ResponseWriter, r *http.Request)
+	// Hot-reload one plugin
+	// (POST /admin/plugins/{name}/reload)
+	AdminReloadPlugin(w http.ResponseWriter, r *http.Request, name string)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(w http.ResponseWriter, r *http.Request)
@@ -1746,6 +1749,12 @@ func (_ Unimplemented) AdminDestroyInstanceById(w http.ResponseWriter, r *http.R
 // Plugin status
 // (GET /admin/plugins)
 func (_ Unimplemented) AdminListPlugins(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Hot-reload one plugin
+// (POST /admin/plugins/{name}/reload)
+func (_ Unimplemented) AdminReloadPlugin(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2542,6 +2551,39 @@ func (siw *ServerInterfaceWrapper) AdminListPlugins(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AdminListPlugins(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminReloadPlugin operation middleware
+func (siw *ServerInterfaceWrapper) AdminReloadPlugin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, TokenAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminReloadPlugin(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3818,6 +3860,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/admin/plugins", wrapper.AdminListPlugins)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/plugins/{name}/reload", wrapper.AdminReloadPlugin)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/stats", wrapper.AdminGetStats)
 	})
 	r.Group(func(r chi.Router) {
@@ -4887,6 +4932,66 @@ type AdminListPlugins403ApplicationProblemPlusJSONResponse struct {
 func (response AdminListPlugins403ApplicationProblemPlusJSONResponse) VisitAdminListPluginsResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminReloadPluginRequestObject struct {
+	Name string `json:"name"`
+}
+
+type AdminReloadPluginResponseObject interface {
+	VisitAdminReloadPluginResponse(w http.ResponseWriter) error
+}
+
+type AdminReloadPlugin204Response struct {
+}
+
+func (response AdminReloadPlugin204Response) VisitAdminReloadPluginResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AdminReloadPlugin401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response AdminReloadPlugin401ApplicationProblemPlusJSONResponse) VisitAdminReloadPluginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminReloadPlugin403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response AdminReloadPlugin403ApplicationProblemPlusJSONResponse) VisitAdminReloadPluginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminReloadPlugin404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AdminReloadPlugin404ApplicationProblemPlusJSONResponse) VisitAdminReloadPluginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AdminReloadPlugin503ApplicationProblemPlusJSONResponse struct {
+	ProviderUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response AdminReloadPlugin503ApplicationProblemPlusJSONResponse) VisitAdminReloadPluginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -6639,6 +6744,9 @@ type StrictServerInterface interface {
 	// Plugin status
 	// (GET /admin/plugins)
 	AdminListPlugins(ctx context.Context, request AdminListPluginsRequestObject) (AdminListPluginsResponseObject, error)
+	// Hot-reload one plugin
+	// (POST /admin/plugins/{name}/reload)
+	AdminReloadPlugin(ctx context.Context, request AdminReloadPluginRequestObject) (AdminReloadPluginResponseObject, error)
 	// Dashboard stats
 	// (GET /admin/stats)
 	AdminGetStats(ctx context.Context, request AdminGetStatsRequestObject) (AdminGetStatsResponseObject, error)
@@ -7237,6 +7345,32 @@ func (sh *strictHandler) AdminListPlugins(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AdminListPluginsResponseObject); ok {
 		if err := validResponse.VisitAdminListPluginsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdminReloadPlugin operation middleware
+func (sh *strictHandler) AdminReloadPlugin(w http.ResponseWriter, r *http.Request, name string) {
+	var request AdminReloadPluginRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdminReloadPlugin(ctx, request.(AdminReloadPluginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdminReloadPlugin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdminReloadPluginResponseObject); ok {
+		if err := validResponse.VisitAdminReloadPluginResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

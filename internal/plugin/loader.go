@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -281,4 +282,41 @@ func (l *Loader) acquire(ctx context.Context, name string, sem chan struct{}) (r
 			<-sem
 		}
 	}, nil
+}
+
+// ErrNoSuchPlugin is returned by Reload for a name the loader does not track.
+var ErrNoSuchPlugin = errors.New("plugin: no such plugin")
+
+// Reload hot-reloads one plugin by name: launch a new instance, swap on ready, drain the old.
+// It blocks until the reload resolves — nil once the new instance is serving, or an error if it
+// never became ready, in which case the OLD instance is retained and keeps serving.
+//
+// This is the operator's way to pick up a changed binary or config without restarting the
+// platform. It is also the only caller of the supervisor's reload path, which existed with no
+// way to reach it: the machinery was built in P3-e and left unreachable, so a documented
+// capability ("hot-reload on config change") was in practice absent.
+//
+// A quarantined plugin is reloadable on purpose — parking until an operator reload is exactly
+// how a plugin that failed its identity check is meant to be recovered after the binary is fixed.
+func (l *Loader) Reload(ctx context.Context, name string) error {
+	l.mu.Lock()
+	var target *supervisor
+	for _, s := range l.sups {
+		if s.name == name {
+			target = s
+			break
+		}
+	}
+	_, tracked := l.plugins[name]
+	l.mu.Unlock()
+
+	if target == nil {
+		if tracked {
+			// Discovered but never launched (quarantined at load, e.g. a malformed manifest).
+			// There is no supervisor to reload; the operator must fix the manifest and restart.
+			return fmt.Errorf("%w: %q was quarantined at load and has no running supervisor (fix it and restart)", ErrNoSuchPlugin, name)
+		}
+		return fmt.Errorf("%w: %q", ErrNoSuchPlugin, name)
+	}
+	return target.reload(ctx)
 }

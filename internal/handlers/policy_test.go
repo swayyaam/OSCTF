@@ -37,6 +37,7 @@ var policyTable = map[string]policy{
 	// --- public (security: []) — all seven declared explicitly ---
 	"register":              {role: "public", note: "sign-up"},
 	"login":                 {role: "public", note: "sign-in"},
+	"adminReloadPlugin":     {role: "admin", note: "operator action: relaunches a plugin process"},
 	"listAuthProviders":     {role: "public", note: "a client must know how to log in before it can; names only, no config or secrets"},
 	"beginProviderLogin":    {role: "public", note: "sign-in (external): starts the redirect. Unknown and password-only providers both 404 so the installed set is not enumerable"},
 	"completeProviderLogin": {role: "public", note: "sign-in (external): the provider's redirect target. Guarded by a single-use core-minted state bound to a cookie, not by identity"},

@@ -924,6 +924,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/plugins/{name}/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hot-reload one plugin
+         * @description Launches a new instance of the plugin, swaps to it once it is ready, and drains the old one — so an operator can pick up a changed binary or config without restarting the platform.
+         *
+         *     Blocks until the reload resolves. If the new instance never becomes ready the OLD one is RETAINED and keeps serving, and this returns `503`: a failed reload degrades to "nothing changed", never to "the plugin is gone". A plugin quarantined at load has no running instance to reload and returns `404`.
+         */
+        post: operations["adminReloadPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3461,6 +3483,31 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    adminReloadPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The plugin's manifest name, as listed by `adminListPlugins`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reloaded; the new instance is serving. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ProviderUnavailable"];
         };
     };
 }

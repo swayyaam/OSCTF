@@ -1200,6 +1200,37 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /admin/plugins/{name}/reload:
+    post:
+      tags: [admin]
+      operationId: adminReloadPlugin
+      summary: Hot-reload one plugin
+      description: >
+        Launches a new instance of the plugin, swaps to it once it is ready, and drains the old
+        one — so an operator can pick up a changed binary or config without restarting the
+        platform.
+
+
+        Blocks until the reload resolves. If the new instance never becomes ready the OLD one is
+        RETAINED and keeps serving, and this returns `503`: a failed reload degrades to "nothing
+        changed", never to "the plugin is gone". A plugin quarantined at load has no running
+        instance to reload and returns `404`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The plugin's manifest name, as listed by `adminListPlugins`.
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+            maxLength: 64
+      responses:
+        "204": { description: Reloaded; the new instance is serving. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ProviderUnavailable" }
+
 components:
   securitySchemes:
     cookieAuth:

@@ -45,7 +45,11 @@ type Deps struct {
 	// PluginSnapshot returns the current status of every tracked plugin for the admin plugin view
 	// (including plugins quarantined at load). Nil (no loader wired) yields an empty list.
 	PluginSnapshot func() []plugin.PluginStatus
-	Auth           *auth.Registry
+	// PluginReload hot-reloads one plugin by name. nil means the endpoint reports the capability
+	// as absent (404) rather than pretending to reload nothing — a deployment with no loader
+	// should not answer 204 to a reload.
+	PluginReload func(ctx context.Context, name string) error
+	Auth         *auth.Registry
 	// ExternalAuth decides what an auth plugin's assertion is allowed to mean. nil disables the
 	// redirect-login routes entirely (they 404), so a deployment without it cannot be talked
 	// into a half-wired external login.

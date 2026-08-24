@@ -446,6 +446,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Runtime:        rtMgr,
 		Scheduler:      sched,
 		PluginSnapshot: pluginLoader.Snapshot, // admin plugin view (incl. quarantined-at-load)
+		PluginReload:   pluginLoader.Reload,   // POST /admin/plugins/{name}/reload
 		Recompute: func(rctx context.Context) {
 			if err := scoreboardSvc.Recompute(rctx); err != nil {
 				log.Warn("scoreboard recompute failed", "error", err.Error())

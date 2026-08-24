@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/swayyaam/OSCTF/plugin/sdk/contract"
 )
 
 // discardLogger keeps rejection logging out of test output; the logging itself is behaviour the
@@ -103,5 +105,27 @@ func TestResolveRejectsBadClaimsWithoutTouchingTheDatabase(t *testing.T) {
 				t.Fatalf("got %v, want ErrExternalRejected", err)
 			}
 		})
+	}
+}
+
+// The contract kit warns plugin authors about claims the host rejects. If the two lists drift,
+// the kit either warns about something harmless (annoying) or — much worse — stays silent about a
+// claim that will make every login fail in production. Pin them to each other.
+func TestContractReservedClaimsMatchHost(t *testing.T) {
+	for _, k := range contract.ReservedIdentityClaims {
+		if _, ok := reservedClaimKeys[k]; !ok {
+			t.Errorf("the contract kit warns about claim %q but the host does not reject it — authors would be "+
+				"told to remove something harmless", k)
+		}
+	}
+	kit := make(map[string]struct{}, len(contract.ReservedIdentityClaims))
+	for _, k := range contract.ReservedIdentityClaims {
+		kit[k] = struct{}{}
+	}
+	for k := range reservedClaimKeys {
+		if _, ok := kit[k]; !ok {
+			t.Errorf("the host rejects claim %q but the contract kit does not warn about it — an author would "+
+				"ship it and every login would fail", k)
+		}
 	}
 }

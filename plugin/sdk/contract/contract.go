@@ -8,16 +8,18 @@ package contract
 import (
 	"context"
 	"math"
+	"net/url"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	hclog "github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"github.com/swayyaam/OSCTF/internal/plugin"
 	"github.com/swayyaam/OSCTF/internal/plugin/pluginpb"
+	"github.com/swayyaam/OSCTF/plugin/abi"
 	"github.com/swayyaam/OSCTF/plugin/sdk"
 )
 
@@ -52,7 +54,7 @@ func VerifyScoring(tb testing.TB, binaryPath string, cases []ScoringCase) {
 	tb.Helper()
 	client, rpc := dial(tb, binaryPath)
 	defer client.Kill()
-	sc := dispense(tb, client, rpc, plugin.KeyScoring, "sdk.Scoring, …").(pluginpb.ScoringClient)
+	sc := dispense(tb, client, rpc, abi.KeyScoring, "sdk.Scoring, …").(pluginpb.ScoringClient)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -108,7 +110,7 @@ func VerifyNotification(tb testing.TB, binaryPath string, cases []NotificationCa
 	tb.Helper()
 	client, rpc := dial(tb, binaryPath)
 	defer client.Kill()
-	nc := dispense(tb, client, rpc, plugin.KeyNotification, "sdk.Notification, …").(pluginpb.NotificationClient)
+	nc := dispense(tb, client, rpc, abi.KeyNotification, "sdk.Notification, …").(pluginpb.NotificationClient)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -182,7 +184,7 @@ func VerifyChallengeType(tb testing.TB, binaryPath string, cases ChallengeTypeCa
 	tb.Helper()
 	client, rpc := dial(tb, binaryPath)
 	defer client.Kill()
-	cc := dispense(tb, client, rpc, plugin.KeyChallengeType, "sdk.ChallengeType, …").(pluginpb.ChallengeTypeClient)
+	cc := dispense(tb, client, rpc, abi.KeyChallengeType, "sdk.ChallengeType, …").(pluginpb.ChallengeTypeClient)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -297,8 +299,8 @@ func asInt32(v int) int32 {
 func dial(tb testing.TB, bin string) (*goplugin.Client, goplugin.ClientProtocol) {
 	tb.Helper()
 	c := goplugin.NewClient(&goplugin.ClientConfig{
-		HandshakeConfig: plugin.Handshake,
-		Plugins:         plugin.HostPluginSet(),
+		HandshakeConfig: abi.Handshake,
+		Plugins:         abi.HostPluginSet(),
 		//nolint:gosec // G204: launches the built plugin under test; go-plugin owns its lifecycle.
 		Cmd:              exec.CommandContext(context.Background(), bin),
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
@@ -320,4 +322,212 @@ func dispense(tb testing.TB, c *goplugin.Client, rpc goplugin.ClientProtocol, ke
 		tb.Fatalf("dispense %s: %v (does this plugin Serve(%s)?)", key, err, serveHint)
 	}
 	return raw
+}
+
+// AuthCredential is one identifier/secret pair for VerifyAuth to try against a password-capable
+// plugin.
+type AuthCredential struct {
+	Name       string
+	Identifier string
+	Secret     string
+}
+
+// AuthCases configures VerifyAuth.
+//
+// CONFIGURING THE PLUGIN UNDER TEST: an auth plugin almost always needs config (an issuer, a
+// client id, a secret). The harness launches your binary as a child process, so it inherits the
+// test process's environment — set the host's config variable before calling, e.g.
+//
+//	t.Setenv("OSCTF_PLUGIN_CONFIG", `{"issuer":"`+srv.URL+`","client_id":"test","client_secret":"s"}`)
+//
+// A redirect plugin pointed at a test issuer (an httptest server serving the discovery document
+// and JWKS) can then be exercised for real.
+type AuthCases struct {
+	// RedirectURI is the host callback URL handed to Begin. Required for a redirect plugin.
+	RedirectURI string
+
+	// BadCredentials MUST all be rejected. A password plugin that returns an identity for a
+	// credential it could not verify authenticates anyone.
+	BadCredentials []AuthCredential
+
+	// GoodCredential, when set, must authenticate successfully.
+	GoodCredential *AuthCredential
+	// WantSubject, when set, is the subject GoodCredential must yield.
+	WantSubject string
+}
+
+// ReservedIdentityClaims is exported so an author can screen their own claim map before returning
+// it. It mirrors the keys the HOST refuses on the return path (the authoritative
+// list is reservedClaimKeys in internal/auth/external.go). A plugin that emits one of these does
+// not gain authority — the host rejects the whole login — so an author who ships them breaks every
+// login for their users. Catching it here costs a test run; catching it in production costs an
+// event. TestContractReservedClaimsMatchHost pins this against the host's list.
+var ReservedIdentityClaims = []string{
+	"admin", "is_admin", "isadmin",
+	"role", "roles",
+	"user_id", "userid", "uid",
+	"scope", "scopes",
+	"banned", "hidden",
+}
+
+// VerifyAuth launches the auth plugin at binaryPath and asserts the contract.
+//
+// Common to both capabilities: the handshake succeeds; Info advertises the auth type with a
+// non-empty name and ABI; and the advertised capability set is non-empty and contains only
+// "password" and/or "redirect".
+//
+// Capability-gated, and checked in BOTH directions — a capability the plugin advertises must
+// work, and one it does not advertise must fail closed rather than half-answer:
+//
+//   - password: every BadCredential is rejected; GoodCredential (if given) authenticates and
+//     yields a non-empty subject; and no returned identity carries a reserved claim.
+//   - redirect: Begin returns an authorize URL whose `state` parameter is EXACTLY the state
+//     passed in — the host verifies this too and refuses a login otherwise, so a plugin that
+//     invents its own state cannot log anyone in. Complete with no authorization code is
+//     rejected rather than returning a bare identity.
+func VerifyAuth(tb testing.TB, binaryPath string, cases AuthCases) {
+	tb.Helper()
+	client, rpc := dial(tb, binaryPath)
+	defer client.Kill()
+	ac := dispense(tb, client, rpc, abi.KeyAuth, "sdk.Auth, …").(pluginpb.AuthClient)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	info, err := ac.Info(ctx, &pluginpb.InfoRequest{})
+	if err != nil {
+		tb.Fatalf("Info RPC failed: %v", err)
+		return
+	}
+	if info.GetType() != pluginpb.PluginType_PLUGIN_TYPE_AUTH {
+		tb.Errorf("Info.Type = %v, want AUTH", info.GetType())
+	}
+	if info.GetName() == "" {
+		tb.Error("Info.Name is empty — the host registers the provider by name")
+	}
+	if info.GetAbi() == "" {
+		tb.Error("Info.Abi is empty")
+	}
+
+	password, redirect := false, false
+	for _, c := range info.GetCapabilities() {
+		switch c {
+		case "password":
+			password = true
+		case "redirect":
+			redirect = true
+		default:
+			tb.Errorf("Info.Capabilities contains %q; an auth plugin advertises only \"password\" and/or \"redirect\"", c)
+		}
+	}
+	if !password && !redirect {
+		tb.Fatal("Info.Capabilities is empty — the host refuses to register an auth plugin that answers no method")
+		return
+	}
+
+	verifyAuthPassword(tb, ctx, ac, cases, password)
+	verifyAuthRedirect(tb, ctx, ac, cases, redirect)
+}
+
+func verifyAuthPassword(tb testing.TB, ctx context.Context, ac pluginpb.AuthClient, cases AuthCases, advertised bool) {
+	tb.Helper()
+	if !advertised {
+		// Not advertised must mean not answered. A plugin that quietly authenticates on a
+		// capability it never declared is reachable by a path the host did not expect.
+		if _, err := ac.Authenticate(ctx, &pluginpb.AuthenticateRequest{Identifier: "x", Secret: "y"}); err == nil {
+			tb.Error("Authenticate succeeded although the plugin does not advertise the \"password\" capability")
+		}
+		return
+	}
+	for _, c := range cases.BadCredentials {
+		id, err := ac.Authenticate(ctx, &pluginpb.AuthenticateRequest{Identifier: c.Identifier, Secret: c.Secret})
+		if err == nil {
+			tb.Errorf("bad credential %q was ACCEPTED (subject %q) — a credential that cannot be verified must be rejected",
+				c.Name, id.GetSubject())
+		}
+	}
+	if cases.GoodCredential == nil {
+		return
+	}
+	id, err := ac.Authenticate(ctx, &pluginpb.AuthenticateRequest{
+		Identifier: cases.GoodCredential.Identifier, Secret: cases.GoodCredential.Secret,
+	})
+	if err != nil {
+		tb.Errorf("good credential %q was rejected: %v", cases.GoodCredential.Name, err)
+		return
+	}
+	assertIdentityUsable(tb, id, cases.WantSubject)
+}
+
+func verifyAuthRedirect(tb testing.TB, ctx context.Context, ac pluginpb.AuthClient, cases AuthCases, advertised bool) {
+	tb.Helper()
+	if !advertised {
+		if _, err := ac.Begin(ctx, &pluginpb.BeginRequest{State: "s", RedirectUri: "https://host.test/cb"}); err == nil {
+			tb.Error("Begin succeeded although the plugin does not advertise the \"redirect\" capability")
+		}
+		return
+	}
+
+	const hostState = "contract-host-state-do-not-replace"
+	redirectURI := cases.RedirectURI
+	if redirectURI == "" {
+		redirectURI = "https://host.test/api/v1/auth/plugin/callback"
+	}
+	begun, err := ac.Begin(ctx, &pluginpb.BeginRequest{State: hostState, RedirectUri: redirectURI})
+	if err != nil {
+		tb.Errorf("Begin failed: %v\n"+
+			"(a redirect plugin usually needs config — set OSCTF_PLUGIN_CONFIG in the test env, "+
+			"pointing at a test issuer; see AuthCases)", err)
+		return
+	}
+	u, perr := url.Parse(begun.GetAuthorizeUrl())
+	switch {
+	case begun.GetAuthorizeUrl() == "":
+		tb.Error("Begin returned an empty authorize URL")
+	case perr != nil:
+		tb.Errorf("Begin returned an unparseable authorize URL: %v", perr)
+	case u.Query().Get("state") != hostState:
+		// The single most important check here. The host mints the CSRF state and verifies the
+		// authorize URL carries it; a plugin that substitutes its own cannot log anyone in.
+		tb.Errorf("authorize URL state = %q, want the host-supplied %q — the host mints the state and "+
+			"refuses a login whose authorize URL does not carry it verbatim; do not generate your own",
+			u.Query().Get("state"), hostState)
+	}
+
+	// A callback with no authorization code cannot be completed. Returning an identity anyway
+	// would let anyone who can reach the callback log in.
+	if id, err := ac.Complete(ctx, &pluginpb.CompleteRequest{
+		State: begun.GetState(), Params: map[string]string{},
+	}); err == nil {
+		tb.Errorf("Complete succeeded with no callback parameters (subject %q) — an incompletable login must be rejected",
+			id.GetSubject())
+	}
+}
+
+// assertIdentityUsable checks what the host requires of any identity it is handed.
+func assertIdentityUsable(tb testing.TB, id *pluginpb.Identity, wantSubject string) {
+	tb.Helper()
+	if id.GetSubject() == "" {
+		tb.Error("identity has an empty subject — the host binds a login by (provider, subject) and rejects an empty one")
+	}
+	if wantSubject != "" && id.GetSubject() != wantSubject {
+		tb.Errorf("identity subject = %q, want %q", id.GetSubject(), wantSubject)
+	}
+	for k := range id.GetClaims() {
+		for _, reserved := range ReservedIdentityClaims {
+			if strings.EqualFold(strings.TrimSpace(k), reserved) {
+				tb.Errorf("identity carries the reserved claim %q — the host REJECTS the whole login rather than "+
+					"ignoring it, so shipping this breaks every login for your users. Claims confer no authority; "+
+					"remove it", k)
+			}
+		}
+	}
+	if id.GetEmail() != "" && !id.GetEmailVerified() {
+		// Not a failure: it is legitimate and safe. But it is the single most common reason an
+		// otherwise-working plugin cannot log anyone in under the default policy, so say it.
+		tb.Logf("note: identity carries an email but email_verified is false, so the host will not bind this "+
+			"login to an existing account by address (the default provisioning policy is invite-only, which "+
+			"then refuses it). Set EmailVerified when your provider actually verified the address. email=%q",
+			id.GetEmail())
+	}
 }

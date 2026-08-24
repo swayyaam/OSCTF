@@ -22,7 +22,9 @@ test("create, use, and revoke an API token", async ({ page, request }) => {
   await page.getByRole("button", { name: "Create token" }).click();
 
   // Shown once, in full. If this ever renders a truncated or masked value the token is useless.
-  const secret = page.locator("code").first();
+  // Selected by test id, not by tag: the section's own copy contains a <code>admin</code>, and a
+  // positional selector silently picked that up instead.
+  const secret = page.getByTestId("token-plaintext");
   await expect(secret).toBeVisible();
   const plaintext = (await secret.innerText()).trim();
   expect(plaintext.length).toBeGreaterThan(20);

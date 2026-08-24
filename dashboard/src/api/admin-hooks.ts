@@ -301,3 +301,31 @@ export function useAdminSubmissions(filters: SubmissionFilters, refetch: boolean
     refetchInterval: refetch ? 10_000 : false,
   });
 }
+
+/**
+ * Plugin status for the admin view. Polled, because a plugin's state changes on its own —
+ * a crash-restart or a quarantine happens without anyone clicking anything, and an operator
+ * looking at this page during an event wants to see that, not a stale snapshot.
+ */
+export function useAdminPlugins() {
+  return useQuery({
+    queryKey: queryKeys.adminPlugins,
+    queryFn: () => unwrap<Schemas["AdminPluginList"]>(api.GET("/admin/plugins")),
+    refetchInterval: 10_000,
+  });
+}
+
+/**
+ * Hot-reload one plugin. A failed reload is not destructive — the old instance keeps serving —
+ * so the error is surfaced as information rather than as something the operator must undo.
+ */
+export function useReloadPlugin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      unwrap(api.POST("/admin/plugins/{name}/reload", { params: { path: { name } } })),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.adminPlugins });
+    },
+  });
+}

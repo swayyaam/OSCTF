@@ -9,6 +9,7 @@ const links = [
   { to: "/admin/users", label: "Users" },
   { to: "/admin/teams", label: "Teams" },
   { to: "/admin/submissions", label: "Submissions" },
+  { to: "/admin/plugins", label: "Plugins" },
 ];
 
 export function AdminNav() {

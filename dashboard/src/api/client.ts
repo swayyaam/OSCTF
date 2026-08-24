@@ -96,4 +96,7 @@ export const queryKeys = {
   adminTeams: (filters?: unknown) => ["admin", "teams", filters] as const,
   adminSubmissions: (filters?: unknown) => ["admin", "submissions", filters] as const,
   adminStats: ["admin", "stats"] as const,
+  adminPlugins: ["admin", "plugins"] as const,
+  tokens: ["tokens"] as const,
+  authProviders: ["auth", "providers"] as const,
 };

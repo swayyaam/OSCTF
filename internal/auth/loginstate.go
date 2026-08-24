@@ -53,22 +53,30 @@ func NewLoginStateStore(rdb *redis.Client, ttl time.Duration) *LoginStateStore {
 
 func loginStateKey(token string) string { return "login:state:" + token }
 
-// Create mints a state token for a login against provider and stores it under the TTL. The
-// returned token goes to the provider as `state` AND into the bound cookie.
-func (s *LoginStateStore) Create(ctx context.Context, provider, providerState string) (string, error) {
+// Mint generates a fresh, unguessable state token WITHOUT storing it.
+//
+// Minting and storing are separate because the state has to exist before the provider is asked
+// to build its authorize URL — the provider must embed this exact value, so the host can verify
+// on the callback that the value the identity provider echoed is the one the host chose. Storing
+// first and rewriting later would leave a window where a state is live but unusable.
+func (s *LoginStateStore) Mint() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("auth: generating login state: %w", err)
 	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// Store records an in-flight login under an already-minted token, under the TTL.
+func (s *LoginStateStore) Store(ctx context.Context, token, provider, providerState string) error {
 	payload, err := json.Marshal(LoginState{Provider: provider, ProviderState: providerState})
 	if err != nil {
-		return "", fmt.Errorf("auth: encoding login state: %w", err)
+		return fmt.Errorf("auth: encoding login state: %w", err)
 	}
 	if err := s.rdb.Set(ctx, loginStateKey(token), payload, s.ttl).Err(); err != nil {
-		return "", fmt.Errorf("auth: storing login state: %w", err)
+		return fmt.Errorf("auth: storing login state: %w", err)
 	}
-	return token, nil
+	return nil
 }
 
 // Consume fetches and DELETES the state in one round trip, so a state is usable exactly once.

@@ -244,8 +244,14 @@ func (x *AuthenticateRequest) GetSecret() string {
 }
 
 type BeginRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RedirectUri   string                 `protobuf:"bytes,1,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	RedirectUri string                 `protobuf:"bytes,1,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"` // host's callback URL
+	// The CSRF state the HOST minted for this login. The plugin MUST use it verbatim as the
+	// authorize URL's `state` parameter, so the value the identity provider echoes back is the
+	// one the host can verify. The host checks the returned URL and refuses a login whose state
+	// is missing or different — a provider-chosen state would put CSRF protection inside the
+	// component the auth return-path contract says not to trust.
+	State         string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -287,10 +293,20 @@ func (x *BeginRequest) GetRedirectUri() string {
 	return ""
 }
 
+func (x *BeginRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
 type BeginResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AuthorizeUrl  string                 `protobuf:"bytes,1,opt,name=authorize_url,json=authorizeUrl,proto3" json:"authorize_url,omitempty"`
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	AuthorizeUrl string                 `protobuf:"bytes,1,opt,name=authorize_url,json=authorizeUrl,proto3" json:"authorize_url,omitempty"`
+	// The plugin's OWN opaque round-trip data (e.g. a PKCE verifier and nonce). The host stores
+	// it with the login and hands it back to Complete; it is never the CSRF state and never
+	// reaches the browser or the identity provider.
+	State         string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -976,9 +992,10 @@ const file_plugin_proto_rawDesc = "" +
 	"\n" +
 	"identifier\x18\x01 \x01(\tR\n" +
 	"identifier\x12\x16\n" +
-	"\x06secret\x18\x02 \x01(\tR\x06secret\"1\n" +
+	"\x06secret\x18\x02 \x01(\tR\x06secret\"G\n" +
 	"\fBeginRequest\x12!\n" +
-	"\fredirect_uri\x18\x01 \x01(\tR\vredirectUri\"J\n" +
+	"\fredirect_uri\x18\x01 \x01(\tR\vredirectUri\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\"J\n" +
 	"\rBeginResponse\x12#\n" +
 	"\rauthorize_url\x18\x01 \x01(\tR\fauthorizeUrl\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\"\xa8\x01\n" +

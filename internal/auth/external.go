@@ -45,8 +45,10 @@ import (
 // the state, issues the session, and maps the returned identity to a local user through Resolve.
 // The provider's job is only to talk to its identity source.
 type RedirectProvider interface {
-	// Begin returns the URL to send the browser to, plus the provider's own state value.
-	Begin(ctx context.Context, redirectURI string) (authorizeURL, state string, err error)
+	// Begin returns the URL to send the browser to, plus the provider's own round-trip value.
+	// hostState is the CSRF state the core minted; the provider must place it in the authorize
+	// URL unchanged, and the caller verifies that it did.
+	Begin(ctx context.Context, hostState, redirectURI string) (authorizeURL, providerState string, err error)
 	// Complete exchanges the callback parameters for an asserted identity.
 	Complete(ctx context.Context, state string, params map[string]string) (ExternalIdentity, error)
 }

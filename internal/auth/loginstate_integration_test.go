@@ -18,9 +18,12 @@ func TestLoginStateIsSingleUse(t *testing.T) {
 	store := auth.NewLoginStateStore(rdb, auth.LoginStateTTL)
 	ctx := context.Background()
 
-	token, err := store.Create(ctx, "oidc", "provider-side-state")
+	token, err := store.Mint()
 	if err != nil {
-		t.Fatalf("create: %v", err)
+		t.Fatalf("mint: %v", err)
+	}
+	if err := store.Store(ctx, token, "oidc", "provider-side-state"); err != nil {
+		t.Fatalf("store: %v", err)
 	}
 
 	got, err := store.Consume(ctx, token)
@@ -56,13 +59,19 @@ func TestLoginStatesAreIndependent(t *testing.T) {
 	store := auth.NewLoginStateStore(rdb, auth.LoginStateTTL)
 	ctx := context.Background()
 
-	a, err := store.Create(ctx, "oidc", "a")
+	a, err := store.Mint()
 	if err != nil {
-		t.Fatalf("create a: %v", err)
+		t.Fatalf("mint a: %v", err)
 	}
-	b, err := store.Create(ctx, "oidc", "b")
+	if err := store.Store(ctx, a, "oidc", "a"); err != nil {
+		t.Fatalf("store a: %v", err)
+	}
+	b, err := store.Mint()
 	if err != nil {
-		t.Fatalf("create b: %v", err)
+		t.Fatalf("mint b: %v", err)
+	}
+	if err := store.Store(ctx, b, "oidc", "b"); err != nil {
+		t.Fatalf("store b: %v", err)
 	}
 	if a == b {
 		t.Fatal("two logins received the same state token")

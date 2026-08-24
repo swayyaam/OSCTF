@@ -19,6 +19,7 @@ import { AdminInstancesPage } from "./pages/admin/AdminInstancesPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminTeamsPage } from "./pages/admin/AdminTeamsPage";
 import { AdminSubmissionsPage } from "./pages/admin/AdminSubmissionsPage";
+import { AdminPluginsPage } from "./pages/admin/AdminPluginsPage";
 
 export const router = createBrowserRouter([
   {
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
           { path: "/admin/users", element: <AdminUsersPage /> },
           { path: "/admin/teams", element: <AdminTeamsPage /> },
           { path: "/admin/submissions", element: <AdminSubmissionsPage /> },
+          { path: "/admin/plugins", element: <AdminPluginsPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

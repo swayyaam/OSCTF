@@ -245,3 +245,45 @@ export function useSubmitFlag(slug: string) {
     },
   });
 }
+
+/**
+ * API tokens for the signed-in user. The plaintext is returned ONCE, by create, and never
+ * appears in this list — the server stores only a hash, so a token that is lost is revoked and
+ * replaced, not recovered.
+ */
+export function useTokens() {
+  return useQuery({
+    queryKey: queryKeys.tokens,
+    queryFn: () => unwrap<Schemas["Token"][]>(api.GET("/tokens")),
+  });
+}
+
+export function useCreateToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas["TokenCreate"]) =>
+      unwrap<Schemas["TokenCreated"]>(api.POST("/tokens", { body })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: queryKeys.tokens }); },
+  });
+}
+
+export function useRevokeToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.DELETE("/tokens/{id}", { params: { path: { id } } })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: queryKeys.tokens }); },
+  });
+}
+
+/**
+ * The login methods this deployment offers. Public, and deliberately consulted before rendering
+ * the login form: a deployment with email login disabled must not show a form that returns 403.
+ */
+export function useAuthProviders() {
+  return useQuery({
+    queryKey: queryKeys.authProviders,
+    queryFn: () => unwrap<Schemas["AuthProviderInfo"][]>(api.GET("/auth/providers")),
+    staleTime: 60_000,
+  });
+}

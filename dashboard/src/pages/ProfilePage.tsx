@@ -5,6 +5,7 @@ import { useToast } from "../components/ui/toast";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card, FieldError, Label } from "../components/ui/misc";
+import { TokensSection } from "../components/TokensSection";
 
 export function ProfilePage() {
   const { data: me } = useMe();
@@ -68,6 +69,8 @@ export function ProfilePage() {
           </Button>
         </form>
       </Card>
+
+      <TokensSection />
     </div>
   );
 }

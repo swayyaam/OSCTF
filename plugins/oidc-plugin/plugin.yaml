@@ -1,0 +1,22 @@
+name: oidc
+type: auth
+abi: "1.1"
+version: "0.1.0"
+executable: oidc
+description: OpenID Connect / OAuth2 login (authorization code + PKCE) against any OIDC issuer.
+
+config:
+  issuer:
+    type: string
+    required: true
+  client_id:
+    type: string
+    required: true
+  client_secret:
+    type: string
+    required: true
+    secret: true
+  scopes:
+    type: string
+    required: false
+    default: ""

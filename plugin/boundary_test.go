@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -82,5 +83,71 @@ func TestPluginPackagesDoNotImportInternal(t *testing.T) {
 			"Every plugin in existence inherits these imports, in its build AND its test build:\n  %s\n"+
 			"Move what is needed into a public leaf (see plugin/abi and plugin/eventkeys).",
 			allowedInternal, strings.Join(violations, "\n  "))
+	}
+}
+
+// The other half of the boundary, now that the reference plugins are vendored into this repo at
+// plugins/ (they live here only until the org exists; see the Decision log in
+// docs/v0.3/05-first-party-plugins.md).
+//
+// A plugin sitting in the same tree as core can be made to build against the LOCAL sources in two
+// ways, and both would make the exit gate meaningless while still passing it: a `replace` pointing
+// at the platform, or a go.work file that stitches the modules together implicitly. Either one and
+// the plugin no longer proves the published SDK is complete — it proves only that this working
+// copy compiles, which is the exact failure the exit criterion exists to catch.
+//
+// So both are refused here. The gate itself is still run from an out-of-tree copy; this is what
+// stops the vendored copies quietly drifting into a state where that gate would pass for the wrong
+// reason.
+func TestVendoredPluginsDoNotShortCircuitTheExitGate(t *testing.T) {
+	root := filepath.Join("..", "plugins")
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		t.Skip("no vendored plugins in this checkout")
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("reading %s: %v", root, err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		gomod := filepath.Join(root, e.Name(), "go.mod")
+		b, rerr := os.ReadFile(gomod)
+		if os.IsNotExist(rerr) {
+			continue
+		}
+		if rerr != nil {
+			t.Errorf("reading %s: %v", gomod, rerr)
+			continue
+		}
+		checked++
+		for _, line := range strings.Split(string(b), "\n") {
+			l := strings.TrimSpace(line)
+			if !strings.HasPrefix(l, "replace") {
+				continue
+			}
+			if strings.Contains(l, "github.com/swayyaam/OSCTF") {
+				t.Errorf("%s has a replace of the platform:\n  %s\n"+
+					"A vendored plugin that builds against the local tree proves nothing about the "+
+					"PUBLISHED SDK, which is the whole point of the exit gate. Pin a published "+
+					"version instead.", gomod, l)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Error("no plugin go.mod files were checked — the guard is not actually guarding anything")
+	}
+
+	// A go.work would satisfy every plugin's imports from this tree, silently, with no replace
+	// line to notice.
+	for _, name := range []string{"go.work", "go.work.sum"} {
+		if _, err := os.Stat(filepath.Join("..", name)); err == nil {
+			t.Errorf("%s exists at the repo root: it would resolve the plugins' platform import "+
+				"from the local tree, and the exit gate would pass without proving the published "+
+				"SDK is usable", name)
+		}
 	}
 }

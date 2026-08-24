@@ -1,0 +1,4 @@
+# Built plugin binary + package output
+/my-plugin
+/dist/
+*.test

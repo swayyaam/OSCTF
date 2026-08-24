@@ -1,0 +1,14 @@
+# Webhook notification plugin manifest.
+
+name: webhook
+type: notification
+abi: "1.0"
+version: "0.1.0"
+executable: webhook
+description: Posts each subscribed event to an HTTP webhook as JSON.
+
+config:
+  webhook_url:
+    type: string
+    required: true
+    secret: true   # the URL may embed a token, so it resolves from the environment only

@@ -140,12 +140,34 @@ express it, the interface is what gets fixed ([`../project-desc.md`](../project-
   only in letter, since the SDK broke it underneath the plugin. The event-name/field contract
   moved to `plugin/eventkeys` for the same reason.
 
-- **Each reference plugin lives in its own repo, not in a `plugins/` directory here.** An
-  in-tree plugin can reach core sources on disk and can lean on a `replace` directive, so it
-  would build even if the published SDK were incomplete — the exact failure the exit criterion
-  is designed to detect. Out-of-repo, the only way it builds is against the SDK as an author
-  actually consumes it. Consequence: there is no `scripts/build-plugins.sh`, and each repo runs
-  its own contract test via `plugin/sdk/contract`.
+- **Each reference plugin is its own MODULE. They are vendored under `plugins/` for now, and
+  will move to their own repositories once the org exists.** The original decision was
+  out-of-repo from the start, for a real reason: an in-tree plugin can reach core sources on
+  disk and can lean on a `replace`, so it would build even if the published SDK were
+  incomplete — the exact failure the exit criterion is designed to detect. That reason has not
+  gone away. What changed is that the previous org became inaccessible, so "its own repo" had
+  nowhere to be, and the alternative was five plugins existing only on one laptop.
+
+  The property is therefore preserved by construction rather than by geography, and each part
+  is enforced, because a rule that depends on nobody making a convenient change is not a rule:
+
+  1. Each plugin is a **separate Go module** whose path is
+     `github.com/swayyaam/OSCTF/plugins/<name>`, so it is independently fetchable and is NOT
+     part of the platform module (`go build ./...` at the root does not see it).
+  2. It depends on the platform through a **published version**, never a `replace`. Until
+     `v0.3.0` is tagged that is a pseudo-version of a pushed commit — genuinely published and
+     fetched through the proxy, and re-pinned to the tag at release.
+  3. **No `go.work`, ever.** A workspace file would resolve every plugin's platform import from
+     this tree, silently, with no `replace` line to notice.
+  4. The **exit gate still runs from an out-of-tree copy**, so what it proves is unchanged: the
+     published SDK is complete enough to build a plugin with no core source on disk.
+  5. `plugin.TestVendoredPluginsDoNotShortCircuitTheExitGate` fails the build if any plugin
+     `go.mod` gains a platform `replace`, or if a `go.work` appears at the root. Both were
+     bite-verified by introducing them and watching it fail.
+
+  Consequence: there is still no `scripts/build-plugins.sh`, and each plugin still runs its own
+  contract test via `plugin/sdk/contract`. When the plugins move to their own repos, steps 1–3
+  are already true and the move is a `git filter-repo` plus a remote — not a redesign.
 
 - **One reference plugin per type, deliberately small.** They exist to prove the interface
   and seed the template, not to be feature-complete products (a full SSO suite is a

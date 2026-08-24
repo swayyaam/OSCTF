@@ -1,0 +1,17 @@
+# Build the plugin and run its contract test on every push. This IS the exit-gate check: it
+# builds against the PUBLISHED github.com/swayyaam/OSCTF/plugin/sdk via `go get`, with no replace
+# directive and no access to the platform source tree — exactly what an outside author has.
+name: plugin
+on:
+  push:
+  pull_request:
+jobs:
+  build-and-contract-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build -o first-blood .
+      - run: go test ./...

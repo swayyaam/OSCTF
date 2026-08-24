@@ -1,0 +1,16 @@
+# The plugin manifest. The host reads this to load and register your plugin. It is parsed STRICTLY —
+# an unknown key is an error, not a silent no-op. `name` and `type` must match the code.
+
+name: regex-flag         # the registry key the host uses (kebab-case)
+type: challenge_type     # this plugin decides correctness via CheckFlag
+abi: "1.0"               # the OSCTF plugin ABI (major.minor) this plugin targets — see README
+version: "0.1.0"         # this plugin's own version
+executable: regex-flag   # the built binary's filename (matches the Makefile `build` target)
+description: >
+  Decides flag correctness by matching a submission against a per-challenge regular expression
+  (the "pattern" key of the challenge's type_config, validated at author time).
+
+# NO `config:` block. `config:` declares PER-DEPLOYMENT config (one set of values for the whole
+# plugin, read via sdk.Config). This plugin's pattern is PER-CHALLENGE — the challenge author sets
+# it in the challenge's type_config, the host validates it against ValidateConfig, and passes it to
+# CheckFlag. One instance of this plugin serves every regex challenge, each with its own pattern.

@@ -1,0 +1,28 @@
+module github.com/swayyaam/OSCTF/plugins/oidc-plugin
+
+go 1.26.4
+
+require (
+	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/swayyaam/OSCTF v0.3.0-rc.1.0.20260824214752-c28e9d02c293
+	golang.org/x/oauth2 v0.36.0
+)
+
+require (
+	github.com/fatih/color v1.19.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/hashicorp/go-hclog v1.6.3 // indirect
+	github.com/hashicorp/go-plugin v1.8.0 // indirect
+	github.com/hashicorp/yamux v0.1.2 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/oklog/run v1.1.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/grpc v1.81.1 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
+)
+

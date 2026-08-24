@@ -1,0 +1,10 @@
+# e2e overlay: build the platform image's `e2e` stage, which is the production image plus one
+# stub auth plugin. Used by `make ci-e2e` so the browser suite can exercise the plugin surfaces
+# against a genuinely loaded plugin rather than an empty list.
+#
+# Everything else — Postgres, Redis, MinIO, the challenge runtime — is the normal stack.
+services:
+  platform:
+    build:
+      context: .
+      target: e2e

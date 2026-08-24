@@ -1,0 +1,12 @@
+# Manifest for the stub auth plugin loaded ONLY by the e2e stack (docker-compose.e2e.yml).
+# It is the contract kit's example redirect plugin, which asserts an identity without talking to a
+# real identity provider — enough to prove the whole chain the browser can see: the plugin loads,
+# registers, appears in the admin Plugins page, and produces a login button on the login page.
+#
+# It is NOT in the production image. See the `e2e` stage in the Dockerfile.
+name: example-oidc
+type: auth
+abi: "1.1"
+version: "0.1.0"
+executable: example-oidc
+description: Stub redirect auth provider used by the browser e2e suite.

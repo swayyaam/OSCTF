@@ -321,6 +321,7 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return fmt.Errorf("OSCTF_AUTH_PROVISION: %w", err)
 	}
 	externalAuth := auth.NewExternalResolver(q, provisionPolicy, log)
+	loginStates := auth.NewLoginStateStore(rdb, auth.LoginStateTTL)
 
 	// Plugin loader: consumes the plugin share of the fd budget derived above. Boot (orphan
 	// sweep → discover → launch) runs in a goroutine so a slow sweep or a plugin that never
@@ -414,8 +415,25 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	// Refuse to boot with no way to log in: email login disabled and no other provider
 	// registered. Booting a login-less deployment is worse than failing loudly here.
+	// Refuse to boot with no way to log in. Plugin providers register ASYNCHRONOUSLY (Boot runs
+	// in a goroutine so the core serves whether or not plugins come up), so at this point none has
+	// registered yet and HasUsableLogin alone would refuse every SSO-only deployment on a timing
+	// artifact. Gate on what is configured ON DISK instead: nothing configured is a real
+	// misconfiguration worth refusing; a plugin still launching is normal.
+	//
+	// A configured auth plugin that then fails to load leaves the deployment without a login. That
+	// is loud, not silent — the failure is logged and the plugin shows as failed in the admin view.
 	if !authRegistry.HasUsableLogin(cfg.AuthEmailLogin) {
-		return fmt.Errorf("no login method available: OSCTF_AUTH_EMAIL_LOGIN=false and no auth provider is registered — enable email login or register a provider")
+		configured := 0
+		if cfg.PluginsEnabled {
+			configured = plugin.CountByType(cfg.PluginsDir, "auth", log)
+		}
+		if configured == 0 {
+			return fmt.Errorf("no login method available: OSCTF_AUTH_EMAIL_LOGIN=false, and no auth plugin is installed in %s — enable email login or install an auth plugin", cfg.PluginsDir)
+		}
+		log.Warn("email/password login is disabled; this deployment depends entirely on its auth plugin(s). "+
+			"If they fail to load, nobody can log in — keep a break-glass path (re-enable OSCTF_AUTH_EMAIL_LOGIN).",
+			"auth_plugins_installed", configured)
 	}
 
 	h := handlers.New(handlers.Deps{
@@ -439,6 +457,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			}
 		},
 		Auth:               authRegistry,
+		ExternalAuth:       externalAuth,
+		LoginStates:        loginStates,
+		BaseURL:            cfg.BaseURL,
 		EmailLoginDisabled: !cfg.AuthEmailLogin,
 		Sessions:           sessions,
 		Tokens:             tokenSvc,

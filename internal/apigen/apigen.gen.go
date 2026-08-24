@@ -230,6 +230,15 @@ type AttachmentAdmin struct {
 	SizeBytes int64 `json:"size_bytes"`
 }
 
+// AuthProviderInfo One login method this deployment offers.
+type AuthProviderInfo struct {
+	// Id Provider id, used in the login/callback paths (e.g. `email`, `oidc`).
+	Id string `json:"id"`
+
+	// Redirect True when logging in means being redirected to the provider (start at `/auth/{provider}/login`). False for the built-in credential form.
+	Redirect bool `json:"redirect"`
+}
+
 // Category Challenge category.
 type Category string
 
@@ -1285,6 +1294,9 @@ type Page = int
 // PerPage defines model for PerPage.
 type PerPage = int
 
+// ProviderPath defines model for ProviderPath.
+type ProviderPath = string
+
 // Query defines model for Query.
 type Query = string
 
@@ -1299,6 +1311,9 @@ type Forbidden = Problem
 
 // NotFound RFC 9457 problem details.
 type NotFound = Problem
+
+// ProviderUnavailable RFC 9457 problem details.
+type ProviderUnavailable = Problem
 
 // RateLimited RFC 9457 problem details.
 type RateLimited = Problem
@@ -1554,9 +1569,18 @@ type ServerInterface interface {
 	// Change password
 	// (PATCH /auth/me/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request)
+	// List available login providers
+	// (GET /auth/providers)
+	ListAuthProviders(w http.ResponseWriter, r *http.Request)
 	// Register a new account
 	// (POST /auth/register)
 	Register(w http.ResponseWriter, r *http.Request)
+	// Complete an external login
+	// (GET /auth/{provider}/callback)
+	CompleteProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath)
+	// Start an external login
+	// (GET /auth/{provider}/login)
+	BeginProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath)
 	// Challenge board
 	// (GET /challenges)
 	ListChallenges(w http.ResponseWriter, r *http.Request)
@@ -1803,9 +1827,27 @@ func (_ Unimplemented) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List available login providers
+// (GET /auth/providers)
+func (_ Unimplemented) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Register a new account
 // (POST /auth/register)
 func (_ Unimplemented) Register(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Complete an external login
+// (GET /auth/{provider}/callback)
+func (_ Unimplemented) CompleteProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start an external login
+// (GET /auth/{provider}/login)
+func (_ Unimplemented) BeginProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3003,11 +3045,75 @@ func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListAuthProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Register operation middleware
 func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Register(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteProviderLogin operation middleware
+func (siw *ServerInterfaceWrapper) CompleteProviderLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "provider" -------------
+	var provider ProviderPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteProviderLogin(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BeginProviderLogin operation middleware
+func (siw *ServerInterfaceWrapper) BeginProviderLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "provider" -------------
+	var provider ProviderPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BeginProviderLogin(w, r, provider)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3751,7 +3857,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/auth/me/password", wrapper.ChangePassword)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/providers", wrapper.ListAuthProviders)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/register", wrapper.Register)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/{provider}/callback", wrapper.CompleteProviderLogin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/{provider}/login", wrapper.BeginProviderLogin)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/challenges", wrapper.ListChallenges)
@@ -3822,6 +3937,8 @@ type ConflictApplicationProblemPlusJSONResponse Problem
 type ForbiddenApplicationProblemPlusJSONResponse Problem
 
 type NotFoundApplicationProblemPlusJSONResponse Problem
+
+type ProviderUnavailableApplicationProblemPlusJSONResponse Problem
 
 type RateLimitedResponseHeaders struct {
 	RetryAfter int
@@ -5366,6 +5483,22 @@ func (response ChangePassword422ApplicationProblemPlusJSONResponse) VisitChangeP
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListAuthProvidersRequestObject struct {
+}
+
+type ListAuthProvidersResponseObject interface {
+	VisitListAuthProvidersResponse(w http.ResponseWriter) error
+}
+
+type ListAuthProviders200JSONResponse []AuthProviderInfo
+
+func (response ListAuthProviders200JSONResponse) VisitListAuthProvidersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type RegisterRequestObject struct {
 	Body *RegisterJSONRequestBody
 }
@@ -5426,6 +5559,72 @@ func (response Register429ApplicationProblemPlusJSONResponse) VisitRegisterRespo
 	w.WriteHeader(429)
 
 	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CompleteProviderLoginRequestObject struct {
+	Provider ProviderPath `json:"provider"`
+}
+
+type CompleteProviderLoginResponseObject interface {
+	VisitCompleteProviderLoginResponse(w http.ResponseWriter) error
+}
+
+type CompleteProviderLogin302ResponseHeaders struct {
+	Location string
+}
+
+type CompleteProviderLogin302Response struct {
+	Headers CompleteProviderLogin302ResponseHeaders
+}
+
+func (response CompleteProviderLogin302Response) VisitCompleteProviderLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(302)
+	return nil
+}
+
+type BeginProviderLoginRequestObject struct {
+	Provider ProviderPath `json:"provider"`
+}
+
+type BeginProviderLoginResponseObject interface {
+	VisitBeginProviderLoginResponse(w http.ResponseWriter) error
+}
+
+type BeginProviderLogin302ResponseHeaders struct {
+	Location string
+}
+
+type BeginProviderLogin302Response struct {
+	Headers BeginProviderLogin302ResponseHeaders
+}
+
+func (response BeginProviderLogin302Response) VisitBeginProviderLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(302)
+	return nil
+}
+
+type BeginProviderLogin404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response BeginProviderLogin404ApplicationProblemPlusJSONResponse) VisitBeginProviderLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type BeginProviderLogin503ApplicationProblemPlusJSONResponse struct {
+	ProviderUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response BeginProviderLogin503ApplicationProblemPlusJSONResponse) VisitBeginProviderLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListChallengesRequestObject struct {
@@ -6479,9 +6678,18 @@ type StrictServerInterface interface {
 	// Change password
 	// (PATCH /auth/me/password)
 	ChangePassword(ctx context.Context, request ChangePasswordRequestObject) (ChangePasswordResponseObject, error)
+	// List available login providers
+	// (GET /auth/providers)
+	ListAuthProviders(ctx context.Context, request ListAuthProvidersRequestObject) (ListAuthProvidersResponseObject, error)
 	// Register a new account
 	// (POST /auth/register)
 	Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error)
+	// Complete an external login
+	// (GET /auth/{provider}/callback)
+	CompleteProviderLogin(ctx context.Context, request CompleteProviderLoginRequestObject) (CompleteProviderLoginResponseObject, error)
+	// Start an external login
+	// (GET /auth/{provider}/login)
+	BeginProviderLogin(ctx context.Context, request BeginProviderLoginRequestObject) (BeginProviderLoginResponseObject, error)
 	// Challenge board
 	// (GET /challenges)
 	ListChallenges(ctx context.Context, request ListChallengesRequestObject) (ListChallengesResponseObject, error)
@@ -7399,6 +7607,30 @@ func (sh *strictHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// ListAuthProviders operation middleware
+func (sh *strictHandler) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
+	var request ListAuthProvidersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAuthProviders(ctx, request.(ListAuthProvidersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAuthProviders")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAuthProvidersResponseObject); ok {
+		if err := validResponse.VisitListAuthProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Register operation middleware
 func (sh *strictHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var request RegisterRequestObject
@@ -7423,6 +7655,58 @@ func (sh *strictHandler) Register(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RegisterResponseObject); ok {
 		if err := validResponse.VisitRegisterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteProviderLogin operation middleware
+func (sh *strictHandler) CompleteProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath) {
+	var request CompleteProviderLoginRequestObject
+
+	request.Provider = provider
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteProviderLogin(ctx, request.(CompleteProviderLoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteProviderLogin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteProviderLoginResponseObject); ok {
+		if err := validResponse.VisitCompleteProviderLoginResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// BeginProviderLogin operation middleware
+func (sh *strictHandler) BeginProviderLogin(w http.ResponseWriter, r *http.Request, provider ProviderPath) {
+	var request BeginProviderLoginRequestObject
+
+	request.Provider = provider
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.BeginProviderLogin(ctx, request.(BeginProviderLoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BeginProviderLogin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(BeginProviderLoginResponseObject); ok {
+		if err := validResponse.VisitBeginProviderLoginResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

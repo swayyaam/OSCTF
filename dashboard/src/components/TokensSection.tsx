@@ -67,7 +67,10 @@ export function TokensSection() {
           <p className="mb-2 text-sm font-medium text-text">
             Copy this now — it is shown once and cannot be retrieved again.
           </p>
-          <code className="block break-all rounded bg-surface-2 p-2 font-mono text-sm text-text">
+          <code
+            data-testid="token-plaintext"
+            className="block break-all rounded bg-surface-2 p-2 font-mono text-sm text-text"
+          >
             {plaintext}
           </code>
         </div>

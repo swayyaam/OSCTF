@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
-	github.com/swayyaam/OSCTF v0.3.0-rc.1.0.20260824214752-c28e9d02c293
+	github.com/swayyaam/OSCTF v0.3.0
 	golang.org/x/oauth2 v0.36.0
 )
 
@@ -25,4 +25,3 @@ require (
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-

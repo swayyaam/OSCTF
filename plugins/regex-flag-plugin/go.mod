@@ -2,7 +2,7 @@ module github.com/swayyaam/OSCTF/plugins/regex-flag-plugin
 
 go 1.26.4
 
-require github.com/swayyaam/OSCTF v0.3.0-rc.1.0.20260824214752-c28e9d02c293
+require github.com/swayyaam/OSCTF v0.3.0
 
 require (
 	github.com/fatih/color v1.19.0 // indirect

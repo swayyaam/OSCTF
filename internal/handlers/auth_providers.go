@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -89,20 +90,31 @@ func (s *Server) BeginProviderLogin(ctx context.Context, request apigen.BeginPro
 		}
 	}
 
-	authorizeURL, providerState, err := rp.Begin(ctx, s.callbackURL(name))
+	// The state is minted BEFORE the provider is asked to build its URL, and handed to it, so the
+	// value the identity provider echoes back on the callback is the one the core chose. A
+	// provider-chosen state would put the CSRF protection inside the component the auth
+	// return-path contract says not to trust.
+	state, err := s.d.LoginStates.Mint()
+	if err != nil {
+		return nil, err
+	}
+	authorizeURL, providerState, err := rp.Begin(ctx, state, s.callbackURL(name))
 	if err != nil {
 		// No fallback to another provider: a broken provider is a failed login, not a redirect
 		// somewhere the user did not choose.
 		s.log().Warn("external login could not start", "provider", name, "error", err.Error())
 		return nil, &apperr.Unavailable{Detail: "the " + name + " login is unavailable right now"}
 	}
-	if authorizeURL == "" {
-		s.log().Warn("external login returned no authorize URL", "provider", name)
+	// Verify the provider actually used our state, rather than trusting it to. This makes "the
+	// core owns the state" enforced instead of documented: a plugin that substitutes its own
+	// value cannot start a login at all.
+	if err := authorizeURLCarriesState(authorizeURL, state); err != nil {
+		s.log().Warn("external login refused: provider did not use the host state",
+			"provider", name, "reason", err.Error())
 		return nil, &apperr.Unavailable{Detail: "the " + name + " login is unavailable right now"}
 	}
 
-	state, err := s.d.LoginStates.Create(ctx, name, providerState)
-	if err != nil {
+	if err := s.d.LoginStates.Store(ctx, state, name, providerState); err != nil {
 		return nil, err
 	}
 	s.setLoginStateCookie(ctx, state)
@@ -197,6 +209,26 @@ func (s *Server) CompleteProviderLogin(ctx context.Context, request apigen.Compl
 	return apigen.CompleteProviderLogin302Response{
 		Headers: apigen.CompleteProviderLogin302ResponseHeaders{Location: loginSuccessPath},
 	}, nil
+}
+
+// authorizeURLCarriesState checks that the provider embedded the host's state verbatim. An empty
+// URL, an unparseable one, or a different state are all refusals — the login cannot be verified
+// on the way back, so it must not start.
+func authorizeURLCarriesState(authorizeURL, want string) error {
+	if authorizeURL == "" {
+		return errors.New("provider returned no authorize URL")
+	}
+	u, err := url.Parse(authorizeURL)
+	if err != nil {
+		return errors.New("provider returned an unparseable authorize URL")
+	}
+	switch got := u.Query().Get("state"); {
+	case got == "":
+		return errors.New("authorize URL carries no state parameter")
+	case got != want:
+		return errors.New("authorize URL carries a different state than the host minted")
+	}
+	return nil
 }
 
 // callbackURL is the absolute redirect target handed to the provider. It is built from the

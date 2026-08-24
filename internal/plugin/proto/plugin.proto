@@ -55,9 +55,20 @@ message AuthenticateRequest {
   // Never the OSCTF password, a hash, or a token. See the trust model.
   string secret = 2;
 }
-message BeginRequest { string redirect_uri = 1; }          // host's callback URL
+message BeginRequest {
+  string redirect_uri = 1;  // host's callback URL
+  // The CSRF state the HOST minted for this login. The plugin MUST use it verbatim as the
+  // authorize URL's `state` parameter, so the value the identity provider echoes back is the
+  // one the host can verify. The host checks the returned URL and refuses a login whose state
+  // is missing or different — a provider-chosen state would put CSRF protection inside the
+  // component the auth return-path contract says not to trust.
+  string state = 2;
+}
 message BeginResponse {
   string authorize_url = 1;
+  // The plugin's OWN opaque round-trip data (e.g. a PKCE verifier and nonce). The host stores
+  // it with the login and hands it back to Complete; it is never the CSRF state and never
+  // reaches the browser or the identity provider.
   string state = 2;
 }
 message CompleteRequest {

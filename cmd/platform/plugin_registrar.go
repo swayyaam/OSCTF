@@ -354,10 +354,12 @@ func (p pluginAuthProvider) Authenticate(ctx context.Context, identifier, secret
 // puts it rather than being buried in an adapter.
 type pluginRedirectAuthProvider struct{ pluginAuthProvider }
 
-func (p pluginRedirectAuthProvider) Begin(ctx context.Context, redirectURI string) (string, string, error) {
+func (p pluginRedirectAuthProvider) Begin(ctx context.Context, hostState, redirectURI string) (string, string, error) {
 	var authorizeURL, state string
 	err := p.caller.Call(ctx, "Begin", func(ctx context.Context, client any) error {
-		resp, e := client.(pluginpb.AuthClient).Begin(ctx, &pluginpb.BeginRequest{RedirectUri: redirectURI})
+		resp, e := client.(pluginpb.AuthClient).Begin(ctx, &pluginpb.BeginRequest{
+			RedirectUri: redirectURI, State: hostState,
+		})
 		if e != nil {
 			return e
 		}

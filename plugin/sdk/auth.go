@@ -34,11 +34,15 @@ type Identity struct {
 	EmailVerified bool
 }
 
-// BeginRedirect is what a redirect-capability auth plugin returns to start an external login: the
-// URL to send the browser to, and an opaque state the host round-trips back to Complete.
+// BeginRedirect is what a redirect-capability auth plugin returns to start an external login.
 type BeginRedirect struct {
+	// AuthorizeURL is where the browser is sent. Its `state` query parameter MUST be the state
+	// the host passed to Begin, verbatim — the host verifies this and refuses the login otherwise.
 	AuthorizeURL string
-	State        string
+	// State is YOUR opaque round-trip data (a PKCE verifier, a nonce, whatever Complete needs).
+	// The host stores it and hands it back to Complete. It is NOT the CSRF state, it never
+	// reaches the browser, and it never goes to the identity provider.
+	State string
 }
 
 // PasswordAuth is the "password" capability: verify a submitted identifier/secret directly. An
@@ -56,7 +60,12 @@ type PasswordAuth interface {
 // Complete finishes it after the provider redirects back.
 type RedirectAuth interface {
 	Info() Info
-	Begin(redirectURI string) (BeginRedirect, error)
+	// Begin starts an external login. `state` is minted by the HOST and must be used verbatim as
+	// the authorize URL's `state` parameter; do not generate your own. `redirectURI` is the host
+	// callback to register with the provider.
+	Begin(state, redirectURI string) (BeginRedirect, error)
+	// Complete finishes the login. `state` is the opaque value YOU returned from Begin
+	// (BeginRedirect.State), not the CSRF state; `params` are the callback query parameters.
 	Complete(state string, params map[string]string) (Identity, error)
 }
 
@@ -109,7 +118,7 @@ func (a *authAdapter) Begin(_ context.Context, req *pluginpb.BeginRequest) (*plu
 	if a.rd == nil {
 		return nil, status.Error(codes.Unimplemented, "this auth plugin does not support the redirect capability")
 	}
-	b, err := a.rd.Begin(req.GetRedirectUri())
+	b, err := a.rd.Begin(req.GetState(), req.GetRedirectUri())
 	if err != nil {
 		return nil, err
 	}

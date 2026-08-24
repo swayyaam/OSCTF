@@ -169,12 +169,14 @@ every push.
 hardened across **v0.2.1** (security), **v0.2.2** (concurrency), and **v0.2.3** (scoreboard
 consistency by construction).
 
-**In progress on `main` — v0.3:** the canonical **`/api/v1`** surface (with `/api/v0` kept as a
-deprecated alias) and the **out-of-process plugin system**. Built and verified in the diagrams
-above: the plugin **loader** (discovery, an 8-state supervisor, a two-level in-flight budget,
-ordered drain) and its **challenge-type**, **scoring**, and **notification** wiring. Remaining:
-**auth** plugins (redirect/OAuth), the first-party plugin set, and API v1's full stability
-guarantees. Specs: [`docs/v0.3/`](docs/v0.3/README.md) · [`docs/v0.3.1/`](docs/v0.3.1/README.md).
+**Shipped — v0.3 (plugin-first):** the canonical **`/api/v1`** surface (with `/api/v0` kept as a
+deprecated alias), scoped **API tokens**, and the **out-of-process plugin system** — a loader with
+an eight-state supervisor and ordered drain, a versioned gRPC ABI, and four extensible types
+(**auth**, **scoring**, **notification**, **challenge type**) each proven by a reference plugin in
+[`plugins/`](plugins/README.md). An auth plugin asserts an identity; the core decides what it may
+mean, and enforces that field by field. Specs: [`docs/v0.3/`](docs/v0.3/README.md).
+
+**Next — [v0.3.1](docs/v0.3.1/README.md):** the `osctf` CLI and an MCP server over API v1.
 There are no API stability promises before v1.0.
 
 **On the roadmap — AI-security challenges (design, not built).** A challenge family where the target

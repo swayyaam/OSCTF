@@ -3,7 +3,81 @@
 All notable changes to OSCTF are recorded here. Versions before v1.0 make no API
 stability promises (see [`docs/project-desc.md`](docs/project-desc.md)).
 
-## Unreleased
+## v0.3.0 — Plugin-first, and a stable API
+
+The version that makes **plugin-first** real. Until now every extensible interface had exactly
+one implementation compiled into the core. v0.3 adds an out-of-process **plugin loader**: a third
+party registers *additional* implementations — an OIDC login, a scoring curve, a Discord
+notifier, a new challenge type — as standalone executables the core discovers, launches,
+supervises, and calls over a versioned gRPC ABI. A plugin author edits nothing in core and opens
+no PR against it.
+
+**A no-plugin deployment behaves exactly as v0.2 did.** Plugins are strictly additive, the
+migrations are additive, and `/api/v0` keeps answering.
+
+### Added — API v1 and API tokens
+
+- **`/api/v1` is the canonical, semver-governed surface.** `/api/v0` remains as a deprecated
+  alias serving the identical handlers — there is no second handler set that could drift — and
+  carries `Deprecation`/`Sunset` headers (`OSCTF_V0_SUNSET`, default 2027-02-01).
+- **Scoped API tokens** for clients that are not a browser. Created and revoked through the API
+  and the profile page; the plaintext is shown once and only its hash is stored. Scope is
+  intersected with the owner's role, so an `admin` scope on a non-admin account grants nothing,
+  and revocation takes effect on the next request.
+- Every operation the dashboard performs is reachable with a token and **no session cookie** —
+  driven end to end and asserted request-by-request by
+  `handlers.TestFullLifecycleOverBearerWithoutCookies`.
+
+### Added — the plugin system
+
+- **The loader**: discovery from a plugins directory, strict manifest parsing, an eight-state
+  supervisor with restart backoff and quarantine, a two-level in-flight budget, and a
+  cancel-then-kill drain. Boot is asynchronous — the core serves whether or not plugins come up.
+- **A versioned ABI (1.1)** over HashiCorp go-plugin. A major mismatch is refused at the
+  handshake; minor is forward-compatible. An `Info` cross-check at ready quarantines a
+  mispackaged manifest/binary pair at load rather than surfacing it mid-event.
+- **Four plugin types wired into real requests**: challenge-type (verdict computed *before* the
+  transaction, with deleted or swapped challenges failing closed inside the row lock), scoring
+  (locked at solve and recorded per solve, so the scoreboard stays recomputable with every plugin
+  down), notification (a non-blocking event bus with bounded queues where every drop is counted),
+  and auth.
+- **Per-challenge `type_config`**: author-time validation with per-field errors, normalized
+  storage, and the stored config passed to the plugin at submit.
+- **`POST /admin/plugins/{name}/reload`** hot-reloads one plugin. A failed reload is not
+  destructive: the old instance is retained and keeps serving.
+
+### Added — external login (auth plugins)
+
+- **`GET /auth/{provider}/login` and `/callback`**, provider-agnostic. The **core** owns the CSRF
+  state: it mints it, hands it to the provider, and refuses to start a login whose authorize URL
+  does not carry it verbatim. The state is single-use and bound to an `HttpOnly` cookie, so a
+  captured callback can neither be replayed nor replayed into someone else's browser.
+- **The auth return-path contract is enforced, not documented.** An auth plugin asserts an
+  identity; the core decides what it may mean. Provisioning always creates the **lowest role**; a
+  login attaches to an existing account only through a binding the core minted or an email the
+  provider says it **verified**; claims carrying `role`/`admin`/`user_id` are **rejected**, not
+  ignored; and a malformed claim fails closed. `OSCTF_AUTH_PROVISION` selects `invite-only`
+  (default), `open`, or `off`.
+- **`GET /auth/providers`** lists the available login methods, so a client only offers a button
+  for a provider whose plugin is actually loaded.
+- The **`password` capability is surfaced loudly at load**: such a plugin receives the plaintext
+  credential a user typed, which users reuse elsewhere. Trusting one is a decision on the level
+  of trusting the core binary.
+
+### Added — the author kit and reference plugins
+
+- **`plugin/sdk`** (author surface), **`plugin/abi`** (the shared ABI), and
+  **`plugin/sdk/contract`** — `VerifyScoring`, `VerifyNotification`, `VerifyChallengeType`,
+  `VerifyAuth` — which boot a built plugin through the real loader and assert the contract.
+- **Five reference plugins** under `plugins/`, each its own module: a template, `first-blood`
+  (scoring), `webhook` (notification), `regex-flag` (challenge type), and `oidc` (auth).
+- The **exit gate** — build a plugin from a clean checkout, against the published SDK, with no
+  `replace` and no core source on disk — passes for all five.
+
+### Added — dashboard
+
+An admin **Plugins** page (state, quarantine reason, reload), an **API tokens** section in the
+profile, and **provider login buttons** rendered from the live provider list.
 
 ### Security & hardening (v0.3 line)
 
@@ -54,6 +128,28 @@ backported to **v0.2.4** (below) because they affect released versions.
   [`THREAT_MODEL.md`](THREAT_MODEL.md) §7; the ABI extension it requires (additive, capability-gated,
   ABI-minor) in [`docs/v0.3/02-plugin-abi.md`](docs/v0.3/02-plugin-abi.md). **No code — a design, not
   shipped functionality.**
+
+### Upgrade notes
+
+- **No action required for a deployment running no plugins.** Migrations 0009 and earlier in this
+  line are additive; existing rows are untouched. `/api/v0` keeps answering, so the shipped
+  dashboard and any existing client keep working.
+- **New configuration** is documented in `.env.example` — the plugin loader's budgets and
+  timings, the API-token TTLs and rate budget, `OSCTF_AUTH_PROVISION`, and `OSCTF_V0_SUNSET`.
+  Every one has a working default.
+- **If you enable plugins**, mount `OSCTF_PLUGINS_DIR` **read-only** to the platform process. A
+  writable plugins directory lets a compromised core drop a binary for the next boot to launch as
+  the platform; the loader now detects and warns about this at startup.
+- **Point `OSCTF_PLUGINS_DIR` at a deployment directory, not at this repository's `plugins/`.**
+  That directory holds the reference plugins' *source*; their executables are build outputs, so
+  the loader would discover five plugins and quarantine every one.
+- **Plan the `/api/v0` removal.** It is a deprecated alias and its `Sunset` header advertises a
+  date. New clients should target `/api/v1`.
+- **Installing an auth plugin is a trust decision on the level of replacing the core binary.**
+  The return-path checks bound the blast radius — a hostile provider still cannot grant admin,
+  take over an account without a binding the core minted, or write roles — but an auth plugin
+  sits inside the authentication trust boundary, and one with the `password` capability receives
+  the plaintext credentials your users type.
 
 ## v0.2.4 — Redis-unavailability hardening
 

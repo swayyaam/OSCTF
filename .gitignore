@@ -33,8 +33,3 @@ internal/webdist/static/
 # Build artifacts
 dist/
 tmp/
-
-# Plugin working copies. Each plugin is its own repository — an in-tree plugin could
-# reach core sources and lean on a `replace`, which is exactly what the v0.3 exit
-# criterion exists to catch (docs/v0.3/05-first-party-plugins.md, Decision log).
-plugins/

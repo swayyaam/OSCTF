@@ -1,0 +1,9 @@
+# First-blood scoring plugin manifest. No config block: this scoring policy is pure — its only
+# inputs are the Score the host passes (initial/min/decay/solves), so there is nothing to configure.
+
+name: first-blood
+type: scoring
+abi: "1.0"
+version: "0.1.0"
+executable: first-blood
+description: A first-blood bonus — the first solver locks in a bonus; everyone after decays.

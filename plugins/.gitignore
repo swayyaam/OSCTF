@@ -1,0 +1,13 @@
+# Built plugin artifacts. Each plugin's Makefile builds its binary to the plugin directory and
+# packages into dist/; both are outputs, not sources. Committing them would put ~20MB of
+# platform-specific binary per plugin into the history — and a stale one would be worse than
+# none, since `make package` copies whatever is there.
+dist/
+*/dist/
+
+# The built binaries, by the executable name each plugin's manifest declares.
+/webhook-plugin/webhook
+/first-blood-plugin/first-blood
+/regex-flag-plugin/regex-flag
+/oidc-plugin/oidc
+/plugin-template/my-plugin

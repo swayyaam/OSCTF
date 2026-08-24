@@ -1,0 +1,21 @@
+# The plugin manifest. The host reads this to load and register your plugin. It is parsed
+# STRICTLY — an unknown key is an error, not a silent no-op — so keep the keys below.
+# `name` and `type` must match your code.
+
+name: my-plugin          # kebab-case: ^[a-z0-9]+(-[a-z0-9]+)*$ — the registry key the host uses
+type: scoring            # one of: scoring | notification | challenge_type | auth
+abi: "1.0"               # the OSCTF plugin ABI (major.minor) this plugin targets — see README
+version: "0.1.0"         # your plugin's own version
+executable: my-plugin    # the built binary's filename (matches the Makefile `build` target)
+description: A scoring plugin built from the OSCTF plugin template.
+
+# Optional typed config the host validates and passes to your plugin at load time. Example:
+#
+# config:
+#   step:
+#     type: int          # string | int | bool
+#     required: false
+#     default: "50"
+#   api_token:
+#     type: string
+#     secret: true       # secret keys resolve from the ENVIRONMENT only, never from this file

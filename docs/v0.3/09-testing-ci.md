@@ -8,8 +8,19 @@ entire v0.2 suite unchanged**, and `/api/v0` keeps answering. Baselines:
 
 Existing jobs: `generate-drift`, `api-lint`, `api-test`, `api-integration`, `web`, `image`,
 `smoke`, `e2e`. v0.3 extends `generate-drift` (now also the plugin **proto**), `api-test`/
-`api-integration` (loader, tokens, event bus, registries), adds a **`plugins`** job, and
-extends `smoke`/`e2e` with plugin + token + v1 coverage. (The **`cli`** job — CLI golden
+`api-integration` (loader, tokens, event bus, registries), and extends `smoke`/`e2e` with
+plugin + token + v1 coverage.
+
+> **No separate `plugins` job — and why.** This doc originally added one, because the
+> first-party plugins were expected to live in-tree. They do not: each reference plugin is its
+> own repository ([`05-first-party-plugins.md`](05-first-party-plugins.md)), so its contract
+> test runs in ITS CI, against the published SDK — which is the stronger check, since a plugin
+> built inside this repo could lean on core sources and hide exactly the gaps the exit criterion
+> exists to catch. What the platform owes CI is that the AUTHOR SURFACE works, and that runs in
+> `api-test`: the contract harness builds an example plugin of each of the four types from
+> `plugin/sdk/contract/testdata` and verifies it through a real subprocess, plus a static
+> boundary check. Adding a job that re-ran the same tests under a different name would be
+> ceremony. (The **`cli`** job — CLI golden
 path + offline + MCP — ships with the CLI in [v0.3.1](../v0.3.1/03-testing-ci.md); the Go
 API-v1 *client* it depends on is generated there too.)
 
@@ -28,22 +39,33 @@ The **secret-leak scan** extends to token values and plugin config: a test greps
 API responses, logs, audit meta, and event payloads for token/secret patterns and fails on
 a hit.
 
-## Plugin contract tests (`plugins` job, real subprocess)
+## Plugin contract tests (`api-test`, real subprocess)
 
 The heart of the extensibility guarantee. A reusable **harness** (`plugin/plugintest`) boots
 a plugin **binary** through the real loader (go-plugin, real gRPC) and asserts its behaviour
 against the ABI — the same way the host will use it in production. Each first-party plugin
 ([`05-first-party-plugins.md`](05-first-party-plugins.md)) has a contract test:
 
-- `linear-decay`: score vectors match; determinism.
-- `webhook`: a `challenge.solved` event produces the expected POST to a local sink; a hung
-  sink still lets the (simulated) solve complete.
-- `regex-flag`: `ValidateConfig` rejects a bad regex; `CheckFlag` matches/rejects correctly.
-- `oidc`: `Begin`/`Complete` against a mock IdP (dex or a stub) yield a valid `Identity`.
+In-repo, one example plugin per type in `plugin/sdk/contract/testdata`, each built and driven
+through the real loader by `Verify*` — the same path an out-of-tree author takes, with no
+`internal/*` anywhere in the test file:
 
-Plus a **boundary test**: a static check that no plugin package imports
-`github.com/swayyaam/OSCTF/internal/*` (grep/`go list` in CI) — proving the plugin boundary
-is real. And an **isolation test**: kill a plugin process mid-call and assert the host maps
+- `examplescorer` (`VerifyScoring`): score vectors match; determinism.
+- `examplenotifier` (`VerifyNotification`): a subscribed event is delivered without a transport error.
+- `examplechecker` (`VerifyChallengeType`): `ValidateConfig` rejects bad config; `CheckFlag`
+  errors rather than returning false when it cannot decide.
+- `exampleauth` (`VerifyAuth`): the authorize URL carries the HOST's state verbatim; an
+  incompletable callback is refused rather than answered with an identity.
+
+Each reference plugin repo runs the same `Verify*` against its own binary in its own CI.
+
+Plus a **boundary test** (`plugin.TestPluginPackagesDoNotImportInternal`): a static check that
+no public plugin package imports `github.com/swayyaam/OSCTF/internal/*` except the generated
+`pluginpb`. It walks non-test sources only, because Go never compiles a dependency's test files
+— what an external module actually compiles is the boundary that matters. This is not
+hypothetical: `plugin/sdk` once imported the loader and the event package, so a hello-world
+plugin linked the Postgres driver and the Prometheus stack, and the rule was being honoured by
+the plugin repos while the SDK broke it underneath them. And an **isolation test**: kill a plugin process mid-call and assert the host maps
 it to 502, stays up, and restarts the plugin.
 
 **The loader concurrency & failure invariants** are pinned here too — each row of the

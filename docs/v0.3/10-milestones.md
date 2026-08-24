@@ -128,7 +128,9 @@ reload works.
 token management) added to the compose stack with `oidc` + `webhook` loaded; confirm all CI
 jobs green (drift incl. proto, lint, test, integration, **plugins**, web, image, smoke,
 e2e); update `CHANGELOG.md` (v0.3.0), `.env.example`, README/AGENTS, and the API stability
-policy in `info.description`. Tag `v0.3.0`. (The `cli` job ships with the CLI in
+policy in `info.description`. Tag `v0.3.0`. (There is no separate `plugins` CI job — the
+reference plugins live in their own repos and contract-test there; the platform's author-surface
+coverage runs in `api-test`. See [`09-testing-ci.md`](09-testing-ci.md).) (The `cli` job ships with the CLI in
 [v0.3.1](../v0.3.1/README.md).)
 
 **Acceptance**:

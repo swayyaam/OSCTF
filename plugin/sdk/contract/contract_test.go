@@ -45,3 +45,16 @@ func TestVerifyChallengeType_Example(t *testing.T) {
 		Undecidable:     []string{""},                                  // blank → CheckFlag errors (fail closed), not false
 	})
 }
+
+// The auth surface, end to end through the public API. This is what makes VerifyAuth itself
+// trustworthy: without an example plugin exercising it, the harness could pass everything or
+// nothing and no test would notice.
+func TestVerifyAuth_Example(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a plugin subprocess; skipped in -short")
+	}
+	bin := contract.Build(t, "testdata/exampleauth")
+	contract.VerifyAuth(t, bin, contract.AuthCases{
+		RedirectURI: "https://ctf.example.test/api/v1/auth/example-oidc/callback",
+	})
+}

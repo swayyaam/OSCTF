@@ -167,6 +167,17 @@ func (s *subscriber) run(deliverTimeout time.Duration) {
 		case <-s.ctx.Done():
 			return
 		case e := <-s.queue:
+			// A cancelled subscriber can still land HERE: select picks randomly among ready
+			// cases, so once teardown cancels s.ctx both branches are ready and this one may win
+			// repeatedly. Delivering is pointless (the delivery ctx derives from a dead parent)
+			// and the failure branch below deliberately ignores teardown errors — so without this
+			// check the event is consumed and NEVER counted, and remove()'s drain then finds an
+			// empty queue. Count it exactly as the drain would, so an event cannot vanish
+			// depending on which branch the scheduler picked.
+			if s.ctx.Err() != nil {
+				metrics.PluginEventsDropped.WithLabelValues(s.name, e.Name, "shutdown").Inc()
+				return // teardown: the rest of the queue is drained and counted by remove()
+			}
 			dctx, cancel := context.WithTimeout(s.ctx, deliverTimeout)
 			err := s.handler(dctx, e)
 			cancel()

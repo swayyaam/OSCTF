@@ -52,6 +52,16 @@ type Config struct {
 	// break-glass path (re-enable this via env in an emergency).
 	AuthEmailLogin bool `env:"OSCTF_AUTH_EMAIL_LOGIN" envDefault:"true"`
 
+	// AuthProvision is the provisioning policy for a first external (plugin) login that carries
+	// no existing binding: "open", "invite-only", or "off". Parsed at startup via
+	// auth.ParseProvisionPolicy, which rejects anything else rather than defaulting — guessing
+	// would choose a security posture for the operator.
+	//
+	// The default is invite-only: an external login attaches to an account an admin already
+	// created, and never creates one, so a compromised or careless provider cannot manufacture
+	// accounts. Set "open" for a public event where the identity provider is the front door.
+	AuthProvision string `env:"OSCTF_AUTH_PROVISION" envDefault:"invite-only"`
+
 	// Registration is unauthenticated, so its abuse limit can only key on the client IP
 	// -- and a venue is a hundred-plus players on one NAT registering in the first couple
 	// of minutes. The default is therefore generous per IP; tighten it for a public-

@@ -36,6 +36,21 @@ import (
 // It bounds the blast radius; it does not contain a hostile plugin. Installing one is an
 // operator trust decision on the level of replacing the core binary.
 
+// RedirectProvider is the optional capability for external (OAuth/OIDC) logins. A provider
+// implements it only if its plugin advertised the "redirect" capability, so a type assertion for
+// it is a real capability check rather than a hopeful one — a password-only provider does not
+// satisfy this interface at all.
+//
+// The core owns everything security-relevant around these two calls: it generates and verifies
+// the state, issues the session, and maps the returned identity to a local user through Resolve.
+// The provider's job is only to talk to its identity source.
+type RedirectProvider interface {
+	// Begin returns the URL to send the browser to, plus the provider's own state value.
+	Begin(ctx context.Context, redirectURI string) (authorizeURL, state string, err error)
+	// Complete exchanges the callback parameters for an asserted identity.
+	Complete(ctx context.Context, state string, params map[string]string) (ExternalIdentity, error)
+}
+
 // ProvisionPolicy governs what an external login may do when it carries no existing binding.
 // Every policy resolves an existing binding the same way; they differ only in whether an
 // unbound identity may attach to an account, and whether it may create one.

@@ -77,6 +77,31 @@ func (r *Registry) Register(name string, p AuthProvider, override bool) error {
 	return nil
 }
 
+// Deregister removes a plugin-registered provider, used on revert-before-death when its plugin
+// terminates. A protected built-in is NEVER removable: email/password is the break-glass path, and
+// a plugin dying must not be able to take it away. Removing an absent name is a no-op.
+//
+// Removal is fail-closed by construction: once the entry is gone, a login naming that provider
+// resolves nothing and is refused. There is no fallback to another provider — an auth fallback
+// would let a dying plugin silently redirect logins somewhere else.
+func (r *Registry) Deregister(name string) {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+
+	old := *r.m.Load()
+	e, exists := old[name]
+	if !exists || e.protected {
+		return
+	}
+	next := make(map[string]entry, len(old))
+	for k, v := range old {
+		if k != name {
+			next[k] = v
+		}
+	}
+	r.m.Store(&next)
+}
+
 // HasUsableLogin reports whether at least one login method is available, given the
 // email-login toggle: the built-in email/password path (if emailEnabled), or any
 // registered non-default provider (a redirect/SSO provider, arriving in P4). The platform

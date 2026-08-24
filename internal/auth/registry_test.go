@@ -146,3 +146,30 @@ func TestAuthRegistryReaderAtomicSwap(t *testing.T) {
 		t.Fatal("no reads happened — the contention test exercised nothing")
 	}
 }
+
+// Deregister is revert-before-death: a plugin's provider goes when its plugin does, and a login
+// naming it then resolves nothing. It must NEVER remove the protected built-in — email/password is
+// the break-glass path, and a dying plugin taking it away would lock an operator out of their own
+// deployment.
+func TestDeregisterRemovesPluginsButNeverTheBuiltIn(t *testing.T) {
+	builtin := &stubProvider{name: "email"}
+	r := auth.NewRegistry(builtin)
+	if err := r.Register("oidc", &stubProvider{name: "oidc"}, false); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	r.Deregister("oidc")
+	if _, ok := r.Get("oidc"); ok {
+		t.Fatal("oidc still resolves after Deregister; a dead plugin's logins must fail closed")
+	}
+
+	r.Deregister("email")
+	if _, ok := r.Get("email"); !ok {
+		t.Fatal("the protected built-in was removed; email/password is the break-glass path")
+	}
+	if r.Default() == nil {
+		t.Fatal("the default provider disappeared")
+	}
+
+	r.Deregister("never-registered") // must be a no-op, not a panic
+}

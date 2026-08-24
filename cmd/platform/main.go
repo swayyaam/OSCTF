@@ -305,6 +305,23 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HandshakeWindow: cfg.WSHandshakeWindow,
 	})
 
+	// Auth is constructed BEFORE the plugin loader because the registrar publishes plugin-backed
+	// providers into this registry as soon as a plugin becomes ready, which can be at any point
+	// after Boot starts below.
+	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
+		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
+			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
+		}
+	})
+	authRegistry := auth.NewRegistry(provider)
+	// An unrecognised policy is fatal rather than defaulted: it decides whether an external login
+	// may create accounts, which is not a choice to make on the operator's behalf.
+	provisionPolicy, err := auth.ParseProvisionPolicy(cfg.AuthProvision)
+	if err != nil {
+		return fmt.Errorf("OSCTF_AUTH_PROVISION: %w", err)
+	}
+	externalAuth := auth.NewExternalResolver(q, provisionPolicy, log)
+
 	// Plugin loader: consumes the plugin share of the fd budget derived above. Boot (orphan
 	// sweep → discover → launch) runs in a goroutine so a slow sweep or a plugin that never
 	// handshakes cannot delay the HTTP server — the core comes up whether or not plugins do.
@@ -327,7 +344,14 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		HealthStable: cfg.PluginHealthStable,
 		MaxAttempts:  cfg.PluginRestartCap,
 		Log:          log, // a plugin's sdk.Log output is streamed to a per-plugin sink built from this
-		Registrar:    pluginRegistrar{challengeTypes: challengeTypes, scoring: scoringPluginReg, notifications: notificationPluginReg},
+		Registrar: pluginRegistrar{
+			challengeTypes: challengeTypes,
+			scoring:        scoringPluginReg,
+			notifications:  notificationPluginReg,
+			auth:           authRegistry,
+			resolver:       externalAuth,
+			log:            log,
+		},
 	})
 	//nolint:gosec // G118: Background is intentional — plugins must OUTLIVE the signal ctx and be
 	// stopped only after the HTTP drain (below), not torn down concurrently with in-flight requests.
@@ -385,15 +409,9 @@ func cmdServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		TTL: cfg.InstanceTTL, Extend: cfg.InstanceExtend, MaxTTL: cfg.InstanceMaxTTL, Quota: cfg.TeamInstanceQuota,
 		ReapAfter: cfg.InstanceReapAfter,
 	})
-	provider := auth.NewEmailPasswordProvider(q, func(ctx context.Context, id uuid.UUID, newHash string) {
-		if err := usersSvc.RehashPassword(ctx, id, newHash); err != nil {
-			log.Warn("password rehash failed", "user_id", id, "error", err.Error())
-		}
-	})
 	limiter := redisx.NewLimiter(rdb)
 	tokenSvc := auth.NewTokenService(q)
 
-	authRegistry := auth.NewRegistry(provider)
 	// Refuse to boot with no way to log in: email login disabled and no other provider
 	// registered. Booting a login-less deployment is worse than failing loudly here.
 	if !authRegistry.HasUsableLogin(cfg.AuthEmailLogin) {

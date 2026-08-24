@@ -130,6 +130,70 @@ paths:
         "204": { description: Session destroyed. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
+  /auth/providers:
+    get:
+      tags: [auth]
+      operationId: listAuthProviders
+      summary: List available login providers
+      description: >
+        The login methods this deployment offers, so a client renders the right buttons.
+        `email` appears only when the built-in email/password login is enabled; plugin-backed
+        providers appear once their plugin is loaded and healthy, and disappear when it is not.
+        Public: a client must know how to log in before it can.
+      security: []
+      responses:
+        "200":
+          description: The available providers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuthProviderInfo" }
+
+  /auth/{provider}/login:
+    get:
+      tags: [auth]
+      operationId: beginProviderLogin
+      summary: Start an external login
+      description: >
+        Redirects the browser to the provider's authorize URL. The server generates and stores
+        the CSRF state itself and sets a short-lived, HttpOnly cookie bound to it; the provider
+        never chooses it. Only providers with the `redirect` capability answer here.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+      responses:
+        "302":
+          description: Redirect to the provider's authorize URL.
+          headers:
+            Location:
+              description: The provider's authorize URL.
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ProviderUnavailable" }
+
+  /auth/{provider}/callback:
+    get:
+      tags: [auth]
+      operationId: completeProviderLogin
+      summary: Complete an external login
+      description: >
+        The provider's redirect target. Verifies the state against the stored single-use value
+        and the bound cookie, asks the provider to complete, then maps the returned identity to
+        a local user under the deployment's provisioning policy. Always redirects to the
+        dashboard — on success with a session cookie set, on failure to the login page with a
+        generic error, because a redirect target is not a place to explain why a login failed.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+      responses:
+        "302":
+          description: Redirect to the dashboard (signed in) or the login page (failed).
+          headers:
+            Location:
+              description: Where to send the browser next.
+              schema: { type: string }
+
   /auth/me:
     get:
       tags: [auth]
@@ -1160,6 +1224,15 @@ components:
       schema:
         type: string
         format: uuid
+    ProviderPath:
+      name: provider
+      in: path
+      required: true
+      description: Auth provider id, as listed by `listAuthProviders`.
+      schema:
+        type: string
+        pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        maxLength: 64
     SlugPath:
       name: slug
       in: path
@@ -1228,6 +1301,13 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    ProviderUnavailable:
+      description: >
+        The auth provider could not start a login (its plugin is down, not ready, or failed).
+        There is deliberately no fallback to another provider.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     RuntimeUnavailable:
       description: The container runtime is unreachable.
       content:
@@ -1235,6 +1315,19 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
+    AuthProviderInfo:
+      type: object
+      description: One login method this deployment offers.
+      required: [id, redirect]
+      properties:
+        id:
+          type: string
+          description: Provider id, used in the login/callback paths (e.g. `email`, `oidc`).
+        redirect:
+          type: boolean
+          description: >
+            True when logging in means being redirected to the provider (start at
+            `/auth/{provider}/login`). False for the built-in credential form.
     Problem:
       type: object
       description: RFC 9457 problem details.

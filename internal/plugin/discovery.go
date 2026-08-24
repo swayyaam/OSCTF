@@ -120,3 +120,28 @@ func checkExecutable(path string) error {
 	}
 	return nil
 }
+
+// CountByType reports how many valid plugin manifests of the given type are present on disk.
+//
+// It exists for one boot-time question the loader cannot otherwise answer in time: whether an
+// SSO-only deployment (email login disabled) has any auth plugin at all. Boot is asynchronous by
+// design — the core must serve whether or not plugins come up — so at the moment the boot check
+// runs, no plugin has registered yet. Gating on REGISTRATION would refuse to start on a timing
+// artifact; gating on what is on DISK distinguishes "nothing is configured", which is a real
+// misconfiguration worth refusing, from "the plugin has not finished launching", which is normal.
+//
+// A plugin that is present but later fails to load leaves the deployment with no login. That is
+// loud rather than silent: the failure is logged and the plugin shows as failed in the admin view.
+func CountByType(root string, ptype string, log *slog.Logger) int {
+	found, err := discoverPlugins(root, log)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, d := range found {
+		if d.manifest.Type == ptype {
+			n++
+		}
+	}
+	return n
+}

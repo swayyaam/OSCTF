@@ -64,6 +64,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available login providers
+         * @description The login methods this deployment offers, so a client renders the right buttons. `email` appears only when the built-in email/password login is enabled; plugin-backed providers appear once their plugin is loaded and healthy, and disappear when it is not. Public: a client must know how to log in before it can.
+         */
+        get: operations["listAuthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/{provider}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start an external login
+         * @description Redirects the browser to the provider's authorize URL. The server generates and stores the CSRF state itself and sets a short-lived, HttpOnly cookie bound to it; the provider never chooses it. Only providers with the `redirect` capability answer here.
+         */
+        get: operations["beginProviderLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete an external login
+         * @description The provider's redirect target. Verifies the state against the stored single-use value and the bound cookie, asks the provider to complete, then maps the returned identity to a local user under the deployment's provisioning policy. Always redirects to the dashboard — on success with a session cookie set, on failure to the login page with a generic error, because a redirect target is not a place to explain why a login failed.
+         */
+        get: operations["completeProviderLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/me": {
         parameters: {
             query?: never;
@@ -868,6 +928,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One login method this deployment offers. */
+        AuthProviderInfo: {
+            /** @description Provider id, used in the login/callback paths (e.g. `email`, `oidc`). */
+            id: string;
+            /** @description True when logging in means being redirected to the provider (start at `/auth/{provider}/login`). False for the built-in credential form. */
+            redirect: boolean;
+        };
         /** @description RFC 9457 problem details. */
         Problem: {
             /** @description Error type URI (https://osctf.dev/errors/...). */
@@ -1908,6 +1975,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description The auth provider could not start a login (its plugin is down, not ready, or failed). There is deliberately no fallback to another provider. */
+        ProviderUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description The container runtime is unreachable. */
         RuntimeUnavailable: {
             headers: {
@@ -1921,6 +1997,8 @@ export interface components {
     parameters: {
         /** @description Resource ID. */
         IdPath: string;
+        /** @description Auth provider id, as listed by `listAuthProviders`. */
+        ProviderPath: string;
         /** @description Challenge slug. */
         SlugPath: string;
         /** @description 1-based page number. */
@@ -2010,6 +2088,74 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthenticated"];
+        };
+    };
+    listAuthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The available providers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderInfo"][];
+                };
+            };
+        };
+    };
+    beginProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Auth provider id, as listed by `listAuthProviders`. */
+                provider: components["parameters"]["ProviderPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the provider's authorize URL. */
+            302: {
+                headers: {
+                    /** @description The provider's authorize URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ProviderUnavailable"];
+        };
+    };
+    completeProviderLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Auth provider id, as listed by `listAuthProviders`. */
+                provider: components["parameters"]["ProviderPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the dashboard (signed in) or the login page (failed). */
+            302: {
+                headers: {
+                    /** @description Where to send the browser next. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getMe: {

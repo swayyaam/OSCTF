@@ -46,9 +46,18 @@ type Deps struct {
 	// (including plugins quarantined at load). Nil (no loader wired) yields an empty list.
 	PluginSnapshot func() []plugin.PluginStatus
 	Auth           *auth.Registry
-	Sessions       *auth.SessionStore
-	Limiter        *redisx.Limiter
-	Audit          *audit.Logger
+	// ExternalAuth decides what an auth plugin's assertion is allowed to mean. nil disables the
+	// redirect-login routes entirely (they 404), so a deployment without it cannot be talked
+	// into a half-wired external login.
+	ExternalAuth *auth.ExternalResolver
+	// LoginStates holds in-flight external logins (core-minted, single-use CSRF state).
+	LoginStates *auth.LoginStateStore
+	// BaseURL is the configured public origin, used to build the provider callback URL. It is
+	// never derived from the request Host.
+	BaseURL  string
+	Sessions *auth.SessionStore
+	Limiter  *redisx.Limiter
+	Audit    *audit.Logger
 	// Tokens issues/lists/revokes API tokens (P2-b). Nil disables the token endpoints.
 	Tokens *auth.TokenService
 	// Token lifetime policy: a create without an explicit lifetime gets TokenDefaultTTL; a

@@ -35,14 +35,17 @@ const wsRoute = "ws"
 
 var policyTable = map[string]policy{
 	// --- public (security: []) — all seven declared explicitly ---
-	"register":      {role: "public", note: "sign-up"},
-	"login":         {role: "public", note: "sign-in"},
-	"getEvent":      {role: "public", note: "public event metadata"},
-	"listTeams":     {role: "public", note: "public team list"},
-	"getTeam":       {role: "public", note: "public team page. FREEZE: solves/points after freeze_at hidden from non-admins EXCEPT the team's own members (own team sees its own progress); admin live. Freeze is NOT lifted at event end — a frozen event stays frozen after ending until an admin clears freeze_at."},
-	"getScoreboard": {role: "public", note: "PUBLIC BOARD — surfaced by the 3a audit; not in the original 'five known' list, intentional"},
-	"getUser":       {role: "public", note: "PUBLIC PROFILE (username+solves); hidden users 404 to non-admins — surfaced by the 3a audit, intentional. FREEZE: same rule as getTeam — post-freeze_at solves hidden from non-admins except the viewed user's own teammates; admin live."},
-	"ws":            {role: "public", note: "WebSocket scoreboard stream — no per-connection auth (v0.1), same public data as getScoreboard"},
+	"register":              {role: "public", note: "sign-up"},
+	"login":                 {role: "public", note: "sign-in"},
+	"listAuthProviders":     {role: "public", note: "a client must know how to log in before it can; names only, no config or secrets"},
+	"beginProviderLogin":    {role: "public", note: "sign-in (external): starts the redirect. Unknown and password-only providers both 404 so the installed set is not enumerable"},
+	"completeProviderLogin": {role: "public", note: "sign-in (external): the provider's redirect target. Guarded by a single-use core-minted state bound to a cookie, not by identity"},
+	"getEvent":              {role: "public", note: "public event metadata"},
+	"listTeams":             {role: "public", note: "public team list"},
+	"getTeam":               {role: "public", note: "public team page. FREEZE: solves/points after freeze_at hidden from non-admins EXCEPT the team's own members (own team sees its own progress); admin live. Freeze is NOT lifted at event end — a frozen event stays frozen after ending until an admin clears freeze_at."},
+	"getScoreboard":         {role: "public", note: "PUBLIC BOARD — surfaced by the 3a audit; not in the original 'five known' list, intentional"},
+	"getUser":               {role: "public", note: "PUBLIC PROFILE (username+solves); hidden users 404 to non-admins — surfaced by the 3a audit, intentional. FREEZE: same rule as getTeam — post-freeze_at solves hidden from non-admins except the viewed user's own teammates; admin live."},
+	"ws":                    {role: "public", note: "WebSocket scoreboard stream — no per-connection auth (v0.1), same public data as getScoreboard"},
 
 	// --- authenticated participant ---
 	"getMe":          {role: "user"},

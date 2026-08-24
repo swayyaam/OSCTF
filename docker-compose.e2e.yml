@@ -8,3 +8,10 @@ services:
     build:
       context: .
       target: e2e
+    # Set here, NOT left to the image's ENV: compose's env_file beats a Dockerfile ENV, so the
+    # plugins directory .env.example configures would silently win and the stack would come up
+    # with no plugins — which is exactly how this broke once, with the plugin specs failing on
+    # main after passing on their own branch.
+    environment:
+      OSCTF_PLUGINS_ENABLED: "true"
+      OSCTF_PLUGINS_DIR: /plugins

@@ -19,7 +19,7 @@ if gid=$(stat -c '%g' /var/run/docker.sock 2>/dev/null); then
   fi
 fi
 
-trap 'docker compose down -v' EXIT
+trap 'docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v' EXIT
 
 case "$mode" in
   smoke)
@@ -29,7 +29,9 @@ case "$mode" in
     ;;
   e2e)
     docker build -t osctf/example-per-team-web:0.2 examples/challenges/per-team-web/src
-    docker compose up -d --build --wait
+    # The e2e overlay builds the image's `e2e` stage: production plus one stub auth plugin, so the
+    # plugin surfaces are exercised against a real loaded plugin.
+    docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build --wait
     set -a; source .env; set +a
     ( cd dashboard && npm ci && npx playwright install --with-deps chromium \
         && BASE_URL=http://localhost:8080 npm run e2e )

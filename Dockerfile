@@ -28,6 +28,9 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -tags embed_spa \
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o /platform ./cmd/platform
+# The e2e stage below needs a real plugin binary. Built here so it matches the image's platform
+# and toolchain; the production runtime stage never copies it.
+RUN CGO_ENABLED=0 go build -trimpath -o /example-oidc ./plugin/sdk/contract/testdata/exampleauth
 
 # --- stage runtime: small, debuggable image ----------------------------------
 FROM alpine:3.20 AS runtime
@@ -41,3 +44,18 @@ USER 10001
 EXPOSE 8080
 ENTRYPOINT ["/platform"]
 CMD ["serve"]
+
+# --- stage e2e: the production image plus ONE stub plugin -----------------------
+# Used only by docker-compose.e2e.yml, so the browser suite can exercise the plugin surfaces
+# (admin Plugins page, provider login buttons) against a real loaded plugin. Deliberately a
+# SEPARATE stage: shipping a stub auth provider in the production image would be a security
+# problem, not a convenience.
+FROM runtime AS e2e
+USER root
+COPY --from=build /example-oidc /plugins/example-oidc/example-oidc
+COPY deploy/e2e/exampleauth.plugin.yaml /plugins/example-oidc/plugin.yaml
+# Read-only to the platform process: the recommended posture, and the boot check warns otherwise.
+RUN chmod -R a-w /plugins
+USER 10001
+ENV OSCTF_PLUGINS_ENABLED=true
+ENV OSCTF_PLUGINS_DIR=/plugins

@@ -59,7 +59,7 @@ are the reason this version exists:
 
 | # | Feature | Summary |
 |---|---|---|
-| G8 | `osctf` CLI | A separate client binary (`api/cmd/osctf`, Cobra): `login`, `whoami`, `context`, `init`, `challenge validate\|package\|create`, `event`, `scoreboard`, `instance`, `submit`, `team`, `user`, `token`, `plugin`, `deploy`, `version`. `--json`, non-interactive flags, exit codes. Pure API-v1 client; offline only for authoring. [`01-cli.md`](01-cli.md) |
+| G8 | `osctf` CLI | A separate client binary (`cmd/osctf`, Cobra): `login`, `whoami`, `context`, `init`, `challenge validate\|package\|create`, `event`, `scoreboard`, `instance`, `submit`, `team`, `user`, `token`, `plugin`, `version`. `--json`, non-interactive flags, exit codes. Pure API-v1 client; offline only for authoring. [`01-cli.md`](01-cli.md) |
 | G9 | MCP server | `osctf mcp` — a stdio Model Context Protocol adapter over the API-v1 client, exposing platform operations as agent tools, authenticated by API token, scope-gated, with destructive tools behind `confirm:true`. [`02-mcp.md`](02-mcp.md) |
 
 ## MVP scope — OUT (do not build, even if easy)
@@ -105,7 +105,7 @@ missing and belongs in the API, not the client.
 
 | Decision | Value |
 |---|---|
-| CLI binary | A separate client binary **`osctf`** (`api/cmd/osctf`), Cobra-based. A pure API-v1 client for remote ops; offline only for `init` / `challenge validate` / `challenge package`. The `platform` binary stays the server with its hand-rolled `serve\|migrate\|seed` switch. |
+| CLI binary | A separate client binary **`osctf`** (`cmd/osctf`), Cobra-based. A pure API-v1 client for remote ops; offline only for `init` / `challenge validate` / `challenge package`. The `platform` binary stays the server with its hand-rolled `serve\|migrate\|seed` switch. |
 | Remote transport | The **generated Go API-v1 client** (from the same `openapi.yaml` as the TS client). Zero drift from the contract; no privileged backdoor. |
 | CLI auth | **API tokens** (v0.3). Named **contexts** in `~/.config/osctf/config.yaml` (like kubectl); precedence `--url/--token` → `OSCTF_URL`/`OSCTF_TOKEN` → current context. Tokens via OS keychain when available, else `0600` config; never printed back. |
 | Exit codes | Mapped to HTTP classes: `0` ok · `1` runtime · `2` usage · `3` auth · `4` not-found · `5` conflict · `6` validation · `7` server/plugin unavailable. |

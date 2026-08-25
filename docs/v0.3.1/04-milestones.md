@@ -1,7 +1,15 @@
 # 04 — Milestones (Build Plan)
 
-Execute in order on top of a built **v0.3** (API v1 stable, `api_tokens` + Bearer auth
-working, OpenAPI at `1.0.0`, the Go API-v1 client generated). Each milestone lists
+Execute in order on top of a built **v0.3** (API v1 stable, `api_tokens` + Bearer auth working,
+OpenAPI at `1.0.0`).
+
+> **The Go API-v1 client does not exist yet, and M0 generates it.** An earlier draft listed it as
+> a prerequisite of "a built v0.3" while v0.3's own milestones deferred it to here, so it fell
+> between the two specs and nobody owned it. `openapi/oapi-codegen.yaml` currently emits models +
+> chi-server + strict-server only. M0 adds a second oapi-codegen config producing a **client** into
+> its own package, wires it into `make generate`, and brings it under the existing
+> `generate-drift` job — a generated client that is not drift-gated is a contract copy waiting to
+> go stale. Each milestone lists
 **tasks**, **deliverables**, and **acceptance** — commands/checks that must pass from the
 repo root before moving on. Nothing here changes server behaviour; the standing
 backwards-compat gate (v0.2 suite green plugin-free, `/api/v0` answering, v0.3 plugin/token
@@ -14,8 +22,8 @@ release milestone.
 
 ## M0 — The `osctf` CLI
 
-**Tasks**: `api/cmd/osctf` (Cobra) with the command tree in [`01-cli.md`](01-cli.md); wire
-the **generated Go API-v1 client**; contexts + auth (`login` / `whoami` / `context`,
+**Tasks**: generate the **Go API-v1 client** (see the note above) and wire it; `cmd/osctf`
+(Cobra) with the command tree in [`01-cli.md`](01-cli.md); contexts + auth (`login` / `whoami` / `context`,
 config precedence, keychain-or-`0600` token storage); the `--json` contract and the
 exit-code taxonomy (`0/1/2/3/4/5/6/7`); shell completion. Promote the `challenge.yaml`
 parser/validator from the seeder into a **shared package** (`internal/challengespec` or
@@ -23,11 +31,14 @@ similar) that the seeder, the admin author-time path, and the CLI all import —
 refactor, no behaviour change — so `osctf challenge validate|package` gives results
 identical to the server offline.
 
-**Deliverables**: the `osctf` binary; the shared `challengespec` package; the CLI command
-tree; config/auth; shell completion.
+**Deliverables**: the generated Go API-v1 client (drift-gated); the `osctf` binary; the shared
+`challengespec` package; the CLI command tree; config/auth; shell completion.
+
+**Not in scope**: `osctf deploy` — see the Decision log in [`01-cli.md`](01-cli.md).
 
 **Acceptance** (the `cli` job, [`03-testing-ci.md`](03-testing-ci.md)):
 ```
+make generate && git diff --exit-code      # the new client is drift-clean
 go build ./cmd/osctf && go test ./cmd/osctf/...
 ```
 - Golden path against a running deployment with a token: `login → whoami → challenge
@@ -41,13 +52,13 @@ go build ./cmd/osctf && go test ./cmd/osctf/...
 
 ## M1 — The MCP server
 
-**Tasks**: `osctf mcp` (stdio) per [`02-mcp.md`](02-mcp.md); generate the tool surface from
-the OpenAPI operations (input schemas from operation parameters/body); **scope-gate** tool
-exposure by the token's scope; gate destructive tools behind a `confirm:true` argument;
+**Tasks**: `osctf mcp` (stdio) per [`02-mcp.md`](02-mcp.md); the tool surface written against
+the generated API client using an established Go MCP SDK (decided 2026-08-24 — not generated;
+see [`02-mcp.md`](02-mcp.md)); **scope-gate** tool exposure by the token's scope; gate destructive tools behind a `confirm:true` argument;
 pass problem+json through as tool errors; advertise the resolved scope in the server
 `instructions`.
 
-**Deliverables**: the `mcp` subcommand; the generated tool surface; the scope/confirm gates.
+**Deliverables**: the `mcp` subcommand; the tool surface; the scope/confirm gates.
 
 **Acceptance**:
 ```
@@ -97,7 +108,9 @@ suites remain green. Then tag + release.
 - **The client adds no capability.** If a command or tool needs something the API can't do,
   that is an API endpoint to add in the API spec, not logic to add in the client. Record it
   and route it to the API surface.
-- **Generated, not hand-maintained.** The CLI's HTTP client and the MCP tool schemas both
-  come from the OpenAPI; keep them generated so they can't drift from the contract.
+- **The HTTP client is generated; the MCP tools are not.** Keep the API client generated and
+  drift-gated so it cannot skew from the contract. The MCP tools are hand-written against that
+  client, so a breaking API change is a compile error rather than a silently wrong schema — the
+  reasoning is in [`02-mcp.md`](02-mcp.md).
 - **Secrets discipline is inherited.** The leak scan extends over CLI `--json` output and
   MCP tool results. No TODOs in code.

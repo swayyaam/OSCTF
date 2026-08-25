@@ -4,7 +4,7 @@
 > ([`../v0.3/06-api-v1.md`](../v0.3/06-api-v1.md)). The CLI adds no capability the API
 > lacks; it is a client of the stable surface v0.3 froze.
 
-`osctf` is the **client** CLI, a new binary at `api/cmd/osctf`, separate from the
+`osctf` is the **client** CLI, a new binary at `cmd/osctf`, separate from the
 `platform` server binary. It is a pure API-v1 client for anything remote and works offline
 only for authoring (`init`, `challenge validate|package`). It holds no business logic and
 never touches the database — if it can do something, the API can too. It is built to be
@@ -36,10 +36,30 @@ meaningful exit codes.
   and a loud note; never printed back.
 
 ```
-osctf login --url https://ctf.example.com        # opens browser or prompts; creates + stores an API token
-osctf login --url … --token osctf_pat_…          # non-interactive (CI/agents)
+osctf login --url https://ctf.example.com        # prompts for email + password; mints and stores a token
+osctf login --url … --token osctf_pat_…          # non-interactive (CI/agents): store an existing token
 osctf whoami [--json]                             # verify auth; prints user + scopes
 ```
+
+### How `login` gets a token (and what it cannot do)
+
+Minting a token is **session-authenticated by design** — a token cannot mint another token
+([`../v0.3/06-api-v1.md`](../v0.3/06-api-v1.md)), and there is no device-code or CLI-OAuth
+endpoint. So interactive `login` is a **bootstrap**: prompt for email + password → `POST
+/auth/login` → hold the resulting session **in memory only** → `POST /tokens` → store the
+token → discard the session (call `POST /auth/logout`). The cookie never reaches disk and the
+password is never stored.
+
+Two consequences, stated rather than discovered:
+
+- **Interactive login does not work on an SSO-only deployment** (`OSCTF_AUTH_EMAIL_LOGIN=false`).
+  A CLI cannot complete a redirect login without an endpoint built for it. On such a
+  deployment, create the token in the dashboard and use `osctf login --token …`. The CLI must
+  say exactly that when `GET /auth/providers` shows no credential provider, rather than
+  failing with a bare 403.
+- **This is the one place the CLI touches a cookie.** Every other command is token-only. If
+  that becomes unacceptable — or SSO-only deployments need first-class CLI auth — the fix is a
+  device-authorization endpoint in the API, not client-side cleverness.
 
 ## Command tree
 
@@ -61,7 +81,6 @@ osctf
   user    list|get                           # admin
   token   create --name … --scope …|list|revoke <id>
   plugin  list | reload <name>               # admin: loader state
-  deploy                                     # bring up / migrate a deployment (compose profile helper)
   mcp                                         # run the MCP server (see 02-mcp.md)
   version
 ```
@@ -91,11 +110,13 @@ osctf plugin reload oidc
 
 ## `validate` / `package` — the authoring reuse
 
-The `challenge.yaml` schema + validator already live in the seeder
-([`../v0.1/13-example-challenges.md`](../v0.1/13-example-challenges.md),
-[`../v0.2/11-example-challenges.md`](../v0.2/11-example-challenges.md)). v0.3 **promotes the
-parser/validator to a shared package** (`internal/challengespec` or similar) that both the
-seeder and the CLI import, so `osctf challenge validate` gives identical results offline to
+The `challenge.yaml` schema + validator live in the seeder today
+(`internal/seed/challenge_yaml.go`; see
+[`../v0.1/13-example-challenges.md`](../v0.1/13-example-challenges.md),
+[`../v0.2/11-example-challenges.md`](../v0.2/11-example-challenges.md)). **M0 promotes the
+parser/validator to a shared package** (`internal/challengespec`) that both the seeder and the
+CLI import — a pure refactor with no behaviour change. (An earlier draft said v0.3 did this; it
+did not, and the work is assigned here.), so `osctf challenge validate` gives identical results offline to
 what the server accepts. When a challenge references a **plugin challenge-type**, `validate`
 calls the API's `ValidateConfig` if a context is configured, else validates only the core
 fields and notes the skipped type-check. `package` produces a deterministic tarball (yaml +
@@ -119,3 +140,13 @@ attachments + optional built image reference) suitable for `create` or a future 
   prose.
 - **Share the challenge-spec parser with the seeder.** One validator, identical offline and
   server-side results.
+- **Interactive `login` is a password→token bootstrap, not a browser flow** (decided
+  2026-08-24). Token creation is session-only on purpose, and no CLI-auth endpoint exists, so
+  the alternatives were this, adding a device-authorization endpoint, or dropping interactive
+  login entirely. The bootstrap needs no API change and covers the common case; its limit — no
+  SSO-only support — is documented above rather than papered over, and the endpoint remains the
+  right fix if that limit starts to bite.
+- **`osctf deploy` is NOT in v0.3.1** (decided 2026-08-24). It was a one-line sketch — "compose
+  profile helper" — with no flags, behaviour, or acceptance, while every other command has a
+  defined shape. Shipping a vague command is worse than not shipping one; it returns when
+  someone can say what it does.

@@ -26,9 +26,9 @@ product surface that depends on API v1 but not on plugins. See
 
 ## How to use these docs (read this first)
 
-1. **The repo root is the directory containing `docs/`.** Paths are relative to it. The
-   shipped server + dashboard live at `api/`, `dashboard/`; the CLI is new at
-   `api/cmd/osctf`.
+1. **The repo root is the directory containing `docs/`.** Paths are relative to it. The Go
+   module is at the repo root (`cmd/`, `internal/`, `plugin/`), the dashboard at `dashboard/`,
+   and the reference plugins at `plugins/`; the CLI is new at `cmd/osctf`.
 2. **Build in milestone order.** [`04-milestones.md`](04-milestones.md) is the execution
    plan: M0 → M2.
 3. **v0.3 must already be built.** This version assumes API v1 is mounted and stable, the

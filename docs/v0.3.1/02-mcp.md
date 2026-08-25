@@ -45,8 +45,15 @@ safe; write tools are gated by scope and (destructive ones) by a confirmation ar
 | `list_plugins` / `reload_plugin` | plugin admin | admin | Loader state + reload. |
 | `list_teams` / `get_team` | teams | read | — |
 
-Each tool's input schema is derived from the OpenAPI operation's parameters/body (generated,
-not hand-maintained), so the tool surface tracks the API automatically. Outputs are the
+Tools are **hand-written against the generated Go API-v1 client**, using an established Go MCP
+SDK for the protocol layer (decided 2026-08-24 — see the Decision log). The tool list above is
+small and stable, so a generator would cost more than it saves at this size; the anti-drift
+property comes from the fact that every tool calls the generated client, so an API change that
+matters breaks the build rather than silently skewing a schema. If the surface grows past the
+point where that is comfortable, generating the input schemas from the OpenAPI operations is the
+next step, and the tool table is written to make that mechanical.
+
+Outputs are the
 API's JSON, trimmed to what an agent needs, with secrets never included (no flags, no token
 values, no password hashes — same guarantees as the HTTP responses).
 
@@ -81,6 +88,10 @@ Every step is an audited API-v1 call under the agent's token; nothing bypasses t
   client; the server is a mechanical adapter, not a second brain.
 - **Token scope bounds the tool surface.** The safest default: an agent can't even attempt
   what its token can't do.
-- **Generated tool schemas from OpenAPI.** The MCP surface can't drift from the API.
+- **An existing Go MCP SDK for the protocol; tools written by hand** (decided 2026-08-24). The
+  alternative — generating input schemas from the OpenAPI operations — buys a real anti-drift
+  property but needs a generator that does not exist. At ~15 stable tools, calling the generated
+  API client from each tool already makes a breaking API change a compile error, which is most of
+  the benefit. Revisit if the surface grows.
 - **Confirmation on destructive tools.** Matches the platform's "confirm hard-to-reverse
   actions" posture and keeps agent operation reversible-by-default.

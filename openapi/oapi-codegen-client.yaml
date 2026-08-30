@@ -1,0 +1,16 @@
+# oapi-codegen config: the Go API-v1 CLIENT, for the `osctf` CLI and its MCP subcommand.
+#
+# Separate from oapi-codegen.yaml (which generates the server) so the two outputs cannot be
+# entangled: the server package must never grow a client, and the CLI must never link the
+# server's handler machinery.
+#
+# Generated and COMMITTED, like the server types and the TS client, so `make generate` +
+# `git diff --exit-code` catches drift in CI. A generated client that is not drift-gated is a
+# copy of the contract quietly going stale.
+package: apiclient
+output: internal/apiclient/apiclient.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  skip-prune: true

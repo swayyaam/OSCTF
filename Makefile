@@ -77,6 +77,7 @@ dev-down: ## Stop dev services
 generate: proto-version-check ## Regenerate all committed generated code (proto/buf, oapi-codegen, sqlc, TS types)
 	buf generate
 	oapi-codegen -config openapi/oapi-codegen.yaml openapi/openapi.yaml
+	oapi-codegen -config openapi/oapi-codegen-client.yaml openapi/openapi.yaml
 	sqlc generate
 	cd dashboard && npm run generate:api
 

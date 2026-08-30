@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/swayyaam/OSCTF/internal/challenges"
+	"github.com/swayyaam/OSCTF/internal/challengespec"
 	"github.com/swayyaam/OSCTF/internal/db/gen"
 )
 
@@ -66,7 +67,7 @@ func (s *ExampleSeeder) Seed(ctx context.Context, dir string) error {
 }
 
 func (s *ExampleSeeder) seedOne(ctx context.Context, chalDir, dirName, yamlPath string) error {
-	c, err := parseChallengeYAML(yamlPath, dirName)
+	c, err := challengespec.ParseFile(yamlPath, dirName)
 	if err != nil {
 		return err
 	}

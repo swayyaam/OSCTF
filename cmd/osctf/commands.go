@@ -114,7 +114,7 @@ func newChallengeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(validate, list, get)
+	cmd.AddCommand(validate, list, get, newPackageCmd(), newCreateCmd())
 	return cmd
 }
 
@@ -375,6 +375,48 @@ func newTokenCmd() *cobra.Command {
 		},
 	})
 
+	var name string
+	var scopes []string
+	var days int
+	create := &cobra.Command{
+		Use:   "create",
+		Short: "Mint a new API token",
+		Long: "Prints the plaintext ONCE. The server stores only a hash, so a token that is lost " +
+			"is revoked and replaced, never recovered.\n\nSession-authenticated by design: a token " +
+			"cannot mint another token, so this needs a login, not a token.",
+		Args: usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p := newPrinter(g.json)
+			if name == "" {
+				return errf(exitUsage, "--name is required (what the token is for)")
+			}
+			body := apiclient.CreateTokenJSONRequestBody{Name: name, Scopes: toScopes(scopes)}
+			if days > 0 {
+				body.ExpiresInDays = &days
+			}
+			r, err := call("creating the token",
+				func(c *apiclient.ClientWithResponses) (*apiclient.CreateTokenResponse, error) {
+					return c.CreateTokenWithResponse(cmd.Context(), body)
+				},
+				func(r *apiclient.CreateTokenResponse) int { return r.StatusCode() },
+				func(r *apiclient.CreateTokenResponse) []byte { return r.Body })
+			if err != nil {
+				return err
+			}
+			if r.JSON201 == nil {
+				return errf(exitError, "the server accepted the request but returned no token")
+			}
+			p.human("Copy this now — it is shown once and cannot be retrieved again:")
+			// The plaintext goes to STDOUT in human mode too, so `osctf token create > t` works.
+			_, _ = fmt.Fprintln(os.Stdout, r.JSON201.Token)
+			return p.data(r.JSON201)
+		},
+	}
+	create.Flags().StringVar(&name, "name", "", "human label, e.g. ci-pipeline")
+	create.Flags().StringSliceVar(&scopes, "scope", []string{"read"}, "scopes: read, submit, admin")
+	create.Flags().IntVar(&days, "expires-in-days", 0, "lifetime in days (0 = the server default)")
+	cmd.AddCommand(create)
+
 	cmd.AddCommand(&cobra.Command{
 		Use:   "revoke <id>",
 		Short: "Revoke a token immediately",
@@ -489,3 +531,78 @@ func parseUUID(s string) (apiclient.IdPath, error) {
 }
 
 var _ = http.StatusOK
+
+// ---------------------------------------------------------------------------- team / user
+
+func newTeamCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "team", Short: "Teams"}
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List teams",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p := newPrinter(g.json)
+			r, err := call("listing teams",
+				func(c *apiclient.ClientWithResponses) (*apiclient.ListTeamsResponse, error) {
+					return c.ListTeamsWithResponse(cmd.Context())
+				},
+				func(r *apiclient.ListTeamsResponse) int { return r.StatusCode() },
+				func(r *apiclient.ListTeamsResponse) []byte { return r.Body })
+			if err != nil {
+				return err
+			}
+			return p.data(r.JSON200)
+		},
+	})
+
+	var name string
+	create := &cobra.Command{
+		Use:   "create",
+		Short: "Create a team; you become its captain",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p := newPrinter(g.json)
+			if name == "" {
+				return errf(exitUsage, "--name is required")
+			}
+			r, err := call("creating the team",
+				func(c *apiclient.ClientWithResponses) (*apiclient.CreateTeamResponse, error) {
+					return c.CreateTeamWithResponse(cmd.Context(), apiclient.CreateTeamJSONRequestBody{Name: name})
+				},
+				func(r *apiclient.CreateTeamResponse) int { return r.StatusCode() },
+				func(r *apiclient.CreateTeamResponse) []byte { return r.Body })
+			if err != nil {
+				return err
+			}
+			p.human("Team created.")
+			return p.data(r.JSON201)
+		},
+	}
+	create.Flags().StringVar(&name, "name", "", "team name")
+	cmd.AddCommand(create)
+	return cmd
+}
+
+func newUserCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "user", Short: "Users (admin)"}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List users",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p := newPrinter(g.json)
+			r, err := call("listing users",
+				func(c *apiclient.ClientWithResponses) (*apiclient.AdminListUsersResponse, error) {
+					return c.AdminListUsersWithResponse(cmd.Context(), &apiclient.AdminListUsersParams{})
+				},
+				func(r *apiclient.AdminListUsersResponse) int { return r.StatusCode() },
+				func(r *apiclient.AdminListUsersResponse) []byte { return r.Body })
+			if err != nil {
+				return err
+			}
+			return p.data(r.JSON200)
+		},
+	})
+	return cmd
+}

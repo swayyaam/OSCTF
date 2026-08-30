@@ -97,6 +97,16 @@ func (s *Server) mePayload(ctx context.Context, u gen.User) (apigen.Me, error) {
 		Email:    u.Email,
 		Role:     apigen.Role(u.Role),
 	}
+	// Scopes belong to the CREDENTIAL, not the account, so they appear only when a token was
+	// presented. A session has none — it carries the account's full role — and reporting an
+	// empty list there would read as "no permissions" rather than "not applicable".
+	if id, ok := auth.IdentityFrom(ctx); ok && len(id.Scopes) > 0 {
+		scopes := make([]apigen.TokenScope, 0, len(id.Scopes))
+		for _, s := range id.Scopes {
+			scopes = append(scopes, apigen.TokenScope(s))
+		}
+		me.Scopes = &scopes
+	}
 	if team != nil {
 		me.Team = &apigen.MyTeamRef{
 			Id:   team.ID,

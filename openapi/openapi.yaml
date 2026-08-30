@@ -1493,6 +1493,18 @@ components:
         username: { type: string, description: Handle. }
         email: { type: string, description: Login email. }
         role: { $ref: "#/components/schemas/Role" }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/TokenScope" }
+          description: >
+            The scopes granted to the API token this request presented, so a non-browser client can
+            discover what its own credential may do. ABSENT for a session-authenticated request,
+            where scopes do not apply: a session carries the account's full role.
+
+
+            Clients that gate their own surface on scope — the CLI's `whoami`, the MCP server
+            deciding which tools to expose — need this; without it a client can only discover its
+            limits by attempting an operation and being refused.
         team:
           allOf:
             - $ref: "#/components/schemas/MyTeamRef"

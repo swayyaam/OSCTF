@@ -231,7 +231,12 @@ func newWhoamiCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			p.human("%s (%s) at %s — credential from %s", who.Username, who.Role, normalizeURL(t.url), t.from)
+			scopes := "session (no scopes)"
+			if len(who.Scopes) > 0 {
+				scopes = "scopes: " + strings.Join(who.Scopes, ", ")
+			}
+			p.human("%s (%s) at %s — %s, credential from %s",
+				who.Username, who.Role, normalizeURL(t.url), scopes, t.from)
 			return p.data(who)
 		},
 	}
@@ -262,10 +267,16 @@ func verifyToken(ctx context.Context, t target) (identity, error) {
 	if me == nil {
 		return identity{}, errf(exitError, "the server returned no identity")
 	}
-	return identity{
+	out := identity{
 		Username: me.Username, Email: string(me.Email), Role: string(me.Role),
 		URL: normalizeURL(t.url),
-	}, nil
+	}
+	if me.Scopes != nil {
+		for _, s := range *me.Scopes {
+			out.Scopes = append(out.Scopes, string(s))
+		}
+	}
+	return out, nil
 }
 
 func newContextCmd() *cobra.Command {

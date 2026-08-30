@@ -1060,6 +1060,12 @@ export interface components {
             /** @description Login email. */
             email: string;
             role: components["schemas"]["Role"];
+            /**
+             * @description The scopes granted to the API token this request presented, so a non-browser client can discover what its own credential may do. ABSENT for a session-authenticated request, where scopes do not apply: a session carries the account's full role.
+             *
+             *     Clients that gate their own surface on scope — the CLI's `whoami`, the MCP server deciding which tools to expose — need this; without it a client can only discover its limits by attempting an operation and being refused.
+             */
+            scopes?: components["schemas"]["TokenScope"][];
             /** @description The caller's team, or null when teamless. */
             team?: components["schemas"]["MyTeamRef"] | null;
         };

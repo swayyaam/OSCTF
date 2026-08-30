@@ -167,3 +167,60 @@ func TestBearerScopeIsNotRescuedBySession(t *testing.T) {
 		t.Fatal("the challenge was created despite the scope check")
 	}
 }
+
+// A client must be able to discover what its own credential may do. Without this the CLI's
+// `whoami` cannot report scopes and the MCP server cannot decide which tools to expose — it would
+// have to attempt an operation and be refused to learn its own limits.
+//
+// Scopes belong to the CREDENTIAL, not the account, so a session must NOT report them: a session
+// carries the account's full role, and an empty list there would read as "no permissions" rather
+// than "not applicable".
+func TestMeReportsScopesForTokensAndNotForSessions(t *testing.T) {
+	pool, _ := testsupport.Postgres(t)
+	rdb := testsupport.Redis(t)
+	srv := matrixServer(t, pool, rdb)
+	q := gen.New(pool)
+
+	jar := makeAdmin(t, srv, pool, "scopeuser", "scopeuser@x.test")
+	uid := userIDByEmail(t, pool, "scopeuser@x.test")
+	tok, _ := mintToken(t, auth.NewTokenService(q), uid, []string{"read", "submit"}, nil)
+
+	t.Run("token auth reports its scopes", func(t *testing.T) {
+		rec := doBearer(t, srv, tok, http.MethodGet, "/api/v1/auth/me", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d", rec.Code)
+		}
+		var me struct {
+			Scopes []string `json:"scopes"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&me); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		got := map[string]bool{}
+		for _, s := range me.Scopes {
+			got[s] = true
+		}
+		if !got["read"] || !got["submit"] {
+			t.Fatalf("scopes = %v, want the token's read+submit", me.Scopes)
+		}
+		if got["admin"] {
+			t.Errorf("scopes = %v — reporting a scope the token was not granted would let a client "+
+				"offer an operation that must fail", me.Scopes)
+		}
+	})
+
+	t.Run("session auth reports none", func(t *testing.T) {
+		rec := do(t, srv, jar, http.MethodGet, "/api/v1/auth/me", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d", rec.Code)
+		}
+		var raw map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if v, present := raw["scopes"]; present {
+			t.Errorf("a session reported scopes=%v; scopes belong to a token, and an empty or "+
+				"invented list here would be read as a permission set", v)
+		}
+	})
+}

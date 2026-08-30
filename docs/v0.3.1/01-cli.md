@@ -140,6 +140,13 @@ attachments + optional built image reference) suitable for `create` or a future 
   prose.
 - **Share the challenge-spec parser with the seeder.** One validator, identical offline and
   server-side results.
+- **`Me.scopes` was added to the API so a client can see its own limits** (2026-08-25). The
+  spec had `whoami` printing scopes and the MCP server gating tools on them, and the API
+  exposed neither — a client could only learn what its token could do by trying something and
+  being refused. This is the response these docs already prescribe for the case: a client
+  needing what the API lacks means the API is missing something. The field is additive and
+  appears only for token auth, since a session carries the account's full role and an empty
+  list there would read as "no permissions" rather than "not applicable".
 - **Interactive `login` is a password→token bootstrap, not a browser flow** (decided
   2026-08-24). Token creation is session-only on purpose, and no CLI-auth endpoint exists, so
   the alternatives were this, adding a device-authorization endpoint, or dropping interactive

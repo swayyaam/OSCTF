@@ -20,7 +20,10 @@ stdio command (`command: osctf`, `args: [mcp]`) can register it in one line.
   `osctf mcp`; JSON-RPC over stdio. (An optional SSE/HTTP transport is out of scope for
   v0.3.)
 - **Auth: API token**, resolved exactly like the CLI (`OSCTF_TOKEN`/`OSCTF_URL` or the
-  selected `osctf` context). The token's **scope bounds the tools** the server exposes —
+  selected `osctf` context). The server learns its own scopes from `GET /auth/me`, which
+  reports the presented token's `scopes` (added for exactly this: before it, a client could
+  only discover its limits by attempting an operation and being refused). The token's
+  **scope bounds the tools** the server exposes —
   a `read`-only token surfaces only read tools; `admin` unlocks admin tools. The server
   advertises its resolved scope in the server `instructions`.
 - The MCP server inherits the platform's authz: it can never do more than the token's user
